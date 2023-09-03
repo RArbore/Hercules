@@ -24,7 +24,6 @@ The Hercules' compiler is split into the following components:
 
 The IR of the Hercules compiler is similar to the sea of nodes IR presented in "A Simple Graph-Based Intermediate Representation", with a few differences.
 
-- There is a more expressive type system than the original sea of nodes IR, including struct, array, and enum types.
 - There are dynamic constants, which are constants provided dynamically to the runtime system - these can be used to specify array types, unlike input dependent values.
 - There is no single global store. The closest analog are individual values with an array type, which support dynamic indexed read and write operations.
 - There is no I/O, or other side effects.
