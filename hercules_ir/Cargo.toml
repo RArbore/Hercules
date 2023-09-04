@@ -2,3 +2,6 @@
 name = "hercules_ir"
 version = "0.1.0"
 authors = ["Russel Arbore <rarbore2@illinois.edu>"]
+
+[dependencies]
+nom = "*"
