@@ -101,7 +101,7 @@ pub enum Node {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionID(u32);
 
 impl FunctionID {
@@ -114,7 +114,7 @@ impl FunctionID {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeID(u32);
 
 impl NodeID {
@@ -127,7 +127,7 @@ impl NodeID {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConstantID(u32);
 
 impl ConstantID {
@@ -140,7 +140,7 @@ impl ConstantID {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeID(u32);
 
 impl TypeID {

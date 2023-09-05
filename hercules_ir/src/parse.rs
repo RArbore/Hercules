@@ -287,5 +287,8 @@ mod tests {
         let module =
             parse("fn add(x: i32, y: i32) -> i32 c = constant(i8, 5) r = return(start, w) w = add(start, z, c) z = add(start, x, y)");
         println!("{:?}", module);
+        let mut dot = String::new();
+        write_dot(&module, &mut dot).unwrap();
+        println!("{}", dot);
     }
 }
