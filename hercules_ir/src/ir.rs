@@ -22,16 +22,24 @@ pub enum Type {
     Integer16,
     Integer32,
     Integer64,
+    UnsignedInteger8,
+    UnsignedInteger16,
+    UnsignedInteger32,
+    UnsignedInteger64,
     Float32,
     Float64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
-    Integer8(u8),
-    Integer16(u16),
-    Integer32(u32),
-    Integer64(u64),
+    Integer8(i8),
+    Integer16(i16),
+    Integer32(i32),
+    Integer64(i64),
+    UnsignedInteger8(u8),
+    UnsignedInteger16(u16),
+    UnsignedInteger32(u32),
+    UnsignedInteger64(u64),
     Float32(ordered_float::OrderedFloat<f32>),
     Float64(ordered_float::OrderedFloat<f64>),
 }

@@ -115,62 +115,71 @@ fn parse_node<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, node_kind) = nom::character::complete::alphanumeric1(ir_text)?;
     let (ir_text, node) = match node_kind {
-        "return" => {
-            let (ir_text, comps) = nom::sequence::tuple((
-                nom::character::complete::multispace0,
-                nom::character::complete::char('('),
-                nom::character::complete::multispace0,
-                nom::character::complete::alphanumeric1,
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-                nom::character::complete::alphanumeric1,
-                nom::character::complete::multispace0,
-                nom::character::complete::char(')'),
-            ))(ir_text)?;
-            let control_id = context.get_node_id(comps.3);
-            let value_id = context.get_node_id(comps.7);
-            (
-                ir_text,
-                Node::Return {
-                    control: control_id,
-                    value: value_id,
-                },
-            )
-        }
-        "add" => {
-            let (ir_text, comps) = nom::sequence::tuple((
-                nom::character::complete::multispace0,
-                nom::character::complete::char('('),
-                nom::character::complete::multispace0,
-                nom::character::complete::alphanumeric1,
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-                nom::character::complete::alphanumeric1,
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-                nom::character::complete::alphanumeric1,
-                nom::character::complete::multispace0,
-                nom::character::complete::char(')'),
-            ))(ir_text)?;
-            let control_id = context.get_node_id(comps.3);
-            let left_id = context.get_node_id(comps.7);
-            let right_id = context.get_node_id(comps.11);
-            (
-                ir_text,
-                Node::Add {
-                    control: control_id,
-                    left: left_id,
-                    right: right_id,
-                },
-            )
-        }
+        "return" => parse_return(ir_text, context)?,
+        "constant" => parse_constant_node(ir_text, context)?,
+        "add" => parse_add(ir_text, context)?,
         _ => todo!(),
     };
     context.get_node_id(node_name);
     Ok((ir_text, (node_name, node)))
+}
+
+fn parse_return<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, value) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((
+        ir_text,
+        Node::Return {
+            control: context.get_node_id(control),
+            value: context.get_node_id(value),
+        },
+    ))
+}
+
+fn parse_constant_node<'a>(
+    ir_text: &'a str,
+    context: &mut Context<'a>,
+) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, id) = parse_constant(ir_text, context)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((ir_text, Node::Constant { id }))
+}
+
+fn parse_add<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, left) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, right) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((
+        ir_text,
+        Node::Add {
+            control: context.get_node_id(control),
+            left: context.get_node_id(left),
+            right: context.get_node_id(right),
+        },
+    ))
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, TypeID> {
@@ -191,7 +200,26 @@ fn parse_constant<'a>(
     ir_text: &'a str,
     context: &mut Context<'a>,
 ) -> nom::IResult<&'a str, ConstantID> {
-    todo!()
+    let (ir_text, constant) = nom::branch::alt((parse_integer8,))(ir_text)?;
+    let id = if let Some(id) = context.interned_constants.get(&constant) {
+        *id
+    } else {
+        let id = ConstantID::new(context.interned_constants.len());
+        context.interned_constants.insert(constant, id);
+        id
+    };
+    Ok((ir_text, id))
+}
+
+fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(ir_text)?;
+    let num = num_text.parse::<i8>().map_err(|_| {
+        nom::Err::Error(nom::error::Error {
+            input: num_text,
+            code: nom::error::ErrorKind::IsNot,
+        })
+    })?;
+    Ok((ir_text, Constant::Integer8(num)))
 }
 
 mod tests {
