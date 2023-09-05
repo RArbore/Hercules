@@ -8,6 +8,8 @@ pub struct Module {
 #[derive(Clone)]
 pub struct Function {
     pub name: String,
+    pub param_types: Vec<TypeID>,
+    pub return_type: TypeID,
     pub nodes: Vec<Node>,
 }
 
@@ -44,11 +46,11 @@ pub enum Node {
     },
     Fork {
         control: NodeID,
-        factor: u64,
+        factor: usize,
     },
     Join {
         control: NodeID,
-        factor: u64,
+        factor: usize,
     },
     Phi {
         control: NodeID,
@@ -59,7 +61,7 @@ pub enum Node {
         value: NodeID,
     },
     Parameter {
-        index: u64,
+        index: usize,
     },
     Constant {
         id: ConstantID,
@@ -93,6 +95,10 @@ pub enum Node {
 pub struct FunctionID(u32);
 
 impl FunctionID {
+    pub fn new(x: usize) -> Self {
+        FunctionID(x as u32)
+    }
+
     pub fn idx(&self) -> usize {
         self.0 as usize
     }
@@ -102,6 +108,10 @@ impl FunctionID {
 pub struct NodeID(u32);
 
 impl NodeID {
+    pub fn new(x: usize) -> Self {
+        NodeID(x as u32)
+    }
+
     pub fn idx(&self) -> usize {
         self.0 as usize
     }
@@ -111,6 +121,10 @@ impl NodeID {
 pub struct ConstantID(u32);
 
 impl ConstantID {
+    pub fn new(x: usize) -> Self {
+        ConstantID(x as u32)
+    }
+
     pub fn idx(&self) -> usize {
         self.0 as usize
     }
@@ -120,6 +134,10 @@ impl ConstantID {
 pub struct TypeID(u32);
 
 impl TypeID {
+    pub fn new(x: usize) -> Self {
+        TypeID(x as u32)
+    }
+
     pub fn idx(&self) -> usize {
         self.0 as usize
     }
