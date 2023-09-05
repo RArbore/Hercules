@@ -1,25 +1,19 @@
-pub struct FunctionID(u32);
-
-pub struct NodeID(u32);
-const NULL_NODE: NodeID = NodeID(0xFFFFFFFF);
-
-pub struct ConstantID(u32);
-
-pub struct TypeID(u32);
-
+#[derive(Clone)]
 pub struct Module {
-    functions: Vec<Function>,
-    typed: Vec<Type>,
-    constants: Vec<Constant>,
+    pub functions: Vec<Function>,
+    pub types: Vec<Type>,
+    pub constants: Vec<Constant>,
 }
 
+#[derive(Clone)]
 pub struct Function {
-    name: String,
-    nodes: Vec<Node>,
+    pub name: String,
+    pub nodes: Vec<Node>,
 }
 
+#[derive(Clone)]
 pub enum Type {
-    Control,
+    Control(u64),
     Integer8,
     Integer16,
     Integer32,
@@ -28,6 +22,7 @@ pub enum Type {
     Float64,
 }
 
+#[derive(Clone)]
 pub enum Constant {
     Integer8(u8),
     Integer16(u16),
@@ -37,6 +32,7 @@ pub enum Constant {
     Float64(f64),
 }
 
+#[derive(Clone)]
 pub enum Node {
     Start,
     Region {
@@ -46,6 +42,14 @@ pub enum Node {
         control: NodeID,
         cond: NodeID,
     },
+    Fork {
+        control: NodeID,
+        factor: u64,
+    },
+    Join {
+        control: NodeID,
+        factor: u64,
+    },
     Phi {
         control: NodeID,
         data: Box<[NodeID]>,
@@ -53,6 +57,9 @@ pub enum Node {
     Return {
         control: NodeID,
         value: NodeID,
+    },
+    Parameter {
+        index: u64,
     },
     Constant {
         id: ConstantID,
@@ -82,56 +89,38 @@ pub enum Node {
     },
 }
 
-impl From<u32> for FunctionID {
-    fn from(v: u32) -> Self {
-        FunctionID(v)
+#[derive(Clone)]
+pub struct FunctionID(u32);
+
+impl FunctionID {
+    pub fn idx(&self) -> usize {
+        self.0 as usize
     }
 }
 
-impl From<u64> for FunctionID {
-    fn from(v: u64) -> Self {
-        FunctionID(v as u32)
+#[derive(Clone)]
+pub struct NodeID(u32);
+
+impl NodeID {
+    pub fn idx(&self) -> usize {
+        self.0 as usize
     }
 }
 
-impl From<usize> for FunctionID {
-    fn from(v: usize) -> Self {
-        FunctionID(v as u32)
+#[derive(Clone)]
+pub struct ConstantID(u32);
+
+impl ConstantID {
+    pub fn idx(&self) -> usize {
+        self.0 as usize
     }
 }
 
-impl From<u32> for NodeID {
-    fn from(v: u32) -> Self {
-        NodeID(v)
-    }
-}
+#[derive(Clone)]
+pub struct TypeID(u32);
 
-impl From<u64> for NodeID {
-    fn from(v: u64) -> Self {
-        NodeID(v as u32)
-    }
-}
-
-impl From<usize> for NodeID {
-    fn from(v: usize) -> Self {
-        NodeID(v as u32)
-    }
-}
-
-impl From<u32> for ConstantID {
-    fn from(v: u32) -> Self {
-        ConstantID(v)
-    }
-}
-
-impl From<u64> for ConstantID {
-    fn from(v: u64) -> Self {
-        ConstantID(v as u32)
-    }
-}
-
-impl From<usize> for ConstantID {
-    fn from(v: usize) -> Self {
-        ConstantID(v as u32)
+impl TypeID {
+    pub fn idx(&self) -> usize {
+        self.0 as usize
     }
 }
