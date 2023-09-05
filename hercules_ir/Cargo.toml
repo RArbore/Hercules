@@ -5,3 +5,4 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
 [dependencies]
 nom = "*"
+ordered-float = "*"

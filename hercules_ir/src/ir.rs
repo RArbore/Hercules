@@ -1,3 +1,5 @@
+extern crate ordered_float;
+
 #[derive(Clone)]
 pub struct Module {
     pub functions: Vec<Function>,
@@ -13,7 +15,7 @@ pub struct Function {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Control(u64),
     Integer8,
@@ -24,14 +26,14 @@ pub enum Type {
     Float64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
     Integer8(u8),
     Integer16(u16),
     Integer32(u32),
     Integer64(u64),
-    Float32(f32),
-    Float64(f64),
+    Float32(ordered_float::OrderedFloat<f32>),
+    Float64(ordered_float::OrderedFloat<f64>),
 }
 
 #[derive(Clone)]
@@ -91,7 +93,7 @@ pub enum Node {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct FunctionID(u32);
 
 impl FunctionID {
@@ -104,7 +106,7 @@ impl FunctionID {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct NodeID(u32);
 
 impl NodeID {
@@ -117,7 +119,7 @@ impl NodeID {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ConstantID(u32);
 
 impl ConstantID {
@@ -130,7 +132,7 @@ impl ConstantID {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TypeID(u32);
 
 impl TypeID {

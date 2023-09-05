@@ -76,7 +76,7 @@ fn parse_function<'a>(
     for (_, id) in context.node_ids.iter() {
         fixed_nodes[id.idx()] = Node::Parameter { index: id.idx() }
     }
-    return Ok((
+    Ok((
         ir_text,
         Function {
             name: String::from(function_name),
@@ -84,7 +84,7 @@ fn parse_function<'a>(
             return_type,
             nodes: fixed_nodes,
         },
-    ));
+    ))
 }
 
 fn parse_node<'a>(
@@ -95,7 +95,16 @@ fn parse_node<'a>(
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, TypeID> {
-    todo!()
+    let (ir_text, ty) =
+        nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32)(ir_text)?;
+    let id = if let Some(id) = context.interned_types.get(&ty) {
+        *id
+    } else {
+        let id = TypeID::new(context.interned_types.len());
+        context.interned_types.insert(ty, id);
+        id
+    };
+    Ok((ir_text, id))
 }
 
 fn parse_constant<'a>(
@@ -111,6 +120,6 @@ mod tests {
 
     #[test]
     fn parse_ir1() {
-        parse("fn add(x: i32, y: i32) -> i32 return(z) z = add(start, x, y)");
+        parse("fn add(x: i32, y: i32) -> i32 r = return(z) z = add(start, x, y)");
     }
 }
