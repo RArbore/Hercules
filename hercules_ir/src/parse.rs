@@ -17,12 +17,42 @@ struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
+    fn get_function_id(&mut self, name: &'a str) -> FunctionID {
+        if let Some(id) = self.function_ids.get(name) {
+            *id
+        } else {
+            let id = FunctionID::new(self.function_ids.len());
+            self.function_ids.insert(name, id);
+            id
+        }
+    }
+
     fn get_node_id(&mut self, name: &'a str) -> NodeID {
         if let Some(id) = self.node_ids.get(name) {
             *id
         } else {
             let id = NodeID::new(self.node_ids.len());
             self.node_ids.insert(name, id);
+            id
+        }
+    }
+
+    fn get_type_id(&mut self, ty: Type) -> TypeID {
+        if let Some(id) = self.interned_types.get(&ty) {
+            *id
+        } else {
+            let id = TypeID::new(self.interned_types.len());
+            self.interned_types.insert(ty, id);
+            id
+        }
+    }
+
+    fn get_constant_id(&mut self, constant: Constant) -> ConstantID {
+        if let Some(id) = self.interned_constants.get(&constant) {
+            *id
+        } else {
+            let id = ConstantID::new(self.interned_constants.len());
+            self.interned_constants.insert(constant, id);
             id
         }
     }
@@ -69,7 +99,7 @@ fn parse_function<'a>(
             nom::character::complete::multispace0,
             nom::character::complete::char(':'),
             nom::character::complete::multispace0,
-            |x| parse_type(x, context),
+            |x| parse_type_id(x, context),
             nom::character::complete::multispace0,
         )),
     )(ir_text)?;
@@ -82,7 +112,7 @@ fn parse_function<'a>(
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::bytes::complete::tag("->")(ir_text)?.0;
-    let (ir_text, return_type) = parse_type(ir_text, context)?;
+    let (ir_text, return_type) = parse_type_id(ir_text, context)?;
     let (ir_text, nodes) = nom::multi::many1(|x| parse_node(x, context))(ir_text)?;
     let mut fixed_nodes = vec![Node::Start; context.node_ids.len()];
     for (name, node) in nodes {
@@ -151,7 +181,11 @@ fn parse_constant_node<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, id) = parse_constant(ir_text, context)?;
+    let (ir_text, ty) = parse_type(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, id) = parse_constant_id(ir_text, ty, context)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     Ok((ir_text, Node::Constant { id }))
@@ -182,33 +216,44 @@ fn parse_add<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'
     ))
 }
 
-fn parse_type<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, TypeID> {
+fn parse_type_id<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, TypeID> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, ty) =
-        nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32)(ir_text)?;
-    let id = if let Some(id) = context.interned_types.get(&ty) {
-        *id
-    } else {
-        let id = TypeID::new(context.interned_types.len());
-        context.interned_types.insert(ty, id);
-        id
-    };
+    let (ir_text, ty) = parse_type(ir_text)?;
+    let id = context.get_type_id(ty);
+    Ok((ir_text, id))
+}
+
+fn parse_type<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Type> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, ty) = nom::branch::alt((
+        nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
+        nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
+    ))(ir_text)?;
+    Ok((ir_text, ty))
+}
+
+fn parse_constant_id<'a>(
+    ir_text: &'a str,
+    ty: Type,
+    context: &mut Context<'a>,
+) -> nom::IResult<&'a str, ConstantID> {
+    let (ir_text, constant) = parse_constant(ir_text, ty, context)?;
+    let id = context.get_constant_id(constant);
     Ok((ir_text, id))
 }
 
 fn parse_constant<'a>(
     ir_text: &'a str,
+    ty: Type,
     context: &mut Context<'a>,
-) -> nom::IResult<&'a str, ConstantID> {
-    let (ir_text, constant) = nom::branch::alt((parse_integer8,))(ir_text)?;
-    let id = if let Some(id) = context.interned_constants.get(&constant) {
-        *id
-    } else {
-        let id = ConstantID::new(context.interned_constants.len());
-        context.interned_constants.insert(constant, id);
-        id
+) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, constant) = match ty {
+        Type::Integer8 => parse_integer8(ir_text)?,
+        Type::Integer32 => parse_integer32(ir_text)?,
+        _ => todo!(),
     };
-    Ok((ir_text, id))
+    context.get_type_id(ty);
+    Ok((ir_text, constant))
 }
 
 fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
@@ -222,6 +267,17 @@ fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
     Ok((ir_text, Constant::Integer8(num)))
 }
 
+fn parse_integer32<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(ir_text)?;
+    let num = num_text.parse::<i32>().map_err(|_| {
+        nom::Err::Error(nom::error::Error {
+            input: num_text,
+            code: nom::error::ErrorKind::IsNot,
+        })
+    })?;
+    Ok((ir_text, Constant::Integer32(num)))
+}
+
 mod tests {
     #[allow(unused_imports)]
     use super::*;
@@ -229,7 +285,7 @@ mod tests {
     #[test]
     fn parse_ir1() {
         let module =
-            parse("fn add(x: i32, y: i32) -> i32 r = return(start, z) z = add(start, x, y)");
+            parse("fn add(x: i32, y: i32) -> i32 c = constant(i8, 5) r = return(start, w) w = add(start, z, c) z = add(start, x, y)");
         println!("{:?}", module);
     }
 }
