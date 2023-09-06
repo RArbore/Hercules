@@ -57,7 +57,7 @@ fn write_node<W: std::fmt::Write>(
                 let (value_name, visited) =
                     write_node(i, value.idx(), module, constants, visited, w)?;
                 write!(w, "{} [label=\"return\"];\n", name)?;
-                write!(w, "{} -> {};\n", control_name, name)?;
+                write!(w, "{} -> {} [style=\"dashed\"];\n", control_name, name)?;
                 write!(w, "{} -> {};\n", value_name, name)?;
                 visited
             }
@@ -81,7 +81,7 @@ fn write_node<W: std::fmt::Write>(
                 let (right_name, visited) =
                     write_node(i, right.idx(), module, constants, visited, w)?;
                 write!(w, "{} [label=\"add\"];\n", name)?;
-                write!(w, "{} -> {};\n", control_name, name)?;
+                write!(w, "{} -> {} [style=\"dashed\"];\n", control_name, name)?;
                 write!(w, "{} -> {};\n", left_name, name)?;
                 write!(w, "{} -> {};\n", right_name, name)?;
                 visited
@@ -105,7 +105,7 @@ fn write_node<W: std::fmt::Write>(
                     name,
                     module.functions[function.idx()].name
                 )?;
-                write!(w, "{} -> {};\n", control_name, name)?;
+                write!(w, "{} -> {} [style=\"dashed\"];\n", control_name, name)?;
                 write!(
                     w,
                     "{} -> start_{}_0 [lhead={}];\n",
