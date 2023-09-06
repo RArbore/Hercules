@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::*;
 
-fn parse(ir_test: &str) -> Module {
+pub fn parse(ir_test: &str) -> Module {
     parse_module(ir_test, Context::default()).unwrap().1
 }
 
@@ -347,9 +347,5 @@ fn add(x: i32, y: i32) -> i32
   z = add(start, x, y)
 ",
         );
-        println!("{:?}", module);
-        let mut dot = String::new();
-        write_dot(&module, &mut dot).unwrap();
-        println!("{}", dot);
     }
 }

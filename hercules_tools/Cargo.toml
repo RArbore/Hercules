@@ -1,0 +1,12 @@
+[package]
+name = "hercules_tools"
+version = "0.1.0"
+authors = ["Russel Arbore <rarbore2@illinois.edu>"]
+
+[[bin]]
+name = "hercules_dot"
+path = "src/hercules_dot/main.rs"
+
+[dependencies]
+clap = { version = "*", features = ["derive"] }
+hercules_ir = { path = "../hercules_ir" }
