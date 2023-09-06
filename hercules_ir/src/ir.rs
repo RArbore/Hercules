@@ -97,6 +97,8 @@ pub enum Node {
         right: NodeID,
     },
     Call {
+        control: NodeID,
+        function: FunctionID,
         args: Box<[NodeID]>,
     },
 }

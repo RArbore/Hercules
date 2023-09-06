@@ -5,8 +5,7 @@ use std::collections::HashMap;
 pub fn write_dot<W: std::fmt::Write>(module: &Module, w: &mut W) -> std::fmt::Result {
     write!(w, "digraph \"Module\" {{\n")?;
     for i in 0..module.functions.len() {
-        let function = &module.functions[i];
-        write_function(i, function, &module.constants, w)?;
+        write_function(i, module, &module.constants, w)?;
     }
     write!(w, "}}")?;
     Ok(())
@@ -14,13 +13,14 @@ pub fn write_dot<W: std::fmt::Write>(module: &Module, w: &mut W) -> std::fmt::Re
 
 fn write_function<W: std::fmt::Write>(
     i: usize,
-    function: &Function,
+    module: &Module,
     constants: &Vec<Constant>,
     w: &mut W,
 ) -> std::fmt::Result {
     let mut visited = HashMap::default();
+    let function = &module.functions[i];
     for j in 0..function.nodes.len() {
-        visited = write_node(i, j, &function.nodes, constants, visited, w)?.1;
+        visited = write_node(i, j, module, constants, visited, w)?.1;
     }
     Ok(())
 }
@@ -28,7 +28,7 @@ fn write_function<W: std::fmt::Write>(
 fn write_node<W: std::fmt::Write>(
     i: usize,
     j: usize,
-    nodes: &Vec<Node>,
+    module: &Module,
     constants: &Vec<Constant>,
     mut visited: HashMap<NodeID, String>,
     w: &mut W,
@@ -37,7 +37,7 @@ fn write_node<W: std::fmt::Write>(
     if visited.contains_key(&id) {
         Ok((visited.get(&id).unwrap().clone(), visited))
     } else {
-        let node = &nodes[j];
+        let node = &module.functions[i].nodes[j];
         let name = format!("{}_{}_{}", get_string_node_kind(node), i, j);
         visited.insert(NodeID::new(j), name.clone());
         let visited = match node {
@@ -47,9 +47,9 @@ fn write_node<W: std::fmt::Write>(
             }
             Node::Return { control, value } => {
                 let (control_name, visited) =
-                    write_node(i, control.idx(), nodes, constants, visited, w)?;
+                    write_node(i, control.idx(), module, constants, visited, w)?;
                 let (value_name, visited) =
-                    write_node(i, value.idx(), nodes, constants, visited, w)?;
+                    write_node(i, value.idx(), module, constants, visited, w)?;
                 write!(w, "{} [label=\"return\"];\n", name)?;
                 write!(w, "{} -> {};\n", control_name, name)?;
                 write!(w, "{} -> {};\n", value_name, name)?;
@@ -69,14 +69,32 @@ fn write_node<W: std::fmt::Write>(
                 right,
             } => {
                 let (control_name, visited) =
-                    write_node(i, control.idx(), nodes, constants, visited, w)?;
-                let (left_name, visited) = write_node(i, left.idx(), nodes, constants, visited, w)?;
+                    write_node(i, control.idx(), module, constants, visited, w)?;
+                let (left_name, visited) =
+                    write_node(i, left.idx(), module, constants, visited, w)?;
                 let (right_name, visited) =
-                    write_node(i, right.idx(), nodes, constants, visited, w)?;
+                    write_node(i, right.idx(), module, constants, visited, w)?;
                 write!(w, "{} [label=\"add\"];\n", name)?;
                 write!(w, "{} -> {};\n", control_name, name)?;
                 write!(w, "{} -> {};\n", left_name, name)?;
                 write!(w, "{} -> {};\n", right_name, name)?;
+                visited
+            }
+            Node::Call {
+                control,
+                function,
+                args,
+            } => {
+                let (control_name, mut visited) =
+                    write_node(i, control.idx(), module, constants, visited, w)?;
+                for arg in args.iter() {
+                    let (arg_name, tmp_visited) =
+                        write_node(i, arg.idx(), module, constants, visited, w)?;
+                    visited = tmp_visited;
+                    write!(w, "{} -> {};\n", arg_name, name)?;
+                }
+                write!(w, "{} [label=\"call({})\"];\n", name, function.idx())?;
+                write!(w, "{} -> {};\n", control_name, name)?;
                 visited
             }
             _ => todo!(),
@@ -131,6 +149,10 @@ fn get_string_node_kind(node: &Node) -> &'static str {
             left: _,
             right: _,
         } => "div",
-        Node::Call { args: _ } => "call",
+        Node::Call {
+            control: _,
+            function: _,
+            args: _,
+        } => "call",
     }
 }

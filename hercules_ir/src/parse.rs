@@ -63,6 +63,20 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
         nom::combinator::all_consuming(nom::multi::many0(|x| parse_function(x, &mut context)))(
             ir_text,
         )?;
+    let mut fixed_functions = vec![
+        Function {
+            name: String::from(""),
+            param_types: vec![],
+            return_type: TypeID::new(0),
+            nodes: vec![]
+        };
+        context.function_ids.len()
+    ];
+    for function in functions {
+        let function_name = function.name.clone();
+        let function_id = context.function_ids.remove(function_name.as_str()).unwrap();
+        fixed_functions[function_id.idx()] = function;
+    }
     let mut types = vec![Type::Control(0); context.interned_types.len()];
     for (ty, id) in context.interned_types {
         types[id.idx()] = ty;
@@ -74,7 +88,7 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
     Ok((
         rest,
         Module {
-            functions,
+            functions: fixed_functions,
             types,
             constants,
         },
@@ -123,6 +137,8 @@ fn parse_function<'a>(
             fixed_nodes[id.idx()] = Node::Parameter { index: id.idx() }
         }
     }
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    context.get_function_id(function_name);
     Ok((
         ir_text,
         Function {
@@ -148,6 +164,7 @@ fn parse_node<'a>(
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "add" => parse_add(ir_text, context)?,
+        "call" => parse_call(ir_text, context)?,
         _ => todo!(),
     };
     context.get_node_id(node_name);
@@ -212,6 +229,39 @@ fn parse_add<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'
             control: context.get_node_id(control),
             left: context.get_node_id(left),
             right: context.get_node_id(right),
+        },
+    ))
+}
+
+fn parse_call<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, mut function_and_args) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        nom::character::complete::alphanumeric1,
+    )(ir_text)?;
+    let function = function_and_args.remove(0);
+    let args: Vec<NodeID> = function_and_args
+        .into_iter()
+        .map(|x| context.get_node_id(x))
+        .collect();
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((
+        ir_text,
+        Node::Call {
+            control: context.get_node_id(control),
+            function: context.get_function_id(function),
+            args: args.into_boxed_slice(),
         },
     ))
 }
@@ -284,8 +334,19 @@ mod tests {
 
     #[test]
     fn parse_ir1() {
-        let module =
-            parse("fn add(x: i32, y: i32) -> i32 c = constant(i8, 5) r = return(start, w) w = add(start, z, c) z = add(start, x, y)");
+        let module = parse(
+            "
+fn myfunc(x: i32) -> i32
+  y = call(start, add, x, x)
+  r = return(start, y)
+
+fn add(x: i32, y: i32) -> i32
+  c = constant(i8, 5)
+  r = return(start, w)
+  w = add(start, z, c)
+  z = add(start, x, y)
+",
+        );
         println!("{:?}", module);
         let mut dot = String::new();
         write_dot(&module, &mut dot).unwrap();
