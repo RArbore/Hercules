@@ -4,10 +4,11 @@ use std::collections::HashMap;
 
 pub fn write_dot<W: std::fmt::Write>(module: &Module, w: &mut W) -> std::fmt::Result {
     write!(w, "digraph \"Module\" {{\n")?;
+    write!(w, "compound=true\n")?;
     for i in 0..module.functions.len() {
         write_function(i, module, &module.constants, w)?;
     }
-    write!(w, "}}")?;
+    write!(w, "}}\n")?;
     Ok(())
 }
 
@@ -17,11 +18,16 @@ fn write_function<W: std::fmt::Write>(
     constants: &Vec<Constant>,
     w: &mut W,
 ) -> std::fmt::Result {
+    write!(w, "subgraph {} {{\n", module.functions[i].name)?;
+    write!(w, "label=\"{}\"\n", module.functions[i].name)?;
+    write!(w, "bgcolor=ivory4\n")?;
+    write!(w, "cluster=true\n")?;
     let mut visited = HashMap::default();
     let function = &module.functions[i];
     for j in 0..function.nodes.len() {
         visited = write_node(i, j, module, constants, visited, w)?.1;
     }
+    write!(w, "}}\n")?;
     Ok(())
 }
 
@@ -93,8 +99,20 @@ fn write_node<W: std::fmt::Write>(
                     visited = tmp_visited;
                     write!(w, "{} -> {};\n", arg_name, name)?;
                 }
-                write!(w, "{} [label=\"call({})\"];\n", name, function.idx())?;
+                write!(
+                    w,
+                    "{} [label=\"call({})\"];\n",
+                    name,
+                    module.functions[function.idx()].name
+                )?;
                 write!(w, "{} -> {};\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> start_{}_0 [lhead={}];\n",
+                    name,
+                    function.idx(),
+                    module.functions[function.idx()].name
+                )?;
                 visited
             }
             _ => todo!(),
