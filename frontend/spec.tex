@@ -61,12 +61,12 @@ TODO
 The grammar below is provided in an Extended Backus-Naur form.
 In particular, concatenation is represented by whitespace between grammar symbols, terminals are represented in single quotes for literal strings as $\terminal{terminal}$ or surrounded by slashes for regular expressions as $\regex{regex}$ while nonterminals are non-quoted and italicized as $\nonterminal{nonterminal}$.
 Certain other symbols have meta meanings \emph{when not quoted within a terminal}, specifically parentheses $(\cdots)$ are used for grouping, square brackets $[\cdots]$ indicate an optional component, and curly brackets $\{ \cdots \}$ indicate repetition of zero or more occurrences.
-Curly brackets with a symbol in subcript indicates a list of zero or more occurrences separated by the symbol, for instance $\gramRepeat[\terminal{,}]{\nonterminal{Nt}}$ represents the empty string, a single nonterminal $\nonterminal{Nt}$, or a list of multiple $\nonterminal{Nt}$ separated by commas.
-A curly bracket with a plus symbol in the superscript (with or without subcript) indicates at least repetition, as in $\{ \cdots \}^{+}$.
+Curly brackets with a symbol in subscript indicates a list of zero or more occurrences separated by the symbol, for instance $\gramRepeat[\terminal{,}]{\nonterminal{Nt}}$ represents the empty string, a single nonterminal $\nonterminal{Nt}$, or a list of multiple $\nonterminal{Nt}$ separated by commas.
+A curly bracket with a plus symbol in the superscript (with or without subscript) indicates at least repetition, as in $\{ \cdots \}^{+}$.
 The vertical bar symbol $\mid$ indicates alternatives and epsilon $\varepsilon$ indicates the empty string.
 
 The language is whitespace insensitive and resolves lexing ambiguities by maximal munch.
-The language also supports C/C++ style line comments and block comments, allowing arbitrary nesting of the later.
+The language also supports C/C++ style line comments and block comments, allowing arbitrary nesting of the latter.
 
 \begin{align*}
 %  
