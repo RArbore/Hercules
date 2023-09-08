@@ -180,7 +180,7 @@ The language also supports C-style line comments and block comments, though allo
   \nonterminal{LExpr} ::&= \nonterminal{Id}
     \gramOr \nonterminal{LExpr} \terminal{.} \nonterminal{Id}
     \gramOr \nonterminal{LExpr} \terminal{.} \nonterminal{DecLit}
-    \gramOr \nonterminal{LExpr} \terminal{[} \nonterminal{Expr} \terminal{]} \\
+    \gramOr \nonterminal{LExpr} \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
 %
   \nonterminal{Expr} ::&= \nonterminal{LExpr}
     \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{)}
