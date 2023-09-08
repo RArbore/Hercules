@@ -29,14 +29,14 @@
 \fancyhf{}
 \chead{}
 \rhead{Code Name Hydra Spec}
-\lhead{DRAFT: 2023-09-07}
+\lhead{DRAFT: 2023-09-08}
 
 \renewcommand{\footrulewidth}{1pt}
 \rfoot{\thepage}
 
 \title{Code Name Hydra \\ \large Language Specification}
 \author{Aaron Councilman, Russel Arbore}
-\date{September 7, 2023}
+\date{September 8, 2023}
 
 \newcommand{\nonterminal}[1]{#1\ }
 \newcommand{\terminal}[1]{\text{`#1'}\ }
@@ -63,10 +63,10 @@ In particular, concatenation is represented by whitespace between grammar symbol
 Certain other symbols have meta meanings \emph{when not quoted within a terminal}, specifically parentheses $(\cdots)$ are used for grouping, square brackets $[\cdots]$ indicate an optional component, and curly brackets $\{ \cdots \}$ indicate repetition of zero or more occurrences.
 Curly brackets with a symbol in subcript indicates a list of zero or more occurrences separated by the symbol, for instance $\gramRepeat[\terminal{,}]{\nonterminal{Nt}}$ represents the empty string, a single nonterminal $\nonterminal{Nt}$, or a list of multiple $\nonterminal{Nt}$ separated by commas.
 A curly bracket with a plus symbol in the superscript (with or without subcript) indicates at least repetition, as in $\{ \cdots \}^{+}$.
-The vertical bar symbol $\mid$ indicates alternatives.
+The vertical bar symbol $\mid$ indicates alternatives and epsilon $\varepsilon$ indicates the empty string.
 
 The language is whitespace insensitive and resolves lexing ambiguities by maximal munch.
-The language also supports C-style line comments and block comments, though allowing arbitrary nesting.
+The language also supports C/C++ style line comments and block comments, allowing arbitrary nesting of the later.
 
 \begin{align*}
 %  
@@ -82,7 +82,7 @@ The language also supports C-style line comments and block comments, though allo
     \gramOr \nonterminal{Module} \\
 %
   \nonterminal{Module} ::&=
-    \terminal{module} \nonterminal {Id}
+    \nonterminal{AccessSpec} \terminal{module} \nonterminal {Id}
       \terminal{\{} \gramRepeat{\nonterminal{Top}} \terminal{\}} \\
 %
   \nonterminal{Import} ::&=
@@ -95,7 +95,7 @@ The language also supports C-style line comments and block comments, though allo
     \nonterminal{Id} \gramRepeat{\terminal{::} \nonterminal{Id}} \\
 %
   \nonterminal{TypeDecl} ::&=
-    \terminal{type} \nonterminal{Id}
+    \nonterminal{AccessSpec} \terminal{type} \nonterminal{Id}
       \gramOption{\terminal{\textless}
         \gramRepeat[\terminal{,}]{\nonterminal{TypeVar}} \terminal{\textgreater}}
       \terminal{=} \nonterminal{TypeDef} \terminal{;} \\
@@ -123,9 +123,10 @@ The language also supports C-style line comments and block comments, though allo
       \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
 %
   \nonterminal{FuncDecl} ::&=
-    \terminal{fn} \nonterminal{Id}
+    \nonterminal{AccessSpec} \terminal{fn} \nonterminal{Id}
       \gramOption{\terminal{\textless}
-        \gramRepeat[\terminal{,}]{\nonterminal{TypeVar}} \terminal{\textgreater}}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeVar}} \terminal{\textgreater}} \\
+    &\hspace{.5cm}
       \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{inout}}
         \nonterminal{VarBinding}} \terminal{)}
       \gramOption{\terminal{:} \nonterminal{Type}} \nonterminal{Stmt} \\
@@ -219,6 +220,9 @@ The language also supports C-style line comments and block comments, though allo
         \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
       \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \\
 %
+  \nonterminal{AccessSpec} ::&= \varepsilon\ \gramOr
+    \terminal{pub} \gramOr \terminal{prv} \gramOr \terminal{opq} \\
+%
   \nonterminal{PrimType} ::&= \terminal{bool}
     \gramOr \terminal{i8} \gramOr \terminal{u8}
     \gramOr \terminal{i16} \gramOr \terminal{u16}
@@ -267,7 +271,7 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     \end{enumerate}
 \end{enumerate}
 %
-The keywords are: `bool', `by', `cast', `f16', `f32', `fn', `for', `else', `i8', `i16', `i32', `i64', `if', `inout', `length', `let', `match', `module', `package', `return', `size', `struct', `then', `to', `type', `u8', `u16', `u32', `u64', `union', `use', `void', `with', and `while'.
+The keywords are: `bool', `by', `cast', `f16', `f32', `fn', `for', `else', `i8', `i16', `i32', `i64', `if', `inout', `length', `let', `match', `module', `opq', `package', `prv', `pub', `return', `size', `struct', `then', `to', `type', `u8', `u16', `u32', `u64', `union', `use', `void', `with', and `while'.
 
 \section{Type System}\label{sec:types}
 TODO
