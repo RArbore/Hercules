@@ -135,7 +135,17 @@ The language also supports C-style line comments and block comments, though allo
   \nonterminal{Stmt} ::&=
     \terminal{let} \nonterminal{VarBinding}
       \gramOption{\terminal{=} \nonterminal{Expr}} \terminal{;} \\
-    &\gramOr \nonterminal{LExpr} \terminal{=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{+=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{-=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{*=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{/=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{\%=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{\&=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{\textbar=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{\^{}=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{\textless\textless=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{\textgreater\textgreater=} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \terminal{if} \terminal{(} \nonterminal{Expr} \terminal{)}
       \nonterminal{Stmt} \gramOption{\terminal{else} \nonterminal{Stmt}} \\
     &\gramOr \terminal{match} \terminal{(} \nonterminal{Expr} \terminal{)} \nonterminal{Cases} \\
@@ -204,6 +214,10 @@ The language also supports C-style line comments and block comments, though allo
      \gramOr \nonterminal{Expr} \terminal{\textgreater\textgreater} \nonterminal{Expr} \\
     &\gramOr \terminal{if} \nonterminal{Expr} \terminal{then} \nonterminal{Expr}
              \terminal{else} \nonterminal{Expr} \\
+    &\gramOr \nonterminal{Id}
+      \gramOption{\terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
+      \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \\
 %
   \nonterminal{PrimType} ::&= \terminal{bool}
     \gramOr \terminal{i8} \gramOr \terminal{u8}
@@ -238,13 +252,13 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     This is resolved though associativities and precedences, listed below.
     In this list, the top of the list are the operators which bind most tightly.
     \begin{enumerate}
-      \item Non associative: `-' (unary), `\texttildelow', `!'
+      \item Non associative: `-' (unary), `\texttildelow', `!', and `\&' (unary)
       \item Left associative: `*', `/', and `\%'
       \item Left associative: `+' and `-' (binary)
       \item Left associative: `\textless\textless', and `\textgreater\textgreater'
       \item Non associative: `\textless', `\textless=', `\textgreater', `\textgreater='
       \item Non associative: `==' and `!='
-      \item Left associative: `\&'
+      \item Left associative: `\&' (binary)
       \item Left associative: `\^{}'
       \item Left associative: `\textbar'
       \item Left associative: `\&\&'
@@ -254,7 +268,6 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
 \end{enumerate}
 %
 The keywords are: `bool', `by', `cast', `f16', `f32', `fn', `for', `else', `i8', `i16', `i32', `i64', `if', `inout', `length', `let', `match', `module', `package', `return', `size', `struct', `then', `to', `type', `u8', `u16', `u32', `u64', `union', `use', `void', `with', and `while'.
-% TODO: call
 
 \section{Type System}\label{sec:types}
 TODO
