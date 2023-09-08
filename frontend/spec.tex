@@ -1,0 +1,265 @@
+\documentclass[letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[top=1in,right=1in,left=1in,bottom=1in]{geometry}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[english]{babel}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{comment}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=magenta,      
+    urlcolor=cyan
+    }
+
+\usepackage[inference]{semantic}
+\usepackage{textcomp}
+\usepackage{listings}
+% Don't change, used for formatting regular expressions
+\lstset{basicstyle=\ttfamily, upquote=true}
+
+\allowdisplaybreaks
+
+\pagestyle{fancy}
+\fancyhf{}
+\chead{}
+\rhead{Code Name Hydra Spec}
+\lhead{DRAFT: 2023-09-07}
+
+\renewcommand{\footrulewidth}{1pt}
+\rfoot{\thepage}
+
+\title{Code Name Hydra \\ \large Language Specification}
+\author{Aaron Councilman, Russel Arbore}
+\date{September 7, 2023}
+
+\newcommand{\nonterminal}[1]{#1\ }
+\newcommand{\terminal}[1]{\text{`#1'}\ }
+\newcommand{\regex}[1]{\text{\lstinline$/#1/$}\ }
+
+\newcommand{\gramOption}[1]{[\ #1]\ }
+\newcommand*{\gramRepeat}[2][]{\{\ #2\}_{#1}\ }
+\newcommand*{\gramSome}[2][]{\{\ #2\}^{+}_{#1}\ }
+\newcommand{\gramOr}{\mid\ }
+
+\begin{document}
+\maketitle
+
+This document gives the formal specification of the Code Name Hydra language.
+Section~\ref{sec:overview} provides an informal overview of the language: its features and notable differences from other languages.
+The formal description of the language is contained in Section~\ref{sec:syntax} which defines the syntax, Section~\ref{sec:types} which defines the type-system and semantic analysis rules, and Section~\ref{sec:semantics} which defines the formal semantics.
+
+\section{Overview}\label{sec:overview}
+TODO
+
+\section{Syntax}\label{sec:syntax}
+The grammar below is provided in an Extended Backus-Naur form.
+In particular, concatenation is represented by whitespace between grammar symbols, terminals are represented in single quotes for literal strings as $\terminal{terminal}$ or surrounded by slashes for regular expressions as $\regex{regex}$ while nonterminals are non-quoted and italicized as $\nonterminal{nonterminal}$.
+Certain other symbols have meta meanings \emph{when not quoted within a terminal}, specifically parentheses $(\cdots)$ are used for grouping, square brackets $[\cdots]$ indicate an optional component, and curly brackets $\{ \cdots \}$ indicate repetition of zero or more occurrences.
+Curly brackets with a symbol in subcript indicates a list of zero or more occurrences separated by the symbol, for instance $\gramRepeat[\terminal{,}]{\nonterminal{Nt}}$ represents the empty string, a single nonterminal $\nonterminal{Nt}$, or a list of multiple $\nonterminal{Nt}$ separated by commas.
+A curly bracket with a plus symbol in the superscript (with or without subcript) indicates at least repetition, as in $\{ \cdots \}^{+}$.
+The vertical bar symbol $\mid$ indicates alternatives.
+
+The language is whitespace insensitive and resolves lexing ambiguities by maximal munch.
+The language also supports C-style line comments and block comments, though allowing arbitrary nesting.
+
+\begin{align*}
+%  
+  \nonterminal{Program} ::&=
+    \gramOption{\nonterminal{Package}} \gramRepeat{\nonterminal{Top}} \\
+%
+  \nonterminal{Package} ::&=
+    \terminal{package} \nonterminal{PackageName} \terminal{;} \\
+%
+  \nonterminal{Top} ::&= \nonterminal{Import}
+    \gramOr \nonterminal{TypeDecl}
+    \gramOr \nonterminal{FuncDecl}
+    \gramOr \nonterminal{Module} \\
+%
+  \nonterminal{Module} ::&=
+    \terminal{module} \nonterminal {Id}
+      \terminal{\{} \gramRepeat{\nonterminal{Top}} \terminal{\}} \\
+%
+  \nonterminal{Import} ::&=
+    \terminal{use} \nonterminal{PackageId} \terminal{;} \\
+%
+  \nonterminal{PackageId} ::&=
+    \nonterminal{PackageName} \gramOption{\terminal{::} \terminal{*}} \\
+%
+  \nonterminal{PackageName} ::&=
+    \nonterminal{Id} \gramRepeat{\terminal{::} \nonterminal{Id}} \\
+%
+  \nonterminal{TypeDecl} ::&=
+    \terminal{type} \nonterminal{Id}
+      \gramOption{\terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeVar}} \terminal{\textgreater}}
+      \terminal{=} \nonterminal{TypeDef} \terminal{;} \\
+%
+  \nonterminal{TypeDef} ::&= \nonterminal{Type}
+    \gramOr \terminal{struct}
+      \terminal{\{} \gramRepeat{\nonterminal{ObjField}} \terminal{\}}
+    \gramOr \terminal{union}
+      \terminal{\{} \gramRepeat{\nonterminal{ObjField}} \terminal{\}} \\
+%
+  \nonterminal{ObjField} ::&=
+    \nonterminal{Id} \gramOption{\terminal{:} \nonterminal{Type}} \terminal{;} \\
+%
+  \nonterminal{TypeVar} ::&= \nonterminal{Id}
+    \gramOr \nonterminal{Id} \terminal{:} \nonterminal{Kind} \\
+%
+  \nonterminal{Kind} ::&= \terminal{type} \gramOr \nonterminal{PrimType} \\
+%
+  \nonterminal{Type} ::&= \nonterminal{PrimType}
+    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)}
+    \gramOr \nonterminal{Id}
+      \gramOption{\terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
+    \gramOr \nonterminal{Type}
+      \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
+%
+  \nonterminal{FuncDecl} ::&=
+    \terminal{fn} \nonterminal{Id}
+      \gramOption{\terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeVar}} \terminal{\textgreater}}
+      \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{inout}}
+        \nonterminal{VarBinding}} \terminal{)}
+      \gramOption{\terminal{:} \nonterminal{Type}} \nonterminal{Stmt} \\
+%
+  \nonterminal{VarBinding} ::&= \nonterminal{SPattern} \terminal{:} \nonterminal{Type} \\
+%
+  \nonterminal{Stmt} ::&=
+    \terminal{let} \nonterminal{VarBinding}
+      \gramOption{\terminal{=} \nonterminal{Expr}} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \terminal{if} \terminal{(} \nonterminal{Expr} \terminal{)}
+      \nonterminal{Stmt} \gramOption{\terminal{else} \nonterminal{Stmt}} \\
+    &\gramOr \terminal{match} \terminal{(} \nonterminal{Expr} \terminal{)} \nonterminal{Cases} \\
+    &\gramOr \terminal{for} \terminal{(} \nonterminal{VarBinding} \terminal{=}
+      \nonterminal{Expr} \terminal{to} \nonterminal{Expr}
+      \gramOption{\terminal{by} \nonterminal{Expr}} \terminal{)} \nonterminal{Stmt} \\
+    &\gramOr \terminal{while} \terminal{(} \nonterminal{Expr} \terminal{)}
+      \nonterminal{Stmt} \\
+    &\gramOr \terminal{return} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \terminal{\{} \gramRepeat{\nonterminal{Stmt}} \terminal{\}} \\
+%
+  \nonterminal{Cases} ::&= \nonterminal{Case}
+    \gramOr \terminal{\{} \gramRepeat{\nonterminal{Case}} \terminal{\}} \\
+%
+  \nonterminal{Case} ::&=
+    \nonterminal{Patterns} \terminal{=\textgreater} \nonterminal{Stmt} \\
+%
+  \nonterminal{Patterns} ::&=
+    \gramOption{\terminal{\textbar}}
+      \gramSome[\terminal{\textbar}]{\gramOption{\nonterminal{Pattern}}} \\
+%
+  \nonterminal{Pattern} ::&= \nonterminal{SPattern}
+    \gramOr \nonterminal{Id} \nonterminal{SPattern} \\
+%
+  \nonterminal{SPattern} ::&= \terminal{\textunderscore}
+    \gramOr \nonterminal{Id}
+    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Pattern}} \terminal{)}
+    \gramOr \terminal{\{} \gramRepeat[\terminal{,}]{\nonterminal{Pattern}} \terminal{\}} \\
+    &\gramOr \terminal{\{}
+      \gramRepeat[\terminal{,}]{\nonterminal{Id} \terminal{=} \nonterminal{Pattern}} \terminal{\}} \\
+%
+  \nonterminal{LExpr} ::&= \nonterminal{Id}
+    \gramOr \nonterminal{LExpr} \terminal{.} \nonterminal{Id}
+    \gramOr \nonterminal{LExpr} \terminal{.} \nonterminal{DecLit}
+    \gramOr \nonterminal{LExpr} \terminal{[} \nonterminal{Expr} \terminal{]} \\
+%
+  \nonterminal{Expr} ::&= \nonterminal{LExpr}
+    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{)}
+    \gramOr \terminal{\{} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{\}}
+    \gramOr \terminal{\{}
+      \gramRepeat[\terminal{,}]{\nonterminal{Id} \terminal{=} \nonterminal{Expr}} \terminal{\}} \\
+    &\gramOr \nonterminal{BoolLit} \gramOr \nonterminal{IntLit} \gramOr \nonterminal{FloatLit}
+     \gramOr \terminal{-} \nonterminal{Expr}
+     \gramOr \terminal{\texttildelow} \nonterminal{Expr}
+     \gramOr \terminal{!} \nonterminal{Expr} \\
+    &\gramOr \terminal{cast} \terminal{\textless} \nonterminal{Type} \terminal{\textgreater}
+            \terminal{(} \nonterminal{Expr} \terminal{)}
+     \gramOr \terminal{size} \terminal{(} \nonterminal{Expr} \terminal{)} \\
+    &\gramOr \nonterminal{Expr} \terminal{+} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{-} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{*} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{/} \nonterminal{Expr} \\
+    &\gramOr \nonterminal{Expr} \terminal{\%} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\&} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textbar} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\^{}} \nonterminal{Expr} \\
+    &\gramOr \nonterminal{Expr} \terminal{\&\&} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textbar\textbar} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textless} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textless=} \nonterminal{Expr} \\
+    &\gramOr \nonterminal{Expr} \terminal{\textgreater} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textgreater=} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{==} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{!=} \nonterminal{Expr} \\
+    &\gramOr \nonterminal{Expr} \terminal{\textless\textless} \nonterminal{Expr}
+     \gramOr \nonterminal{Expr} \terminal{\textgreater\textgreater} \nonterminal{Expr} \\
+    &\gramOr \terminal{if} \nonterminal{Expr} \terminal{then} \nonterminal{Expr}
+             \terminal{else} \nonterminal{Expr} \\
+%
+  \nonterminal{PrimType} ::&= \terminal{bool}
+    \gramOr \terminal{i8} \gramOr \terminal{u8}
+    \gramOr \terminal{i16} \gramOr \terminal{u16}
+    \gramOr \terminal{i32} \gramOr \terminal{u32}
+    \gramOr \terminal{i64} \gramOr \terminal{u64} \\
+    &\gramOr \terminal{f32} \gramOr \terminal{f64} \gramOr \terminal{void} \\
+%
+  \nonterminal{Id} ::&= \regex{[a-zA-Z][a-zA-Z0-9_\\-]*} \\
+%
+  \nonterminal{BoolLit} ::&= \terminal{true} \gramOr \terminal{false} \\
+%
+  \nonterminal{IntLit} ::&= \nonterminal{DecLit} \gramOr \regex{0x[0-9a-fA-F]+}
+    \gramOr \regex{0b[0-1]+} \gramOr \regex{0o[0-7]+} \\
+%
+  \nonterminal{DecLit} ::&= \regex{[0-9]+} \\
+%
+  \nonterminal{FloatLit} ::&=
+    \nonterminal{DecLit} \terminal{.} (\ \varepsilon\ \gramOr \nonterminal{DecLit} )
+    \gramOr (\ \varepsilon\ \gramOr \nonterminal{DecLit} )\ \terminal{.} \nonterminal{DecLit} \\
+    &\gramOr (\ \varepsilon\ \gramOr \nonterminal{DecLit} )\ \terminal{.}
+             (\ \varepsilon\ \gramOr \nonterminal{DecLit} )\ \terminal{e}
+            \nonterminal{DecLit} \\
+\end{align*}
+%
+The grammar specified is ambiguous in a few places, the details of the disambiguation are provided below:
+\begin{enumerate}
+  \item All keywords (defined below) are reserved and are not parsed as members of the $\nonterminal{Id}$ nonterminal.
+  \item The grammar experience dangling else ambiguity, which is resolved by attaching the else to nearest if.
+  \item For conditional in expressions, the expression following the `else' captures as much as possible.
+  \item The unary and binary operators produce significant ambiguity.
+    This is resolved though associativities and precedences, listed below.
+    In this list, the top of the list are the operators which bind most tightly.
+    \begin{enumerate}
+      \item Non associative: `-' (unary), `\texttildelow', `!'
+      \item Left associative: `*', `/', and `\%'
+      \item Left associative: `+' and `-' (binary)
+      \item Left associative: `\textless\textless', and `\textgreater\textgreater'
+      \item Non associative: `\textless', `\textless=', `\textgreater', `\textgreater='
+      \item Non associative: `==' and `!='
+      \item Left associative: `\&'
+      \item Left associative: `\^{}'
+      \item Left associative: `\textbar'
+      \item Left associative: `\&\&'
+      \item Left associative: `\textbar\textbar'
+      \item Right associative: `if' $\cdots$ `then' $\cdots$ `else' $\cdots$
+    \end{enumerate}
+\end{enumerate}
+%
+The keywords are: `bool', `by', `cast', `f16', `f32', `fn', `for', `else', `i8', `i16', `i32', `i64', `if', `inout', `length', `let', `match', `module', `package', `return', `size', `struct', `then', `to', `type', `u8', `u16', `u32', `u64', `union', `use', `void', `with', and `while'.
+% TODO: call
+
+\section{Type System}\label{sec:types}
+TODO
+
+\section{Semantics}\label{sec:semantics}
+TODO
+
+\end{document}

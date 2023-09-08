@@ -10,6 +10,9 @@ Hercules' is a compiler targeting heterogenous devices. The key goals of Hercule
 
 ## Front-end Language Design
 
+The front-end language (code name Hydra) is a relatively standard imperative programming language based on Rust syntax, though using Mutual Value Semantics and making certain restrictions useful for compiling of to heterogeneous systems.
+The formal specification of the front-end language is described in [frontend/spec.tex](frontend/spect.tex).
+
 TODO: @aaronjc4
 
 ## Scheduling Language Design
