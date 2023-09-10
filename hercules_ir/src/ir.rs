@@ -87,6 +87,9 @@ pub enum Node {
     Constant {
         id: ConstantID,
     },
+    DynamicConstant {
+        id: DynamicConstantID,
+    },
     Add {
         control: NodeID,
         left: NodeID,
@@ -110,6 +113,7 @@ pub enum Node {
     Call {
         control: NodeID,
         function: FunctionID,
+        dynamic_constants: Box<[DynamicConstantID]>,
         args: Box<[NodeID]>,
     },
 }

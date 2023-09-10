@@ -126,6 +126,19 @@ fn parse_function<'a>(
     let ir_text = nom::bytes::complete::tag("fn")(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, function_name) = nom::character::complete::alphanumeric1(ir_text)?;
+    let parse_num_dynamic_constants = |ir_text: &'a str| -> nom::IResult<&'a str, u32> {
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('<')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, num_dynamic_constants) = parse_prim::<u32>(ir_text, "1234567890")?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('>')(ir_text)?.0;
+        Ok((ir_text, num_dynamic_constants))
+    };
+    let (ir_text, num_dynamic_constants) =
+        nom::combinator::opt(parse_num_dynamic_constants)(ir_text)?;
+    let num_dynamic_constants = num_dynamic_constants.unwrap_or(0);
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let (ir_text, params) = nom::multi::separated_list0(
         nom::character::complete::char(','),
@@ -170,7 +183,7 @@ fn parse_function<'a>(
             param_types: params.into_iter().map(|x| x.5).collect(),
             return_type,
             nodes: fixed_nodes,
-            num_dynamic_constants: 0,
+            num_dynamic_constants,
         },
     ))
 }
@@ -262,6 +275,24 @@ fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let parse_dynamic_constants =
+        |ir_text: &'a str| -> nom::IResult<&'a str, Vec<DynamicConstantID>> {
+            let ir_text = nom::character::complete::char('<')(ir_text)?.0;
+            let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+            let (ir_text, dynamic_constants) = nom::multi::separated_list1(
+                nom::sequence::tuple((
+                    nom::character::complete::multispace0,
+                    nom::character::complete::char(','),
+                    nom::character::complete::multispace0,
+                )),
+                |x| parse_dynamic_constant_id(x, context),
+            )(ir_text)?;
+            let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+            let ir_text = nom::character::complete::char('>')(ir_text)?.0;
+            Ok((ir_text, dynamic_constants))
+        };
+    let (ir_text, dynamic_constants) = nom::combinator::opt(parse_dynamic_constants)(ir_text)?;
+    let dynamic_constants = dynamic_constants.unwrap_or(vec![]);
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
@@ -290,6 +321,7 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
         Node::Call {
             control,
             function,
+            dynamic_constants: dynamic_constants.into_boxed_slice(),
             args: args.into_boxed_slice(),
         },
     ))
@@ -417,12 +449,12 @@ fn parse_dynamic_constant<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Dynamic
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, dc) = nom::branch::alt((
         nom::combinator::map(
-            |x| parse_prim::<usize>(x, "-1234567890"),
+            |x| parse_prim::<usize>(x, "1234567890"),
             |x| DynamicConstant::Constant(x),
         ),
         nom::combinator::map(
             nom::sequence::tuple((nom::character::complete::char('#'), |x| {
-                parse_prim::<usize>(x, "-1234567890")
+                parse_prim::<usize>(x, "1234567890")
             })),
             |(_, x)| DynamicConstant::Parameter(x),
         ),
@@ -494,22 +526,22 @@ fn parse_integer64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
 }
 
 fn parse_unsigned_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    let (ir_text, num) = parse_prim(ir_text, "1234567890")?;
     Ok((ir_text, Constant::UnsignedInteger8(num)))
 }
 
 fn parse_unsigned_integer16<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    let (ir_text, num) = parse_prim(ir_text, "1234567890")?;
     Ok((ir_text, Constant::UnsignedInteger16(num)))
 }
 
 fn parse_unsigned_integer32<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    let (ir_text, num) = parse_prim(ir_text, "1234567890")?;
     Ok((ir_text, Constant::UnsignedInteger32(num)))
 }
 
 fn parse_unsigned_integer64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    let (ir_text, num) = parse_prim(ir_text, "1234567890")?;
     Ok((ir_text, Constant::UnsignedInteger64(num)))
 }
 
@@ -538,10 +570,10 @@ mod tests {
         parse(
             "
 fn myfunc(x: i32) -> i32
-  y = call(start, add, x, x)
+  y = call<0>(start, add, x, x)
   r = return(start, y)
 
-fn add(x: i32, y: i32) -> i32
+fn add<1>(x: i32, y: i32) -> i32
   c = constant(i8, 5)
   r = return(start, w)
   w = add(start, z, c)

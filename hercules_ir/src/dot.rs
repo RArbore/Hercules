@@ -89,6 +89,7 @@ fn write_node<W: std::fmt::Write>(
             Node::Call {
                 control,
                 function,
+                dynamic_constants,
                 args,
             } => {
                 let (control_name, mut visited) =
@@ -146,6 +147,7 @@ fn get_string_node_kind(node: &Node) -> &'static str {
             value: _,
         } => "return",
         Node::Parameter { index: _ } => "parameter",
+        Node::DynamicConstant { id: _ } => "dynamic_constant",
         Node::Constant { id: _ } => "constant",
         Node::Add {
             control: _,
@@ -170,6 +172,7 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Call {
             control: _,
             function: _,
+            dynamic_constants: _,
             args: _,
         } => "call",
     }
