@@ -14,6 +14,7 @@ struct Context<'a> {
     node_ids: HashMap<&'a str, NodeID>,
     interned_types: HashMap<Type, TypeID>,
     interned_constants: HashMap<Constant, ConstantID>,
+    interned_dynamic_constants: HashMap<DynamicConstant, DynamicConstantID>,
 }
 
 impl<'a> Context<'a> {
@@ -56,6 +57,16 @@ impl<'a> Context<'a> {
             id
         }
     }
+
+    fn get_dynamic_constant_id(&mut self, dynamic_constant: DynamicConstant) -> DynamicConstantID {
+        if let Some(id) = self.interned_dynamic_constants.get(&dynamic_constant) {
+            *id
+        } else {
+            let id = DynamicConstantID::new(self.interned_dynamic_constants.len());
+            self.interned_dynamic_constants.insert(dynamic_constant, id);
+            id
+        }
+    }
 }
 
 fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<&'a str, Module> {
@@ -68,7 +79,8 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
             name: String::from(""),
             param_types: vec![],
             return_type: TypeID::new(0),
-            nodes: vec![]
+            nodes: vec![],
+            num_dynamic_constants: 0
         };
         context.function_ids.len()
     ];
@@ -77,7 +89,7 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
         let function_id = context.function_ids.remove(function_name.as_str()).unwrap();
         fixed_functions[function_id.idx()] = function;
     }
-    let mut types = vec![Type::Control(ConstantID::new(0)); context.interned_types.len()];
+    let mut types = vec![Type::Control(DynamicConstantID::new(0)); context.interned_types.len()];
     for (ty, id) in context.interned_types {
         types[id.idx()] = ty;
     }
@@ -85,12 +97,18 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
     for (constant, id) in context.interned_constants {
         constants[id.idx()] = constant;
     }
+    let mut dynamic_constants =
+        vec![DynamicConstant::Constant(0); context.interned_dynamic_constants.len()];
+    for (dynamic_constant, id) in context.interned_dynamic_constants {
+        dynamic_constants[id.idx()] = dynamic_constant;
+    }
     Ok((
         rest,
         Module {
             functions: fixed_functions,
             types,
             constants,
+            dynamic_constants,
         },
     ))
 }
@@ -146,6 +164,7 @@ fn parse_function<'a>(
             param_types: params.into_iter().map(|x| x.5).collect(),
             return_type,
             nodes: fixed_nodes,
+            num_dynamic_constants: 0,
         },
     ))
 }
@@ -198,7 +217,7 @@ fn parse_constant_node<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, ty) = parse_type(ir_text)?;
+    let (ir_text, ty) = parse_type(ir_text, context)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(',')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -268,15 +287,25 @@ fn parse_call<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&
 
 fn parse_type_id<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, TypeID> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, ty) = parse_type(ir_text)?;
+    let (ir_text, ty) = parse_type(ir_text, context)?;
     let id = context.get_type_id(ty);
     Ok((ir_text, id))
 }
 
-fn parse_type<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Type> {
+fn parse_type<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResult<&'a str, Type> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, ty) = nom::branch::alt((
-        //nom::sequence::tuple((nom::bytes::complete::tag(""))),
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::bytes::complete::tag("ctrl"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                |x| parse_dynamic_constant_id(x, context),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+            )),
+            |(_, _, _, id, _, _)| Type::Control(id),
+        ),
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
         nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),
         nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
@@ -295,6 +324,13 @@ fn parse_type<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Type> {
         nom::combinator::map(nom::bytes::complete::tag("f64"), |_| Type::Float64),
     ))(ir_text)?;
     Ok((ir_text, ty))
+}
+
+fn parse_dynamic_constant_id<'a>(
+    ir_text: &'a str,
+    context: &mut Context<'a>,
+) -> nom::IResult<&'a str, DynamicConstantID> {
+    todo!()
 }
 
 fn parse_constant_id<'a>(

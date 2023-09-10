@@ -5,6 +5,7 @@ pub struct Module {
     pub functions: Vec<Function>,
     pub types: Vec<Type>,
     pub constants: Vec<Constant>,
+    pub dynamic_constants: Vec<DynamicConstant>,
 }
 
 #[derive(Debug, Clone)]
@@ -13,11 +14,12 @@ pub struct Function {
     pub param_types: Vec<TypeID>,
     pub return_type: TypeID,
     pub nodes: Vec<Node>,
+    pub num_dynamic_constants: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    Control(ConstantID),
+    Control(DynamicConstantID),
     Integer8,
     Integer16,
     Integer32,
@@ -46,6 +48,11 @@ pub enum Constant {
     Float64(ordered_float::OrderedFloat<f64>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DynamicConstant {
+    Constant(usize),
+}
+
 #[derive(Debug, Clone)]
 pub enum Node {
     Start,
@@ -58,11 +65,11 @@ pub enum Node {
     },
     Fork {
         control: NodeID,
-        factor: ConstantID,
+        factor: DynamicConstantID,
     },
     Join {
         control: NodeID,
-        factor: ConstantID,
+        factor: DynamicConstantID,
     },
     Phi {
         control: NodeID,
@@ -150,6 +157,19 @@ pub struct TypeID(u32);
 impl TypeID {
     pub fn new(x: usize) -> Self {
         TypeID(x as u32)
+    }
+
+    pub fn idx(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DynamicConstantID(u32);
+
+impl DynamicConstantID {
+    pub fn new(x: usize) -> Self {
+        DynamicConstantID(x as u32)
     }
 
     pub fn idx(&self) -> usize {
