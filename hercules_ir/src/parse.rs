@@ -373,6 +373,31 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             )),
             |(_, _, _, _, ids, _, _)| Type::Summation(ids.into_boxed_slice()),
         ),
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::bytes::complete::tag("array"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                nom::character::complete::multispace0,
+                |x| parse_type_id(x, context),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(','),
+                nom::character::complete::multispace0,
+                nom::multi::separated_list1(
+                    nom::sequence::tuple((
+                        nom::character::complete::multispace0,
+                        nom::character::complete::char(','),
+                        nom::character::complete::multispace0,
+                    )),
+                    |x| parse_dynamic_constant_id(x, context),
+                ),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+            )),
+            |(_, _, _, _, ty_id, _, _, _, dc_ids, _, _)| {
+                Type::Array(ty_id, dc_ids.into_boxed_slice())
+            },
+        ),
     ))(ir_text)?;
     Ok((ir_text, ty))
 }
