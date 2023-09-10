@@ -15,6 +15,7 @@ struct Context<'a> {
     function_ids: HashMap<&'a str, FunctionID>,
     node_ids: HashMap<&'a str, NodeID>,
     interned_types: HashMap<Type, TypeID>,
+    reverse_type_map: HashMap<TypeID, Type>,
     interned_constants: HashMap<Constant, ConstantID>,
     interned_dynamic_constants: HashMap<DynamicConstant, DynamicConstantID>,
 }
@@ -45,7 +46,8 @@ impl<'a> Context<'a> {
             *id
         } else {
             let id = TypeID::new(self.interned_types.len());
-            self.interned_types.insert(ty, id);
+            self.interned_types.insert(ty.clone(), id);
+            self.reverse_type_map.insert(id, ty);
             id
         }
     }
@@ -477,7 +479,7 @@ fn parse_constant<'a>(
     ty: Type,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, constant) = match ty {
+    let (ir_text, constant) = match ty.clone() {
         Type::Integer8 => parse_integer8(ir_text)?,
         Type::Integer16 => parse_integer16(ir_text)?,
         Type::Integer32 => parse_integer32(ir_text)?,
@@ -488,6 +490,12 @@ fn parse_constant<'a>(
         Type::UnsignedInteger64 => parse_unsigned_integer64(ir_text)?,
         Type::Float32 => parse_float32(ir_text)?,
         Type::Float64 => parse_float64(ir_text)?,
+        Type::Product(tys) => parse_product_constant(
+            ir_text,
+            context.borrow_mut().get_type_id(ty.clone()),
+            tys,
+            context,
+        )?,
         _ => todo!(),
     };
     context.borrow_mut().get_type_id(ty);
@@ -558,6 +566,39 @@ fn parse_float64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
     Ok((
         ir_text,
         Constant::Float64(ordered_float::OrderedFloat::<f64>(num)),
+    ))
+}
+
+fn parse_product_constant<'a>(
+    ir_text: &'a str,
+    prod_ty: TypeID,
+    tys: Box<[TypeID]>,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Constant> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::bytes::complete::tag("prod")(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let mut ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let mut subconstants = vec![];
+    for ty in tys.iter() {
+        if !subconstants.is_empty() {
+            ir_text = nom::character::complete::multispace0(ir_text)?.0;
+            ir_text = nom::character::complete::char(',')(ir_text)?.0;
+        }
+        ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text_tmp, id) = parse_constant_id(
+            ir_text,
+            context.borrow().reverse_type_map.get(ty).unwrap().clone(),
+            context,
+        )?;
+        subconstants.push(id);
+        ir_text = ir_text_tmp;
+    }
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((
+        ir_text,
+        Constant::Product(prod_ty, subconstants.into_boxed_slice()),
     ))
 }
 

@@ -47,6 +47,9 @@ pub enum Constant {
     UnsignedInteger64(u64),
     Float32(ordered_float::OrderedFloat<f32>),
     Float64(ordered_float::OrderedFloat<f64>),
+    Product(TypeID, Box<[ConstantID]>),
+    Summation(TypeID, u32, ConstantID),
+    Array(TypeID, Box<[ConstantID]>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
