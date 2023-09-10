@@ -32,6 +32,7 @@ pub enum Type {
     Float64,
     Product(Box<[TypeID]>),
     Summation(Box<[TypeID]>),
+    Array(TypeID, Box<[DynamicConstantID]>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

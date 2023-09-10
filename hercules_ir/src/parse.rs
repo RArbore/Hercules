@@ -337,20 +337,15 @@ fn parse_dynamic_constant_id<'a>(
 
 fn parse_dynamic_constant<'a>(ir_text: &'a str) -> nom::IResult<&'a str, DynamicConstant> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let parse_usize = |x: &'a str| -> nom::IResult<&'a str, usize> {
-        let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(x)?;
-        let num = num_text.parse::<usize>().map_err(|_| {
-            nom::Err::Error(nom::error::Error {
-                input: num_text,
-                code: nom::error::ErrorKind::IsNot,
-            })
-        })?;
-        Ok((ir_text, num))
-    };
     let (ir_text, dc) = nom::branch::alt((
-        nom::combinator::map(parse_usize, |x| DynamicConstant::Constant(x)),
         nom::combinator::map(
-            nom::sequence::tuple((nom::character::complete::char('#'), parse_usize)),
+            |x| parse_prim::<usize>(x, "-1234567890"),
+            |x| DynamicConstant::Constant(x),
+        ),
+        nom::combinator::map(
+            nom::sequence::tuple((nom::character::complete::char('#'), |x| {
+                parse_prim::<usize>(x, "-1234567890")
+            })),
             |(_, x)| DynamicConstant::Parameter(x),
         ),
     ))(ir_text)?;
@@ -374,33 +369,89 @@ fn parse_constant<'a>(
 ) -> nom::IResult<&'a str, Constant> {
     let (ir_text, constant) = match ty {
         Type::Integer8 => parse_integer8(ir_text)?,
+        Type::Integer16 => parse_integer16(ir_text)?,
         Type::Integer32 => parse_integer32(ir_text)?,
+        Type::Integer64 => parse_integer64(ir_text)?,
+        Type::UnsignedInteger8 => parse_unsigned_integer8(ir_text)?,
+        Type::UnsignedInteger16 => parse_unsigned_integer16(ir_text)?,
+        Type::UnsignedInteger32 => parse_unsigned_integer32(ir_text)?,
+        Type::UnsignedInteger64 => parse_unsigned_integer64(ir_text)?,
+        Type::Float32 => parse_float32(ir_text)?,
+        Type::Float64 => parse_float64(ir_text)?,
         _ => todo!(),
     };
     context.get_type_id(ty);
     Ok((ir_text, constant))
 }
 
-fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(ir_text)?;
-    let num = num_text.parse::<i8>().map_err(|_| {
+fn parse_prim<'a, T: std::str::FromStr>(
+    ir_text: &'a str,
+    chars: &'static str,
+) -> nom::IResult<&'a str, T> {
+    let (ir_text, x_text) = nom::bytes::complete::is_a(chars)(ir_text)?;
+    let x = x_text.parse::<T>().map_err(|_| {
         nom::Err::Error(nom::error::Error {
-            input: num_text,
+            input: x_text,
             code: nom::error::ErrorKind::IsNot,
         })
     })?;
+    Ok((ir_text, x))
+}
+
+fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
     Ok((ir_text, Constant::Integer8(num)))
 }
 
+fn parse_integer16<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::Integer16(num)))
+}
+
 fn parse_integer32<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(ir_text)?;
-    let num = num_text.parse::<i32>().map_err(|_| {
-        nom::Err::Error(nom::error::Error {
-            input: num_text,
-            code: nom::error::ErrorKind::IsNot,
-        })
-    })?;
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
     Ok((ir_text, Constant::Integer32(num)))
+}
+
+fn parse_integer64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::Integer64(num)))
+}
+
+fn parse_unsigned_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::UnsignedInteger8(num)))
+}
+
+fn parse_unsigned_integer16<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::UnsignedInteger16(num)))
+}
+
+fn parse_unsigned_integer32<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::UnsignedInteger32(num)))
+}
+
+fn parse_unsigned_integer64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = parse_prim(ir_text, "-1234567890")?;
+    Ok((ir_text, Constant::UnsignedInteger64(num)))
+}
+
+fn parse_float32<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = nom::number::complete::float(ir_text)?;
+    Ok((
+        ir_text,
+        Constant::Float32(ordered_float::OrderedFloat::<f32>(num)),
+    ))
+}
+
+fn parse_float64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, num) = nom::number::complete::double(ir_text)?;
+    Ok((
+        ir_text,
+        Constant::Float64(ordered_float::OrderedFloat::<f64>(num)),
+    ))
 }
 
 mod tests {
@@ -409,7 +460,7 @@ mod tests {
 
     #[test]
     fn parse_ir1() {
-        let module = parse(
+        parse(
             "
 fn myfunc(x: i32) -> i32
   y = call(start, add, x, x)
