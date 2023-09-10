@@ -330,7 +330,31 @@ fn parse_dynamic_constant_id<'a>(
     ir_text: &'a str,
     context: &mut Context<'a>,
 ) -> nom::IResult<&'a str, DynamicConstantID> {
-    todo!()
+    let (ir_text, dynamic_constant) = parse_dynamic_constant(ir_text)?;
+    let id = context.get_dynamic_constant_id(dynamic_constant);
+    Ok((ir_text, id))
+}
+
+fn parse_dynamic_constant<'a>(ir_text: &'a str) -> nom::IResult<&'a str, DynamicConstant> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let parse_usize = |x: &'a str| -> nom::IResult<&'a str, usize> {
+        let (ir_text, num_text) = nom::bytes::complete::is_a("-1234567890")(x)?;
+        let num = num_text.parse::<usize>().map_err(|_| {
+            nom::Err::Error(nom::error::Error {
+                input: num_text,
+                code: nom::error::ErrorKind::IsNot,
+            })
+        })?;
+        Ok((ir_text, num))
+    };
+    let (ir_text, dc) = nom::branch::alt((
+        nom::combinator::map(parse_usize, |x| DynamicConstant::Constant(x)),
+        nom::combinator::map(
+            nom::sequence::tuple((nom::character::complete::char('#'), parse_usize)),
+            |(_, x)| DynamicConstant::Parameter(x),
+        ),
+    ))(ir_text)?;
+    Ok((ir_text, dc))
 }
 
 fn parse_constant_id<'a>(

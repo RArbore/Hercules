@@ -51,6 +51,7 @@ pub enum Constant {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicConstant {
     Constant(usize),
+    Parameter(usize),
 }
 
 #[derive(Debug, Clone)]
