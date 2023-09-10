@@ -17,7 +17,7 @@ pub struct Function {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    Control(u64),
+    Control(ConstantID),
     Integer8,
     Integer16,
     Integer32,
@@ -28,6 +28,8 @@ pub enum Type {
     UnsignedInteger64,
     Float32,
     Float64,
+    Product(Box<[TypeID]>),
+    Summation(Box<[TypeID]>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -56,11 +58,11 @@ pub enum Node {
     },
     Fork {
         control: NodeID,
-        factor: usize,
+        factor: ConstantID,
     },
     Join {
         control: NodeID,
-        factor: usize,
+        factor: ConstantID,
     },
     Phi {
         control: NodeID,

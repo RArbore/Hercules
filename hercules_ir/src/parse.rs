@@ -77,7 +77,7 @@ fn parse_module<'a>(ir_text: &'a str, mut context: Context<'a>) -> nom::IResult<
         let function_id = context.function_ids.remove(function_name.as_str()).unwrap();
         fixed_functions[function_id.idx()] = function;
     }
-    let mut types = vec![Type::Control(0); context.interned_types.len()];
+    let mut types = vec![Type::Control(ConstantID::new(0)); context.interned_types.len()];
     for (ty, id) in context.interned_types {
         types[id.idx()] = ty;
     }
@@ -276,8 +276,23 @@ fn parse_type_id<'a>(ir_text: &'a str, context: &mut Context<'a>) -> nom::IResul
 fn parse_type<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Type> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, ty) = nom::branch::alt((
+        //nom::sequence::tuple((nom::bytes::complete::tag(""))),
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
+        nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),
         nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
+        nom::combinator::map(nom::bytes::complete::tag("i64"), |_| Type::Integer64),
+        nom::combinator::map(nom::bytes::complete::tag("u8"), |_| Type::UnsignedInteger8),
+        nom::combinator::map(nom::bytes::complete::tag("u16"), |_| {
+            Type::UnsignedInteger16
+        }),
+        nom::combinator::map(nom::bytes::complete::tag("u32"), |_| {
+            Type::UnsignedInteger32
+        }),
+        nom::combinator::map(nom::bytes::complete::tag("u64"), |_| {
+            Type::UnsignedInteger64
+        }),
+        nom::combinator::map(nom::bytes::complete::tag("f32"), |_| Type::Float32),
+        nom::combinator::map(nom::bytes::complete::tag("f64"), |_| Type::Float64),
     ))(ir_text)?;
     Ok((ir_text, ty))
 }
