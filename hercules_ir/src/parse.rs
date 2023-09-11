@@ -203,6 +203,8 @@ fn parse_node<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, node_kind) = parse_identifier(ir_text)?;
     let (ir_text, node) = match node_kind {
+        "region" => parse_region(ir_text, context)?,
+        "if" => parse_if(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "add" => parse_add(ir_text, context)?,
@@ -211,6 +213,37 @@ fn parse_node<'a>(
     };
     context.borrow_mut().get_node_id(node_name);
     Ok((ir_text, (node_name, node)))
+}
+
+fn parse_region<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, preds) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        parse_identifier,
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    let preds = preds
+        .into_iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
+    Ok((ir_text, Node::Region { preds }))
+}
+
+fn parse_if<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, cond)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    let cond = context.borrow_mut().get_node_id(cond);
+    Ok((ir_text, Node::If { control, cond }))
 }
 
 fn parse_return<'a>(
