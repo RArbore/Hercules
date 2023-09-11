@@ -129,7 +129,7 @@ fn parse_function<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::bytes::complete::tag("fn")(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, function_name) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, function_name) = parse_identifier(ir_text)?;
     let parse_num_dynamic_constants = |ir_text: &'a str| -> nom::IResult<&'a str, u32> {
         let ir_text = nom::character::complete::multispace0(ir_text)?.0;
         let ir_text = nom::character::complete::char('<')(ir_text)?.0;
@@ -148,7 +148,7 @@ fn parse_function<'a>(
         nom::character::complete::char(','),
         nom::sequence::tuple((
             nom::character::complete::multispace0,
-            nom::character::complete::alphanumeric1,
+            parse_identifier,
             nom::character::complete::multispace0,
             nom::character::complete::char(':'),
             nom::character::complete::multispace0,
@@ -197,11 +197,11 @@ fn parse_node<'a>(
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, (&'a str, Node)> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, node_name) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, node_name) = parse_identifier(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('=')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, node_kind) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, node_kind) = parse_identifier(ir_text)?;
     let (ir_text, node) = match node_kind {
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
@@ -220,11 +220,11 @@ fn parse_return<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, control) = parse_identifier(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(',')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, value) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, value) = parse_identifier(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     let control = context.borrow_mut().get_node_id(control);
@@ -253,11 +253,11 @@ fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, left) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, left) = parse_identifier(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(',')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, right) = nom::character::complete::alphanumeric1(ir_text)?;
+    let (ir_text, right) = parse_identifier(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     let left = context.borrow_mut().get_node_id(left);
@@ -293,7 +293,7 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             nom::character::complete::char(','),
             nom::character::complete::multispace0,
         )),
-        nom::character::complete::alphanumeric1,
+        parse_identifier,
     )(ir_text)?;
     let function = function_and_args.remove(0);
     let args: Vec<NodeID> = function_and_args
@@ -712,6 +712,15 @@ fn parse_array_constant_helper<'a>(
         contents.push(id);
         Ok((ir_text, ()))
     }
+}
+
+fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
+    nom::combinator::verify(
+        nom::bytes::complete::is_a(
+            "1234567890_@ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        ),
+        |s: &str| s.len() > 0,
+    )(ir_text)
 }
 
 mod tests {
