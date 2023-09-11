@@ -217,16 +217,7 @@ fn parse_return<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, control) = parse_identifier(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, value) = parse_identifier(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    let (ir_text, (control, value)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
     let value = context.borrow_mut().get_node_id(value);
     Ok((ir_text, Node::Return { control, value }))
@@ -250,16 +241,7 @@ fn parse_constant_node<'a>(
 }
 
 fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, left) = parse_identifier(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, right) = parse_identifier(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
     Ok((ir_text, Node::Add { left, right }))
@@ -721,6 +703,73 @@ fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
         ),
         |s: &str| s.len() > 0,
     )(ir_text)
+}
+
+fn parse_tuple1<'a, A, AF>(mut parse_a: AF) -> impl FnMut(&'a str) -> nom::IResult<&'a str, (A,)>
+where
+    AF: nom::Parser<&'a str, A, nom::error::Error<&'a str>>,
+{
+    move |ir_text: &'a str| {
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, a) = parse_a.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+        Ok((ir_text, (a,)))
+    }
+}
+
+fn parse_tuple2<'a, A, B, AF, BF>(
+    mut parse_a: AF,
+    mut parse_b: BF,
+) -> impl FnMut(&'a str) -> nom::IResult<&'a str, (A, B)>
+where
+    AF: nom::Parser<&'a str, A, nom::error::Error<&'a str>>,
+    BF: nom::Parser<&'a str, B, nom::error::Error<&'a str>>,
+{
+    move |ir_text: &'a str| {
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, a) = parse_a.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, b) = parse_b.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+        Ok((ir_text, (a, b)))
+    }
+}
+
+fn parse_tuple3<'a, A, B, C, AF, BF, CF>(
+    mut parse_a: AF,
+    mut parse_b: BF,
+    mut parse_c: CF,
+) -> impl FnMut(&'a str) -> nom::IResult<&'a str, (A, B, C)>
+where
+    AF: nom::Parser<&'a str, A, nom::error::Error<&'a str>>,
+    BF: nom::Parser<&'a str, B, nom::error::Error<&'a str>>,
+    CF: nom::Parser<&'a str, C, nom::error::Error<&'a str>>,
+{
+    move |ir_text: &'a str| {
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, a) = parse_a.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, b) = parse_b.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, c) = parse_c.parse(ir_text)?;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+        Ok((ir_text, (a, b, c)))
+    }
 }
 
 mod tests {
