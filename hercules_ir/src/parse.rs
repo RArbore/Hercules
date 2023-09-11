@@ -207,9 +207,13 @@ fn parse_node<'a>(
         "if" => parse_if(ir_text, context)?,
         "fork" => parse_fork(ir_text, context)?,
         "join" => parse_join(ir_text, context)?,
+        "phi" => parse_phi(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "add" => parse_add(ir_text, context)?,
+        "sub" => parse_sub(ir_text, context)?,
+        "mul" => parse_mul(ir_text, context)?,
+        "div" => parse_div(ir_text, context)?,
         "call" => parse_call(ir_text, context)?,
         _ => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
@@ -260,6 +264,26 @@ fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     Ok((ir_text, Node::Join { control, factor }))
 }
 
+fn parse_phi<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, data)) = parse_tuple2(
+        parse_identifier,
+        nom::multi::separated_list1(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::character::complete::char(','),
+                nom::character::complete::multispace0,
+            )),
+            parse_identifier,
+        ),
+    )(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    let data = data
+        .into_iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
+    Ok((ir_text, Node::Phi { control, data }))
+}
+
 fn parse_return<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
@@ -292,6 +316,27 @@ fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
     Ok((ir_text, Node::Add { left, right }))
+}
+
+fn parse_sub<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::Sub { left, right }))
+}
+
+fn parse_mul<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::Mul { left, right }))
+}
+
+fn parse_div<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::Div { left, right }))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
