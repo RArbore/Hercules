@@ -18,6 +18,7 @@ struct Context<'a> {
     reverse_type_map: HashMap<TypeID, Type>,
     interned_constants: HashMap<Constant, ConstantID>,
     interned_dynamic_constants: HashMap<DynamicConstant, DynamicConstantID>,
+    reverse_dynamic_constant_map: HashMap<DynamicConstantID, DynamicConstant>,
 }
 
 impl<'a> Context<'a> {
@@ -67,7 +68,10 @@ impl<'a> Context<'a> {
             *id
         } else {
             let id = DynamicConstantID::new(self.interned_dynamic_constants.len());
-            self.interned_dynamic_constants.insert(dynamic_constant, id);
+            self.interned_dynamic_constants
+                .insert(dynamic_constant.clone(), id);
+            self.reverse_dynamic_constant_map
+                .insert(id, dynamic_constant);
             id
         }
     }
@@ -480,6 +484,10 @@ fn parse_constant<'a>(
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
     let (ir_text, constant) = match ty.clone() {
+        Type::Control(_) => Err(nom::Err::Error(nom::error::Error {
+            input: ir_text,
+            code: nom::error::ErrorKind::IsNot,
+        }))?,
         Type::Integer8 => parse_integer8(ir_text)?,
         Type::Integer16 => parse_integer16(ir_text)?,
         Type::Integer32 => parse_integer32(ir_text)?,
@@ -502,7 +510,13 @@ fn parse_constant<'a>(
             tys,
             context,
         )?,
-        _ => todo!(),
+        Type::Array(elem_ty, dc_bounds) => parse_array_constant(
+            ir_text,
+            context.borrow_mut().get_type_id(ty.clone()),
+            elem_ty,
+            dc_bounds,
+            context,
+        )?,
     };
     context.borrow_mut().get_type_id(ty);
     Ok((ir_text, constant))
@@ -636,6 +650,88 @@ fn parse_summation_constant<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     Ok((ir_text, Constant::Summation(sum_ty, variant, id)))
+}
+
+fn parse_array_constant<'a>(
+    ir_text: &'a str,
+    array_ty: TypeID,
+    elem_ty: TypeID,
+    dc_bounds: Box<[DynamicConstantID]>,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Constant> {
+    let mut bounds = vec![];
+    let borrow = context.borrow();
+    let mut total_elems = 1;
+    for dc in dc_bounds.iter() {
+        let dc = borrow.reverse_dynamic_constant_map.get(dc).unwrap();
+        match dc {
+            DynamicConstant::Constant(b) => {
+                if *b == 0 {
+                    Err(nom::Err::Error(nom::error::Error {
+                        input: ir_text,
+                        code: nom::error::ErrorKind::IsNot,
+                    }))?
+                }
+                total_elems *= b;
+                bounds.push(*b);
+            }
+            _ => Err(nom::Err::Error(nom::error::Error {
+                input: ir_text,
+                code: nom::error::ErrorKind::IsNot,
+            }))?,
+        }
+    }
+    let mut contents = vec![];
+    let ir_text =
+        parse_array_constant_helper(ir_text, elem_ty, bounds.as_slice(), &mut contents, context)?.0;
+    Ok((
+        ir_text,
+        Constant::Array(array_ty, contents.into_boxed_slice()),
+    ))
+}
+
+fn parse_array_constant_helper<'a>(
+    ir_text: &'a str,
+    elem_ty: TypeID,
+    bounds: &[usize],
+    contents: &mut Vec<ConstantID>,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, ()> {
+    if bounds.len() > 0 {
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char('[')(ir_text)?.0;
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let (ir_text, empties) = nom::multi::separated_list1(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::character::complete::char(','),
+                nom::character::complete::multispace0,
+            )),
+            |x| parse_array_constant_helper(x, elem_ty, bounds, contents, context),
+        )(ir_text)?;
+        if empties.len() != bounds[0] {
+            Err(nom::Err::Error(nom::error::Error {
+                input: ir_text,
+                code: nom::error::ErrorKind::IsNot,
+            }))?
+        }
+        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+        let ir_text = nom::character::complete::char(']')(ir_text)?.0;
+        Ok((ir_text, ()))
+    } else {
+        let (ir_text, id) = parse_constant_id(
+            ir_text,
+            context
+                .borrow()
+                .reverse_type_map
+                .get(&elem_ty)
+                .unwrap()
+                .clone(),
+            context,
+        )?;
+        contents.push(id);
+        Ok((ir_text, ()))
+    }
 }
 
 mod tests {
