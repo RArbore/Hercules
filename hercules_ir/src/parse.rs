@@ -496,6 +496,12 @@ fn parse_constant<'a>(
             tys,
             context,
         )?,
+        Type::Summation(tys) => parse_summation_constant(
+            ir_text,
+            context.borrow_mut().get_type_id(ty.clone()),
+            tys,
+            context,
+        )?,
         _ => todo!(),
     };
     context.borrow_mut().get_type_id(ty);
@@ -600,6 +606,36 @@ fn parse_product_constant<'a>(
         ir_text,
         Constant::Product(prod_ty, subconstants.into_boxed_slice()),
     ))
+}
+
+fn parse_summation_constant<'a>(
+    ir_text: &'a str,
+    sum_ty: TypeID,
+    tys: Box<[TypeID]>,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Constant> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::bytes::complete::tag("sum")(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, variant) = parse_prim::<u32>(ir_text, "1234567890")?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, id) = parse_constant_id(
+        ir_text,
+        context
+            .borrow()
+            .reverse_type_map
+            .get(&tys[variant as usize])
+            .unwrap()
+            .clone(),
+        context,
+    )?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    Ok((ir_text, Constant::Summation(sum_ty, variant, id)))
 }
 
 mod tests {
