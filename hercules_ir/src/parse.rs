@@ -205,11 +205,16 @@ fn parse_node<'a>(
     let (ir_text, node) = match node_kind {
         "region" => parse_region(ir_text, context)?,
         "if" => parse_if(ir_text, context)?,
+        "fork" => parse_fork(ir_text, context)?,
+        "join" => parse_join(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "add" => parse_add(ir_text, context)?,
         "call" => parse_call(ir_text, context)?,
-        _ => todo!(),
+        _ => Err(nom::Err::Error(nom::error::Error {
+            input: ir_text,
+            code: nom::error::ErrorKind::IsNot,
+        }))?,
     };
     context.borrow_mut().get_node_id(node_name);
     Ok((ir_text, (node_name, node)))
@@ -219,19 +224,14 @@ fn parse_region<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, preds) = nom::multi::separated_list1(
+    let (ir_text, (preds,)) = parse_tuple1(nom::multi::separated_list1(
         nom::sequence::tuple((
             nom::character::complete::multispace0,
             nom::character::complete::char(','),
             nom::character::complete::multispace0,
         )),
         parse_identifier,
-    )(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    ))(ir_text)?;
     let preds = preds
         .into_iter()
         .map(|x| context.borrow_mut().get_node_id(x))
@@ -244,6 +244,20 @@ fn parse_if<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResul
     let control = context.borrow_mut().get_node_id(control);
     let cond = context.borrow_mut().get_node_id(cond);
     Ok((ir_text, Node::If { control, cond }))
+}
+
+fn parse_fork<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, factor)) =
+        parse_tuple2(parse_identifier, |x| parse_dynamic_constant_id(x, context))(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    Ok((ir_text, Node::Fork { control, factor }))
+}
+
+fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, factor)) =
+        parse_tuple2(parse_identifier, |x| parse_dynamic_constant_id(x, context))(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    Ok((ir_text, Node::Join { control, factor }))
 }
 
 fn parse_return<'a>(
