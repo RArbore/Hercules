@@ -112,15 +112,13 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
     for (dynamic_constant, id) in context.interned_dynamic_constants {
         dynamic_constants[id.idx()] = dynamic_constant;
     }
-    Ok((
-        rest,
-        Module {
-            functions: fixed_functions,
-            types,
-            constants,
-            dynamic_constants,
-        },
-    ))
+    let module = Module {
+        functions: fixed_functions,
+        types,
+        constants,
+        dynamic_constants,
+    };
+    Ok((rest, module))
 }
 
 fn parse_function<'a>(
@@ -255,10 +253,6 @@ fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, left) = nom::character::complete::alphanumeric1(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(',')(ir_text)?.0;
@@ -266,17 +260,9 @@ fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     let (ir_text, right) = nom::character::complete::alphanumeric1(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
-    let control = context.borrow_mut().get_node_id(control);
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
-    Ok((
-        ir_text,
-        Node::Add {
-            control,
-            left,
-            right,
-        },
-    ))
+    Ok((ir_text, Node::Add { left, right }))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
@@ -301,10 +287,6 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     let dynamic_constants = dynamic_constants.unwrap_or(vec![]);
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let (ir_text, control) = nom::character::complete::alphanumeric1(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, mut function_and_args) = nom::multi::separated_list1(
         nom::sequence::tuple((
             nom::character::complete::multispace0,
@@ -320,12 +302,10 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
         .collect();
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
-    let control = context.borrow_mut().get_node_id(control);
     let function = context.borrow_mut().get_function_id(function);
     Ok((
         ir_text,
         Node::Call {
-            control,
             function,
             dynamic_constants: dynamic_constants.into_boxed_slice(),
             args: args.into_boxed_slice(),
@@ -743,14 +723,14 @@ mod tests {
         parse(
             "
 fn myfunc(x: i32) -> i32
-  y = call<0>(start, add, x, x)
+  y = call<0>(add, x, x)
   r = return(start, y)
 
 fn add<1>(x: i32, y: i32) -> i32
   c = constant(i8, 5)
   r = return(start, w)
-  w = add(start, z, c)
-  z = add(start, x, y)
+  w = add(z, c)
+  z = add(x, y)
 ",
         );
     }

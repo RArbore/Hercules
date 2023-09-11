@@ -69,31 +69,21 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} [label=\"{:?}\"];\n", name, constants[id.idx()])?;
                 visited
             }
-            Node::Add {
-                control,
-                left,
-                right,
-            } => {
-                let (control_name, visited) =
-                    write_node(i, control.idx(), module, constants, visited, w)?;
+            Node::Add { left, right } => {
                 let (left_name, visited) =
                     write_node(i, left.idx(), module, constants, visited, w)?;
                 let (right_name, visited) =
                     write_node(i, right.idx(), module, constants, visited, w)?;
                 write!(w, "{} [label=\"add\"];\n", name)?;
-                write!(w, "{} -> {} [style=\"dashed\"];\n", control_name, name)?;
                 write!(w, "{} -> {};\n", left_name, name)?;
                 write!(w, "{} -> {};\n", right_name, name)?;
                 visited
             }
             Node::Call {
-                control,
                 function,
                 dynamic_constants,
                 args,
             } => {
-                let (control_name, mut visited) =
-                    write_node(i, control.idx(), module, constants, visited, w)?;
                 for arg in args.iter() {
                     let (arg_name, tmp_visited) =
                         write_node(i, arg.idx(), module, constants, visited, w)?;
@@ -106,7 +96,6 @@ fn write_node<W: std::fmt::Write>(
                     name,
                     module.functions[function.idx()].name
                 )?;
-                write!(w, "{} -> {} [style=\"dashed\"];\n", control_name, name)?;
                 write!(
                     w,
                     "{} -> start_{}_0 [lhead={}];\n",
@@ -149,28 +138,11 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Parameter { index: _ } => "parameter",
         Node::DynamicConstant { id: _ } => "dynamic_constant",
         Node::Constant { id: _ } => "constant",
-        Node::Add {
-            control: _,
-            left: _,
-            right: _,
-        } => "add",
-        Node::Sub {
-            control: _,
-            left: _,
-            right: _,
-        } => "sub",
-        Node::Mul {
-            control: _,
-            left: _,
-            right: _,
-        } => "mul",
-        Node::Div {
-            control: _,
-            left: _,
-            right: _,
-        } => "div",
+        Node::Add { left: _, right: _ } => "add",
+        Node::Sub { left: _, right: _ } => "sub",
+        Node::Mul { left: _, right: _ } => "mul",
+        Node::Div { left: _, right: _ } => "div",
         Node::Call {
-            control: _,
             function: _,
             dynamic_constants: _,
             args: _,

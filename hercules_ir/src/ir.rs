@@ -94,27 +94,22 @@ pub enum Node {
         id: DynamicConstantID,
     },
     Add {
-        control: NodeID,
         left: NodeID,
         right: NodeID,
     },
     Sub {
-        control: NodeID,
         left: NodeID,
         right: NodeID,
     },
     Mul {
-        control: NodeID,
         left: NodeID,
         right: NodeID,
     },
     Div {
-        control: NodeID,
         left: NodeID,
         right: NodeID,
     },
     Call {
-        control: NodeID,
         function: FunctionID,
         dynamic_constants: Box<[DynamicConstantID]>,
         args: Box<[NodeID]>,
