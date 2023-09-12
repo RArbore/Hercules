@@ -2,5 +2,6 @@
 
 members = [
 	"hercules_ir",
-	"hercules_tools"
+	"hercules_tools",
+  "frontend"
 ]

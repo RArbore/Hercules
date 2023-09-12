@@ -29,14 +29,14 @@
 \fancyhf{}
 \chead{}
 \rhead{Code Name Hydra Spec}
-\lhead{DRAFT: 2023-09-08}
+\lhead{DRAFT: 2023-09-11}
 
 \renewcommand{\footrulewidth}{1pt}
 \rfoot{\thepage}
 
 \title{Code Name Hydra \\ \large Language Specification}
 \author{Aaron Councilman, Russel Arbore}
-\date{September 8, 2023}
+\date{September 11, 2023}
 
 \newcommand{\nonterminal}[1]{#1\ }
 \newcommand{\terminal}[1]{\text{`#1'}\ }
@@ -70,11 +70,7 @@ The language also supports C/C++ style line comments and block comments, allowin
 
 \begin{align*}
 %  
-  \nonterminal{Program} ::&=
-    \gramOption{\nonterminal{Package}} \gramRepeat{\nonterminal{Top}} \\
-%
-  \nonterminal{Package} ::&=
-    \terminal{package} \nonterminal{PackageName} \terminal{;} \\
+  \nonterminal{Program} ::&= \gramRepeat{\nonterminal{Top}} \\
 %
   \nonterminal{Top} ::&= \nonterminal{Import}
     \gramOr \nonterminal{TypeDecl}
@@ -92,8 +88,7 @@ The language also supports C/C++ style line comments and block comments, allowin
   \nonterminal{PackageId} ::&=
     \nonterminal{PackageName} \gramOption{\terminal{::} \terminal{*}} \\
 %
-  \nonterminal{PackageName} ::&=
-    \nonterminal{Id} \gramRepeat{\terminal{::} \nonterminal{Id}} \\
+  \nonterminal{PackageName} ::&= \gramSome[\terminal{::}]{\nonterminal{Id}} \\
 %
   \nonterminal{TypeDecl} ::&=
     \gramOption{\terminal{pub}} \terminal{type} \nonterminal{Id}
@@ -117,8 +112,8 @@ The language also supports C/C++ style line comments and block comments, allowin
   \nonterminal{Kind} ::&= \terminal{type} \gramOr \nonterminal{PrimType} \\
 %
   \nonterminal{Type} ::&= \nonterminal{PrimType}
-    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)}
-    \gramOr \nonterminal{Id}
+    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)} \\
+    &\gramOr \nonterminal{PackageName}
       \gramOption{\terminal{\textless}
         \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
     \gramOr \nonterminal{Type}
@@ -138,13 +133,15 @@ The language also supports C/C++ style line comments and block comments, allowin
         \nonterminal{VarBinding}} \terminal{)}
       \gramOption{\terminal{:} \nonterminal{Type}} \nonterminal{Stmt} \\
 %
-  \nonterminal{FuncAttr} ::&= \terminal{\#[} \gramRepeat[\terminal{,}]{\regex{[a-zA-Z0-9\\-_.:\\ ]*}} \terminal{]} \\
+  \nonterminal{FuncAttr} ::&= \regex{#\\[[^\\]]*\\]} \\
 %
-  \nonterminal{VarBinding} ::&= \nonterminal{SPattern} \terminal{:} \nonterminal{Type} \\
+  \nonterminal{VarBinding} ::&= \nonterminal{SPattern} \gramOption{\terminal{:} \nonterminal{Type}} \\
 %
   \nonterminal{Stmt} ::&=
     \terminal{let} \nonterminal{VarBinding}
-      \gramOption{\terminal{=} \nonterminal{Expr}} \terminal{;} \\
+      \gramOption{\terminal{=} \nonterminal{Expr}} \terminal{;}
+     \gramOr \terminal{const} \nonterminal{VarBinding}
+      \terminal{=} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \nonterminal{LExpr} \terminal{=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{+=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{-=} \nonterminal{Expr} \terminal{;} \\
@@ -154,6 +151,8 @@ The language also supports C/C++ style line comments and block comments, allowin
     &\gramOr \nonterminal{LExpr} \terminal{\&=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{\textbar=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{\^{}=} \nonterminal{Expr} \terminal{;} \\
+    &\gramOr \nonterminal{LExpr} \terminal{\&\&=} \nonterminal{Expr} \terminal{;}
+     \gramOr \nonterminal{LExpr} \terminal{\textbar\textbar=} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \nonterminal{LExpr} \terminal{\textless\textless=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{\textgreater\textgreater=} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \terminal{if} \terminal{(} \nonterminal{Expr} \terminal{)}
@@ -175,13 +174,13 @@ The language also supports C/C++ style line comments and block comments, allowin
 %
   \nonterminal{Patterns} ::&=
     \gramOption{\terminal{\textbar}}
-      \gramSome[\terminal{\textbar}]{\gramOption{\nonterminal{Pattern}}} \\
+      \gramSome[\terminal{\textbar}]{\nonterminal{Pattern}} \\
 %
   \nonterminal{Pattern} ::&= \nonterminal{SPattern}
-    \gramOr \nonterminal{Id} \nonterminal{SPattern} \\
+    \gramOr \nonterminal{PackageName} \nonterminal{SPattern} \\
 %
   \nonterminal{SPattern} ::&= \terminal{\textunderscore}
-    \gramOr \nonterminal{Id}
+    \gramOr \nonterminal{IntLit} \gramOr \nonterminal{PackageName}
     \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Pattern}} \terminal{)}
     \gramOr \terminal{\{} \gramRepeat[\terminal{,}]{\nonterminal{Pattern}} \terminal{\}} \\
     &\gramOr \terminal{\{}
@@ -192,20 +191,20 @@ The language also supports C/C++ style line comments and block comments, allowin
     \gramOr \nonterminal{LExpr} \regex{\\.[0-9]+}
     \gramOr \nonterminal{LExpr} \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
 %
-  \nonterminal{Expr} ::&= \nonterminal{LExpr}
+  \nonterminal{Expr} ::&= \nonterminal{PackageName}
     \gramOr \nonterminal{Expr} \terminal{.} \nonterminal{Id}
-    \gramOr \nonterminal{Expr} \regex{\\.[0-9]+}
-    \gramOr \nonterminal{Expr} \terminal{[} \nonterminal{Expr} \terminal{]} \\
-   &\gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{)}
-    \gramOr \terminal{\{} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{\}}
-    \gramOr \terminal{\{}
+    \gramOr \nonterminal{Expr} \regex{\\.[0-9]+} \\
+   &\gramOr \nonterminal{Expr} \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]}
+    \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{)}
+    \gramOr \terminal{\{} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{\}} \\
+   &\gramOr \terminal{\{}
       \gramRepeat[\terminal{,}]{\nonterminal{Id} \terminal{=} \nonterminal{Expr}} \terminal{\}} \\
     &\gramOr \nonterminal{BoolLit} \gramOr \nonterminal{IntLit} \gramOr \nonterminal{FloatLit}
      \gramOr \terminal{-} \nonterminal{Expr}
      \gramOr \terminal{\texttildelow} \nonterminal{Expr}
      \gramOr \terminal{!} \nonterminal{Expr} \\
     &\gramOr \nonterminal{Expr} \terminal{as} \nonterminal{Type} 
-     \gramOr \terminal{size} \terminal{(} \nonterminal{Expr} \terminal{)} \\
+     \gramOr \terminal{size} \nonterminal{Expr} \\
     &\gramOr \nonterminal{Expr} \terminal{+} \nonterminal{Expr}
      \gramOr \nonterminal{Expr} \terminal{-} \nonterminal{Expr}
      \gramOr \nonterminal{Expr} \terminal{*} \nonterminal{Expr}
@@ -226,7 +225,7 @@ The language also supports C/C++ style line comments and block comments, allowin
      \gramOr \nonterminal{Expr} \terminal{\textgreater\textgreater} \nonterminal{Expr} \\
     &\gramOr \terminal{if} \nonterminal{Expr} \terminal{then} \nonterminal{Expr}
              \terminal{else} \nonterminal{Expr} \\
-    &\gramOr \nonterminal{Id}
+    &\gramOr \nonterminal{PackageName}
       \gramOption{\terminal{\textless}
         \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
       \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \\
@@ -242,12 +241,10 @@ The language also supports C/C++ style line comments and block comments, allowin
 %
   \nonterminal{BoolLit} ::&= \terminal{true} \gramOr \terminal{false} \\
 %
-  \nonterminal{IntLit} ::&= \nonterminal{DecLit} \gramOr \regex{0x[0-9a-fA-F]+}
+  \nonterminal{IntLit} ::&= \regex{[0-9]+} \gramOr \regex{0x[0-9a-fA-F]+}
     \gramOr \regex{0b[0-1]+} \gramOr \regex{0o[0-7]+} \\
 %
-  \nonterminal{DecLit} ::&= \regex{[0-9]+} \\
-%
-  \nonterminal{FloatLit} ::&= \regex{[0-9]+\\.[0-9]+(e[0-9]+)?} \\
+  \nonterminal{FloatLit} ::&= \regex{[0-9]+\\.[0-9]*(e[0-9]+)?} \\
 \end{align*}
 %
 The grammar specified is ambiguous in a few places, the details of the disambiguation are provided below:
@@ -260,7 +257,7 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     In this list, the top of the list are the operators which bind most tightly.
     \begin{enumerate}
       \item Non associative: `-' (unary), `\texttildelow', `!', and `\&' (unary)
-      \item Left associative: `as'
+      \item Left associative: `as' and `size'
       \item Left associative: `*', `/', and `\%'
       \item Left associative: `+' and `-' (binary)
       \item Left associative: `\textless\textless', and `\textgreater\textgreater'
@@ -275,7 +272,7 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     \end{enumerate}
 \end{enumerate}
 %
-The keywords are: `as', `bool', `by', `else', `f32', `f64', `false', `fn', `for', `i8', `i16', `i32', `i64', `if', `inout', `let', `match', `module', `package', `pub', `return', `size', `struct', `then', `to', `true', `type', `u8', `u16', `u32', `u64', `union', `use', `void', and `while'.
+The keywords are: `as', `bool', `by', `else', `f32', `f64', `false', `fn', `for', `i8', `i16', `i32', `i64', `if', `inout', `let', `match', `module', `pub', `return', `size', `struct', `then', `to', `true', `type', `u8', `u16', `u32', `u64', `union', `use', `void', and `while'.
 
 \section{Type System}\label{sec:types}
 TODO

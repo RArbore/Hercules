@@ -1,0 +1,11 @@
+[package]
+name = "hercules_frontend"
+version = "0.1.0"
+authors = ["Aaron Councilman <aaronjc4@illinois.edu>"]
+
+[[bin]]
+name = "hercules_compiler"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "*", features = ["derive"] }
