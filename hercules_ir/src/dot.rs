@@ -200,7 +200,68 @@ fn write_node<W: std::fmt::Write>(
                 )?;
                 visited
             }
-            _ => todo!(),
+            Node::ReadProd { prod, index } => {
+                write!(w, "{} [label=\"read_prod({})\"];\n", name, index)?;
+                let (prod_name, visited) = write_node(i, prod.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", prod_name, name)?;
+                visited
+            }
+            Node::WriteProd { prod, data, index } => {
+                write!(w, "{} [label=\"write_prod({})\"];\n", name, index)?;
+                let (prod_name, visited) = write_node(i, prod.idx(), module, visited, w)?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", prod_name, name)?;
+                write!(w, "{} -> {};\n", data_name, name)?;
+                visited
+            }
+            Node::ReadArray { array, index } => {
+                write!(w, "{} [label=\"read_array\"];\n", name)?;
+                let (array_name, mut visited) = write_node(i, array.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", array_name, name)?;
+                for index in index.iter() {
+                    let (index_name, tmp_visited) = write_node(i, index.idx(), module, visited, w)?;
+                    visited = tmp_visited;
+                    write!(w, "{} -> {};\n", index_name, name)?;
+                }
+                visited
+            }
+            Node::WriteArray { array, data, index } => {
+                write!(w, "{} [label=\"write_array\"];\n", name)?;
+                let (array_name, visited) = write_node(i, array.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", array_name, name)?;
+                let (data_name, mut visited) = write_node(i, data.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", data_name, name)?;
+                for index in index.iter() {
+                    let (index_name, tmp_visited) = write_node(i, index.idx(), module, visited, w)?;
+                    visited = tmp_visited;
+                    write!(w, "{} -> {};\n", index_name, name)?;
+                }
+                visited
+            }
+            Node::Match { control, sum } => {
+                write!(w, "{} [label=\"match\"];\n", name)?;
+                let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", control_name, name)?;
+                let (sum_name, visited) = write_node(i, sum.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", sum_name, name)?;
+                visited
+            }
+            Node::BuildSum {
+                data,
+                sum_ty,
+                variant,
+            } => {
+                write!(
+                    w,
+                    "{} [label=\"build_sum({:?}, {})\"];\n",
+                    name,
+                    module.types[sum_ty.idx()],
+                    variant
+                )?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
+                write!(w, "{} -> {};\n", data_name, name)?;
+                visited
+            }
         };
         Ok((visited.get(&id).unwrap().clone(), visited))
     }
