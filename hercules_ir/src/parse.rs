@@ -419,9 +419,22 @@ fn parse_read_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, index)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let (ir_text, (array, index)) = parse_tuple2(
+        parse_identifier,
+        nom::multi::separated_list1(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::character::complete::char(','),
+                nom::character::complete::multispace0,
+            )),
+            parse_identifier,
+        ),
+    )(ir_text)?;
     let array = context.borrow_mut().get_node_id(array);
-    let index = context.borrow_mut().get_node_id(index);
+    let index = index
+        .into_iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
     Ok((ir_text, Node::ReadArray { array, index }))
 }
 
@@ -429,11 +442,24 @@ fn parse_write_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, data, index)) =
-        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
+    let (ir_text, (array, data, index)) = parse_tuple3(
+        parse_identifier,
+        parse_identifier,
+        nom::multi::separated_list1(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::character::complete::char(','),
+                nom::character::complete::multispace0,
+            )),
+            parse_identifier,
+        ),
+    )(ir_text)?;
     let array = context.borrow_mut().get_node_id(array);
     let data = context.borrow_mut().get_node_id(data);
-    let index = context.borrow_mut().get_node_id(index);
+    let index = index
+        .into_iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
     Ok((ir_text, Node::WriteArray { array, data, index }))
 }
 

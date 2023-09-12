@@ -125,12 +125,12 @@ pub enum Node {
     },
     ReadArray {
         array: NodeID,
-        index: NodeID,
+        index: Box<[NodeID]>,
     },
     WriteArray {
         array: NodeID,
         data: NodeID,
-        index: NodeID,
+        index: Box<[NodeID]>,
     },
     Match {
         control: NodeID,
