@@ -74,6 +74,7 @@ pub enum Node {
     },
     Join {
         control: NodeID,
+        data: NodeID,
         factor: DynamicConstantID,
     },
     Phi {

@@ -265,10 +265,20 @@ fn parse_fork<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
 }
 
 fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (control, factor)) =
-        parse_tuple2(parse_identifier, |x| parse_dynamic_constant_id(x, context))(ir_text)?;
+    let (ir_text, (control, data, factor)) =
+        parse_tuple3(parse_identifier, parse_identifier, |x| {
+            parse_dynamic_constant_id(x, context)
+        })(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
-    Ok((ir_text, Node::Join { control, factor }))
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((
+        ir_text,
+        Node::Join {
+            control,
+            data,
+            factor,
+        },
+    ))
 }
 
 fn parse_phi<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
