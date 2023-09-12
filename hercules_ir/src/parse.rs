@@ -215,6 +215,7 @@ fn parse_node<'a>(
         "sub" => parse_sub(ir_text, context)?,
         "mul" => parse_mul(ir_text, context)?,
         "div" => parse_div(ir_text, context)?,
+        "less_than" => parse_less_than(ir_text, context)?,
         "call" => parse_call(ir_text, context)?,
         "read_prod" => parse_read_prod(ir_text, context)?,
         "write_prod" => parse_write_prod(ir_text, context)?,
@@ -362,6 +363,16 @@ fn parse_div<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
     Ok((ir_text, Node::Div { left, right }))
+}
+
+fn parse_less_than<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::LessThan { left, right }))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {

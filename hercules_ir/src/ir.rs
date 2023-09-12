@@ -110,6 +110,10 @@ pub enum Node {
         left: NodeID,
         right: NodeID,
     },
+    LessThan {
+        left: NodeID,
+        right: NodeID,
+    },
     Call {
         function: FunctionID,
         dynamic_constants: Box<[DynamicConstantID]>,

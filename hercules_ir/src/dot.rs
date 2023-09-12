@@ -175,6 +175,14 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
                 visited
             }
+            Node::LessThan { left, right } => {
+                write!(w, "{} [label=\"less_than\"];\n", name)?;
+                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
+                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
+                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+                visited
+            }
             Node::Call {
                 function,
                 dynamic_constants,
@@ -303,6 +311,7 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Sub { left: _, right: _ } => "sub",
         Node::Mul { left: _, right: _ } => "mul",
         Node::Div { left: _, right: _ } => "div",
+        Node::LessThan { left: _, right: _ } => "less_than",
         Node::Call {
             function: _,
             dynamic_constants: _,
