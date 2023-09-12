@@ -210,6 +210,7 @@ fn parse_node<'a>(
         "phi" => parse_phi(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
+        "dynamic_constant" => parse_dynamic_constant_node(ir_text, context)?,
         "add" => parse_add(ir_text, context)?,
         "sub" => parse_sub(ir_text, context)?,
         "mul" => parse_mul(ir_text, context)?,
@@ -315,6 +316,14 @@ fn parse_constant_node<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     Ok((ir_text, Node::Constant { id }))
+}
+
+fn parse_dynamic_constant_node<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (id,)) = parse_tuple1(|x| parse_dynamic_constant_id(x, context))(ir_text)?;
+    Ok((ir_text, Node::DynamicConstant { id }))
 }
 
 fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {

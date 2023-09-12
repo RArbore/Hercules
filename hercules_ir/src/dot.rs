@@ -19,7 +19,15 @@ fn write_function<W: std::fmt::Write>(
     w: &mut W,
 ) -> std::fmt::Result {
     write!(w, "subgraph {} {{\n", module.functions[i].name)?;
-    write!(w, "label=\"{}\"\n", module.functions[i].name)?;
+    if module.functions[i].num_dynamic_constants > 0 {
+        write!(
+            w,
+            "label=\"{}<{}>\"\n",
+            module.functions[i].name, module.functions[i].num_dynamic_constants
+        )?;
+    } else {
+        write!(w, "label=\"{}\"\n", module.functions[i].name)?;
+    }
     write!(w, "bgcolor=ivory4\n")?;
     write!(w, "cluster=true\n")?;
     let mut visited = HashMap::default();
@@ -90,12 +98,16 @@ fn write_node<W: std::fmt::Write>(
                     visited = tmp_visited;
                     write!(w, "{} -> {};\n", arg_name, name)?;
                 }
-                write!(
-                    w,
-                    "{} [label=\"call({})\"];\n",
-                    name,
-                    module.functions[function.idx()].name
-                )?;
+                write!(w, "{} [label=\"call<", name,)?;
+                for (idx, id) in dynamic_constants.iter().enumerate() {
+                    let dc = &module.dynamic_constants[id.idx()];
+                    if idx == 0 {
+                        write!(w, "{:?}", dc)?;
+                    } else {
+                        write!(w, ", {:?}", dc)?;
+                    }
+                }
+                write!(w, ">({})\"];\n", module.functions[function.idx()].name)?;
                 write!(
                     w,
                     "{} -> start_{}_0 [lhead={}];\n",
