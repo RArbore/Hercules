@@ -114,6 +114,33 @@ pub enum Node {
         dynamic_constants: Box<[DynamicConstantID]>,
         args: Box<[NodeID]>,
     },
+    ReadProd {
+        prod: NodeID,
+        index: usize,
+    },
+    WriteProd {
+        prod: NodeID,
+        data: NodeID,
+        index: usize,
+    },
+    ReadArray {
+        array: NodeID,
+        index: NodeID,
+    },
+    WriteArray {
+        array: NodeID,
+        data: NodeID,
+        index: NodeID,
+    },
+    Match {
+        control: NodeID,
+        sum: NodeID,
+    },
+    BuildSum {
+        data: NodeID,
+        sum_ty: TypeID,
+        variant: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

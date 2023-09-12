@@ -215,6 +215,12 @@ fn parse_node<'a>(
         "mul" => parse_mul(ir_text, context)?,
         "div" => parse_div(ir_text, context)?,
         "call" => parse_call(ir_text, context)?,
+        "read_prod" => parse_read_prod(ir_text, context)?,
+        "write_prod" => parse_write_prod(ir_text, context)?,
+        "read_array" => parse_read_array(ir_text, context)?,
+        "write_array" => parse_write_array(ir_text, context)?,
+        "match" => parse_match(ir_text, context)?,
+        "build_sum" => parse_build_sum(ir_text, context)?,
         _ => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
@@ -387,6 +393,50 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     ))
 }
 
+fn parse_read_prod<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (prod, index)) =
+        parse_tuple2(parse_identifier, |x| parse_prim::<usize>(x, "1234567890"))(ir_text)?;
+    let prod = context.borrow_mut().get_node_id(prod);
+    Ok((ir_text, Node::ReadProd { prod, index }))
+}
+
+fn parse_write_prod<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (prod, data, index)) = parse_tuple3(parse_identifier, parse_identifier, |x| {
+        parse_prim::<usize>(x, "1234567890")
+    })(ir_text)?;
+    let prod = context.borrow_mut().get_node_id(prod);
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((ir_text, Node::WriteProd { prod, data, index }))
+}
+
+fn parse_read_array<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (array, index)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let array = context.borrow_mut().get_node_id(array);
+    let index = context.borrow_mut().get_node_id(index);
+    Ok((ir_text, Node::ReadArray { array, index }))
+}
+
+fn parse_write_array<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (array, data, index)) =
+        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
+    let array = context.borrow_mut().get_node_id(array);
+    let data = context.borrow_mut().get_node_id(data);
+    let index = context.borrow_mut().get_node_id(index);
+    Ok((ir_text, Node::WriteArray { array, data, index }))
+}
+
 fn parse_type_id<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
@@ -395,6 +445,36 @@ fn parse_type_id<'a>(
     let (ir_text, ty) = parse_type(ir_text, context)?;
     let id = context.borrow_mut().get_type_id(ty);
     Ok((ir_text, id))
+}
+
+fn parse_match<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, sum)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    let sum = context.borrow_mut().get_node_id(sum);
+    Ok((ir_text, Node::Match { control, sum }))
+}
+
+fn parse_build_sum<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (data, sum_ty, variant)) = parse_tuple3(
+        parse_identifier,
+        |x| parse_type_id(x, context),
+        |x| parse_prim::<usize>(x, "1234567890"),
+    )(ir_text)?;
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((
+        ir_text,
+        Node::BuildSum {
+            data,
+            sum_ty,
+            variant,
+        },
+    ))
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Type> {

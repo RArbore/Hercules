@@ -147,5 +147,23 @@ fn get_string_node_kind(node: &Node) -> &'static str {
             dynamic_constants: _,
             args: _,
         } => "call",
+        Node::ReadProd { prod: _, index: _ } => "read_prod",
+        Node::WriteProd {
+            prod: _,
+            data: _,
+            index: _,
+        } => "write_prod ",
+        Node::ReadArray { array: _, index: _ } => "read_array",
+        Node::WriteArray {
+            array: _,
+            data: _,
+            index: _,
+        } => "write_array",
+        Node::Match { control: _, sum: _ } => "match",
+        Node::BuildSum {
+            data: _,
+            sum_ty: _,
+            variant: _,
+        } => "build_sum",
     }
 }
