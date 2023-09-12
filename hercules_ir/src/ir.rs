@@ -32,7 +32,7 @@ pub enum Type {
     Float64,
     Product(Box<[TypeID]>),
     Summation(Box<[TypeID]>),
-    Array(TypeID, Box<[DynamicConstantID]>),
+    Array(TypeID, DynamicConstantID),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -130,12 +130,12 @@ pub enum Node {
     },
     ReadArray {
         array: NodeID,
-        index: Box<[NodeID]>,
+        index: NodeID,
     },
     WriteArray {
         array: NodeID,
         data: NodeID,
-        index: Box<[NodeID]>,
+        index: NodeID,
     },
     Match {
         control: NodeID,

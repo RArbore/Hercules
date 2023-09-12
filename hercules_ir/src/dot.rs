@@ -58,7 +58,11 @@ fn write_node<W: std::fmt::Write>(
                 for (idx, pred) in preds.iter().enumerate() {
                     let (pred_name, tmp_visited) = write_node(i, pred.idx(), module, visited, w)?;
                     visited = tmp_visited;
-                    write!(w, "{} -> {} [label=\"pred {}\"];\n", pred_name, name, idx)?;
+                    write!(
+                        w,
+                        "{} -> {} [label=\"pred {}\", style=\"dashed\"];\n",
+                        pred_name, name, idx
+                    )?;
                 }
                 visited
             }
@@ -244,26 +248,20 @@ fn write_node<W: std::fmt::Write>(
             }
             Node::ReadArray { array, index } => {
                 write!(w, "{} [label=\"read_array\"];\n", name)?;
-                let (array_name, mut visited) = write_node(i, array.idx(), module, visited, w)?;
+                let (array_name, visited) = write_node(i, array.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"array\"];\n", array_name, name)?;
-                for (idx, index) in index.iter().enumerate() {
-                    let (index_name, tmp_visited) = write_node(i, index.idx(), module, visited, w)?;
-                    visited = tmp_visited;
-                    write!(w, "{} -> {} [label=\"index {}\"];\n", index_name, name, idx)?;
-                }
+                let (index_name, visited) = write_node(i, index.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"index\"];\n", index_name, name)?;
                 visited
             }
             Node::WriteArray { array, data, index } => {
                 write!(w, "{} [label=\"write_array\"];\n", name)?;
                 let (array_name, visited) = write_node(i, array.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"array\"];\n", array_name, name)?;
-                let (data_name, mut visited) = write_node(i, data.idx(), module, visited, w)?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
-                for (idx, index) in index.iter().enumerate() {
-                    let (index_name, tmp_visited) = write_node(i, index.idx(), module, visited, w)?;
-                    visited = tmp_visited;
-                    write!(w, "{} -> {} [label=\"index {}\"];\n", index_name, name, idx)?;
-                }
+                let (index_name, visited) = write_node(i, index.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"index\"];\n", index_name, name)?;
                 visited
             }
             Node::Match { control, sum } => {

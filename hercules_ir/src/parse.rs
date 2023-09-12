@@ -449,22 +449,9 @@ fn parse_read_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, index)) = parse_tuple2(
-        parse_identifier,
-        nom::multi::separated_list1(
-            nom::sequence::tuple((
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-            )),
-            parse_identifier,
-        ),
-    )(ir_text)?;
+    let (ir_text, (array, index)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let array = context.borrow_mut().get_node_id(array);
-    let index = index
-        .into_iter()
-        .map(|x| context.borrow_mut().get_node_id(x))
-        .collect();
+    let index = context.borrow_mut().get_node_id(index);
     Ok((ir_text, Node::ReadArray { array, index }))
 }
 
@@ -472,24 +459,11 @@ fn parse_write_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, data, index)) = parse_tuple3(
-        parse_identifier,
-        parse_identifier,
-        nom::multi::separated_list1(
-            nom::sequence::tuple((
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-            )),
-            parse_identifier,
-        ),
-    )(ir_text)?;
+    let (ir_text, (array, data, index)) =
+        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
     let array = context.borrow_mut().get_node_id(array);
     let data = context.borrow_mut().get_node_id(data);
-    let index = index
-        .into_iter()
-        .map(|x| context.borrow_mut().get_node_id(x))
-        .collect();
+    let index = context.borrow_mut().get_node_id(index);
     Ok((ir_text, Node::WriteArray { array, data, index }))
 }
 
@@ -611,20 +585,11 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
                 nom::character::complete::multispace0,
                 nom::character::complete::char(','),
                 nom::character::complete::multispace0,
-                nom::multi::separated_list1(
-                    nom::sequence::tuple((
-                        nom::character::complete::multispace0,
-                        nom::character::complete::char(','),
-                        nom::character::complete::multispace0,
-                    )),
-                    |x| parse_dynamic_constant_id(x, context),
-                ),
+                |x| parse_dynamic_constant_id(x, context),
                 nom::character::complete::multispace0,
                 nom::character::complete::char(')'),
             )),
-            |(_, _, _, _, ty_id, _, _, _, dc_ids, _, _)| {
-                Type::Array(ty_id, dc_ids.into_boxed_slice())
-            },
+            |(_, _, _, _, ty_id, _, _, _, dc_id, _, _)| Type::Array(ty_id, dc_id),
         ),
     ))(ir_text)?;
     Ok((ir_text, ty))
@@ -700,11 +665,11 @@ fn parse_constant<'a>(
             tys,
             context,
         )?,
-        Type::Array(elem_ty, dc_bounds) => parse_array_constant(
+        Type::Array(elem_ty, dc_bound) => parse_array_constant(
             ir_text,
             context.borrow_mut().get_type_id(ty.clone()),
             elem_ty,
-            dc_bounds,
+            dc_bound,
             context,
         )?,
     };
@@ -846,82 +811,37 @@ fn parse_array_constant<'a>(
     ir_text: &'a str,
     array_ty: TypeID,
     elem_ty: TypeID,
-    dc_bounds: Box<[DynamicConstantID]>,
+    dc_bound: DynamicConstantID,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
-    let mut bounds = vec![];
-    let borrow = context.borrow();
-    let mut total_elems = 1;
-    for dc in dc_bounds.iter() {
-        let dc = borrow.reverse_dynamic_constant_map.get(dc).unwrap();
-        match dc {
-            DynamicConstant::Constant(b) => {
-                if *b == 0 {
-                    Err(nom::Err::Error(nom::error::Error {
-                        input: ir_text,
-                        code: nom::error::ErrorKind::IsNot,
-                    }))?
-                }
-                total_elems *= b;
-                bounds.push(*b);
-            }
-            _ => Err(nom::Err::Error(nom::error::Error {
-                input: ir_text,
-                code: nom::error::ErrorKind::IsNot,
-            }))?,
-        }
-    }
-    let mut contents = vec![];
-    let ir_text =
-        parse_array_constant_helper(ir_text, elem_ty, bounds.as_slice(), &mut contents, context)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('[')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, entries) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        |x| {
+            parse_constant_id(
+                x,
+                context
+                    .borrow()
+                    .reverse_type_map
+                    .get(&elem_ty)
+                    .unwrap()
+                    .clone(),
+                context,
+            )
+        },
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(']')(ir_text)?.0;
     Ok((
         ir_text,
-        Constant::Array(array_ty, contents.into_boxed_slice()),
+        Constant::Array(elem_ty, entries.into_boxed_slice()),
     ))
-}
-
-fn parse_array_constant_helper<'a>(
-    ir_text: &'a str,
-    elem_ty: TypeID,
-    bounds: &[usize],
-    contents: &mut Vec<ConstantID>,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, ()> {
-    if bounds.len() > 0 {
-        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-        let ir_text = nom::character::complete::char('[')(ir_text)?.0;
-        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-        let (ir_text, empties) = nom::multi::separated_list1(
-            nom::sequence::tuple((
-                nom::character::complete::multispace0,
-                nom::character::complete::char(','),
-                nom::character::complete::multispace0,
-            )),
-            |x| parse_array_constant_helper(x, elem_ty, bounds, contents, context),
-        )(ir_text)?;
-        if empties.len() != bounds[0] {
-            Err(nom::Err::Error(nom::error::Error {
-                input: ir_text,
-                code: nom::error::ErrorKind::IsNot,
-            }))?
-        }
-        let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-        let ir_text = nom::character::complete::char(']')(ir_text)?.0;
-        Ok((ir_text, ()))
-    } else {
-        let (ir_text, id) = parse_constant_id(
-            ir_text,
-            context
-                .borrow()
-                .reverse_type_map
-                .get(&elem_ty)
-                .unwrap()
-                .clone(),
-            context,
-        )?;
-        contents.push(id);
-        Ok((ir_text, ()))
-    }
 }
 
 fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
