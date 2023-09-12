@@ -66,7 +66,11 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} [label=\"if\"];\n", name)?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
                 let (cond_name, visited) = write_node(i, cond.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"control\"];\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
                 write!(w, "{} -> {} [label=\"cond\"];\n", cond_name, name)?;
                 visited
             }
@@ -78,7 +82,11 @@ fn write_node<W: std::fmt::Write>(
                     module.dynamic_constants[factor.idx()]
                 )?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"control\"];\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
                 visited
             }
             Node::Join {
@@ -94,14 +102,22 @@ fn write_node<W: std::fmt::Write>(
                 )?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
                 let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"control\"];\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
                 write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
                 visited
             }
             Node::Phi { control, data } => {
                 write!(w, "{} [label=\"phi\"];\n", name)?;
                 let (control_name, mut visited) = write_node(i, control.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"control\"];\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
                 for (idx, data) in data.iter().enumerate() {
                     let (data_name, tmp_visited) = write_node(i, data.idx(), module, visited, w)?;
                     visited = tmp_visited;
@@ -115,7 +131,7 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} [label=\"return\"];\n", name)?;
                 write!(
                     w,
-                    "{} -> {} [label = \"control\", style=\"dashed\"];\n",
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
                     control_name, name
                 )?;
                 write!(w, "{} -> {} [label=\"value\"];\n", value_name, name)?;
@@ -253,7 +269,11 @@ fn write_node<W: std::fmt::Write>(
             Node::Match { control, sum } => {
                 write!(w, "{} [label=\"match\"];\n", name)?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"control\"];\n", control_name, name)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
                 let (sum_name, visited) = write_node(i, sum.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"sum\"];\n", sum_name, name)?;
                 visited
