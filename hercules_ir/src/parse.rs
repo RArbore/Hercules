@@ -6,10 +6,21 @@ use std::str::FromStr;
 
 use crate::*;
 
+/*
+ * Top level parse function.
+ */
 pub fn parse(ir_test: &str) -> Module {
     parse_module(ir_test, Context::default()).unwrap().1
 }
 
+/*
+ * This is a context sensitive parser. We parse directly into the graph data
+ * structure inside ir::Module, so this is where we perform interning.
+ * We intern function names, node names, types, constants, and dynamic
+ * constants. Sometimes, types and dynamic constants need to be looked up, so
+ * we also maintain reverse intern maps for that purpose. IDs are assigned
+ * in increasing order, based on the intern map's size.
+ */
 #[derive(Default)]
 struct Context<'a> {
     function_ids: HashMap<&'a str, FunctionID>,
@@ -21,6 +32,10 @@ struct Context<'a> {
     reverse_dynamic_constant_map: HashMap<DynamicConstantID, DynamicConstant>,
 }
 
+/*
+ * Interning functions. In general, all modifications to intern maps should be
+ * done through these functions.
+ */
 impl<'a> Context<'a> {
     fn get_function_id(&mut self, name: &'a str) -> FunctionID {
         if let Some(id) = self.function_ids.get(name) {
@@ -77,13 +92,22 @@ impl<'a> Context<'a> {
     }
 }
 
+/*
+ * A module is just a file with a list of functions.
+ */
 fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a str, Module> {
     let context = RefCell::new(context);
+
+    // If there is any text left after successfully parsing some functions,
+    // treat that as an error.
     let (rest, functions) =
         nom::combinator::all_consuming(nom::multi::many0(|x| parse_function(x, &context)))(
             ir_text,
         )?;
     let mut context = context.into_inner();
+
+    // functions, as returned by parsing, is in parse order, which may differ
+    // from the order dictated by FunctionIDs in the function name intern map.
     let mut fixed_functions = vec![
         Function {
             name: String::from(""),
@@ -96,9 +120,15 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
     ];
     for function in functions {
         let function_name = function.name.clone();
+
+        // We can remove items from context now, as it's going to be destroyed
+        // anyway.
         let function_id = context.function_ids.remove(function_name.as_str()).unwrap();
         fixed_functions[function_id.idx()] = function;
     }
+
+    // Assemble flat lists of interned goodies, now that we've figured out
+    // everyones' IDs.
     let mut types = vec![Type::Control(DynamicConstantID::new(0)); context.interned_types.len()];
     for (ty, id) in context.interned_types {
         types[id.idx()] = ty;
@@ -121,11 +151,20 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
     Ok((rest, module))
 }
 
+/*
+ * A function is a function declaration, followed by a list of node statements.
+ */
 fn parse_function<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Function> {
+    // Each function contains its own list of interned nodes, so we need to
+    // clear the node name intern map.
     context.borrow_mut().node_ids.clear();
+
+    // This parser isn't split into lexing and parsing steps. So, we very
+    // frequently need to eat whitespace. Is this ugly? Yes. Does it work? Also
+    // yes.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::bytes::complete::tag("fn")(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -141,6 +180,8 @@ fn parse_function<'a>(
     };
     let (ir_text, num_dynamic_constants) =
         nom::combinator::opt(parse_num_dynamic_constants)(ir_text)?;
+
+    // If unspecified, assumed function has no dynamic constant arguments.
     let num_dynamic_constants = num_dynamic_constants.unwrap_or(0);
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
@@ -156,29 +197,49 @@ fn parse_function<'a>(
             nom::character::complete::multispace0,
         )),
     )(ir_text)?;
-    context
-        .borrow_mut()
-        .node_ids
-        .insert("start", NodeID::new(0));
+
+    // The start node is not explicitly specified in the textual IR, so create
+    // it manually.
+    context.borrow_mut().get_node_id("start");
+
+    // Insert nodes for each parameter.
     for param in params.iter() {
-        let id = NodeID::new(context.borrow().node_ids.len());
-        context.borrow_mut().node_ids.insert(param.1, id);
+        context.borrow_mut().get_node_id(param.1);
     }
     let ir_text = nom::character::complete::char(')')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::bytes::complete::tag("->")(ir_text)?.0;
     let (ir_text, return_type) = parse_type_id(ir_text, context)?;
     let (ir_text, nodes) = nom::multi::many1(|x| parse_node(x, context))(ir_text)?;
+
+    // nodes, as returned by parsing, is in parse order, which may differ from
+    // the order dictated by NodeIDs in the node name intern map.
     let mut fixed_nodes = vec![Node::Start; context.borrow().node_ids.len()];
     for (name, node) in nodes {
+        // We can remove items from the node name intern map now, as the map
+        // will be cleared during the next iteration of parse_function.
         fixed_nodes[context.borrow_mut().node_ids.remove(name).unwrap().idx()] = node;
     }
+
+    // The nodes removed from node_ids in the previous step are nodes that are
+    // defined in statements parsed by parse_node. There are 2 kinds of nodes
+    // that aren't defined in statements inside the function body: the start
+    // node, and the parameter nodes. The node at ID 0 is already a start node,
+    // by the initialization of fixed_nodes. Here, we set the other nodes to
+    // parameter nodes. The node id in node_ids corresponds to the parameter
+    // index + 1, because in parse_function, we add the parameter names to
+    // node_ids (a.k.a. the node name intern map) in order, after adding the
+    // start node.
     for (_, id) in context.borrow().node_ids.iter() {
         if id.idx() != 0 {
-            fixed_nodes[id.idx()] = Node::Parameter { index: id.idx() }
+            fixed_nodes[id.idx()] = Node::Parameter {
+                index: id.idx() - 1,
+            }
         }
     }
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+
+    // Intern function name.
     context.borrow_mut().get_function_id(function_name);
     Ok((
         ir_text,
@@ -192,6 +253,10 @@ fn parse_function<'a>(
     ))
 }
 
+/*
+ * A node is a statement of the form a = b(c), where a is the name of the output
+ * of the node, b is the node type, and c is a list of arguments.
+ */
 fn parse_node<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
@@ -228,6 +293,8 @@ fn parse_node<'a>(
             code: nom::error::ErrorKind::IsNot,
         }))?,
     };
+
+    // Intern node name.
     context.borrow_mut().get_node_id(node_name);
     Ok((ir_text, (node_name, node)))
 }
@@ -236,6 +303,13 @@ fn parse_region<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
+    // Each of these parse node functions are very similar. The node name and
+    // type have already been parsed, so here we just parse the node's
+    // arguments. These are always in between parantheses and separated by
+    // commas, so there are parse_tupleN utility functions that do this. If
+    // there is a variable amount of arguments, then we need to represent that
+    // explicitly using nom's separated list functionality. This example here
+    // is a bit of an abuse of what parse_tupleN functions are meant for.
     let (ir_text, (preds,)) = parse_tuple1(nom::multi::separated_list1(
         nom::sequence::tuple((
             nom::character::complete::multispace0,
@@ -244,6 +318,9 @@ fn parse_region<'a>(
         )),
         parse_identifier,
     ))(ir_text)?;
+
+    // When the parsed arguments are node names, we need to look up their ID in
+    // the node name intern map.
     let preds = preds
         .into_iter()
         .map(|x| context.borrow_mut().get_node_id(x))
@@ -262,6 +339,9 @@ fn parse_fork<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     let (ir_text, (control, factor)) =
         parse_tuple2(parse_identifier, |x| parse_dynamic_constant_id(x, context))(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
+
+    // Because parse_dynamic_constant_id returned a DynamicConstantID directly,
+    // we don't need to manually convert it here.
     Ok((ir_text, Node::Fork { control, factor }))
 }
 
@@ -316,6 +396,8 @@ fn parse_constant_node<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
+    // Here, we don't use parse_tuple2 because there is a dependency between
+    // the parse functions of the 2 arguments.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -376,6 +458,10 @@ fn parse_less_than<'a>(
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    // Call nodes are a bit complicated because they 1. optionally take dynamic
+    // constants as "arguments" (though these are specified between <>), 2.
+    // take a function name as an argument, and 3. take a variable number of
+    // normal arguments.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let parse_dynamic_constants =
         |ir_text: &'a str| -> nom::IResult<&'a str, Vec<DynamicConstantID>> {
@@ -508,8 +594,11 @@ fn parse_build_sum<'a>(
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Type> {
+    // Parser combinators are very convenient, if a bit hard to read.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, ty) = nom::branch::alt((
+        // Control tokens are parameterized by a dynamic constant representing
+        // their thread count.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("ctrl"),
@@ -521,6 +610,7 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             )),
             |(_, _, _, id, _, _)| Type::Control(id),
         ),
+        // Primitive types are written in Rust style.
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
         nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),
         nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
@@ -537,6 +627,7 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
         }),
         nom::combinator::map(nom::bytes::complete::tag("f32"), |_| Type::Float32),
         nom::combinator::map(nom::bytes::complete::tag("f64"), |_| Type::Float64),
+        // Product types are parsed as a list of their element types.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("prod"),
@@ -556,6 +647,7 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             )),
             |(_, _, _, _, ids, _, _)| Type::Product(ids.into_boxed_slice()),
         ),
+        // Sum types are parsed as a list of their variant types.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("sum"),
@@ -575,6 +667,8 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             )),
             |(_, _, _, _, ids, _, _)| Type::Summation(ids.into_boxed_slice()),
         ),
+        // Array types are just a pair between an element type and a dynamic
+        // constant representing its extent.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("array"),
@@ -595,6 +689,9 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     Ok((ir_text, ty))
 }
 
+// For types, constants, and dynamic constant parse functions, there is a
+// variant parsing the object itself, and a variant that parses the object and
+// returns the interned ID.
 fn parse_dynamic_constant_id<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
@@ -613,6 +710,8 @@ fn parse_dynamic_constant<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Dynamic
             |x| parse_prim::<usize>(x, "1234567890"),
             |x| DynamicConstant::Constant(x),
         ),
+        // Parameter dynamic constants of a function are written by preprending
+        // a '#' to the parameter's number.
         nom::combinator::map(
             nom::sequence::tuple((nom::character::complete::char('#'), |x| {
                 parse_prim::<usize>(x, "1234567890")
@@ -633,12 +732,20 @@ fn parse_constant_id<'a>(
     Ok((ir_text, id))
 }
 
+/*
+ * parse_constant requires a type argument so that we know what we're parsing
+ * upfront. Not having this would make parsing primitive constants much harder.
+ * This is a bad requirement to have for a source language, but for a verbose
+ * textual format for an IR, it's fine and simplifies the parser, typechecking,
+ * and the IR itself.
+ */
 fn parse_constant<'a>(
     ir_text: &'a str,
     ty: Type,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
     let (ir_text, constant) = match ty.clone() {
+        // There are not control constants.
         Type::Control(_) => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
@@ -665,11 +772,10 @@ fn parse_constant<'a>(
             tys,
             context,
         )?,
-        Type::Array(elem_ty, dc_bound) => parse_array_constant(
+        Type::Array(elem_ty, _) => parse_array_constant(
             ir_text,
             context.borrow_mut().get_type_id(ty.clone()),
             elem_ty,
-            dc_bound,
             context,
         )?,
     };
@@ -677,6 +783,9 @@ fn parse_constant<'a>(
     Ok((ir_text, constant))
 }
 
+/*
+ * Utility for parsing types implementing FromStr.
+ */
 fn parse_prim<'a, T: FromStr>(ir_text: &'a str, chars: &'static str) -> nom::IResult<&'a str, T> {
     let (ir_text, x_text) = nom::bytes::complete::is_a(chars)(ir_text)?;
     let x = x_text.parse::<T>().map_err(|_| {
@@ -755,6 +864,8 @@ fn parse_product_constant<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let mut ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let mut subconstants = vec![];
+
+    // There should be one constant for each element type.
     for ty in tys.iter() {
         if !subconstants.is_empty() {
             ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -788,6 +899,8 @@ fn parse_summation_constant<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char('(')(ir_text)?.0;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+
+    // Sum constants need to specify their variant number.
     let (ir_text, variant) = parse_prim::<u32>(ir_text, "1234567890")?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(',')(ir_text)?.0;
@@ -811,7 +924,6 @@ fn parse_array_constant<'a>(
     ir_text: &'a str,
     array_ty: TypeID,
     elem_ty: TypeID,
-    dc_bound: DynamicConstantID,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -838,13 +950,17 @@ fn parse_array_constant<'a>(
     )(ir_text)?;
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(']')(ir_text)?.0;
+
+    // Check that entries is the correct size during typechecking.
     Ok((
         ir_text,
-        Constant::Array(elem_ty, entries.into_boxed_slice()),
+        Constant::Array(array_ty, entries.into_boxed_slice()),
     ))
 }
 
 fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
+    // Here's the set of characters that can be in an identifier. Must be
+    // non-empty.
     nom::combinator::verify(
         nom::bytes::complete::is_a(
             "1234567890_@ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
@@ -853,6 +969,9 @@ fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
     )(ir_text)
 }
 
+/*
+ * Helper function for parsing tuples of arguments in the textual format.
+ */
 fn parse_tuple1<'a, A, AF>(mut parse_a: AF) -> impl FnMut(&'a str) -> nom::IResult<&'a str, (A,)>
 where
     AF: nom::Parser<&'a str, A, nom::error::Error<&'a str>>,
@@ -920,6 +1039,9 @@ where
     }
 }
 
+/*
+ * Some tests that demonstrate what the textual format looks like.
+ */
 mod tests {
     #[allow(unused_imports)]
     use super::*;

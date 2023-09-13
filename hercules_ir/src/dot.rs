@@ -142,7 +142,7 @@ fn write_node<W: std::fmt::Write>(
                 visited
             }
             Node::Parameter { index } => {
-                write!(w, "{} [label=\"param #{}\"];\n", name, index)?;
+                write!(w, "{} [label=\"param #{}\"];\n", name, index + 1)?;
                 visited
             }
             Node::Constant { id } => {
