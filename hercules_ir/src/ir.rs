@@ -150,41 +150,14 @@ pub enum Node {
     DynamicConstant {
         id: DynamicConstantID,
     },
-    Add {
-        left: NodeID,
-        right: NodeID,
+    Unary {
+        input: NodeID,
+        op: UnaryOperator,
     },
-    Sub {
+    Binary {
         left: NodeID,
         right: NodeID,
-    },
-    Mul {
-        left: NodeID,
-        right: NodeID,
-    },
-    Div {
-        left: NodeID,
-        right: NodeID,
-    },
-    Rem {
-        left: NodeID,
-        right: NodeID,
-    },
-    LT {
-        left: NodeID,
-        right: NodeID,
-    },
-    LTE {
-        left: NodeID,
-        right: NodeID,
-    },
-    GT {
-        left: NodeID,
-        right: NodeID,
-    },
-    GTE {
-        left: NodeID,
-        right: NodeID,
+        op: BinaryOperator,
     },
     Call {
         function: FunctionID,
@@ -218,6 +191,27 @@ pub enum Node {
         sum_ty: TypeID,
         variant: usize,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnaryOperator {
+    Not,
+    Neg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    LT,
+    LTE,
+    GT,
+    GTE,
+    EQ,
+    NE,
 }
 
 /*

@@ -276,15 +276,19 @@ fn parse_node<'a>(
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "dynamic_constant" => parse_dynamic_constant_node(ir_text, context)?,
-        "add" => parse_add(ir_text, context)?,
-        "sub" => parse_sub(ir_text, context)?,
-        "mul" => parse_mul(ir_text, context)?,
-        "div" => parse_div(ir_text, context)?,
-        "rem" => parse_rem(ir_text, context)?,
-        "lt" => parse_lt(ir_text, context)?,
-        "lte" => parse_lte(ir_text, context)?,
-        "gt" => parse_gt(ir_text, context)?,
-        "gte" => parse_gte(ir_text, context)?,
+        "not" => parse_unary(ir_text, context, UnaryOperator::Not)?,
+        "neg" => parse_unary(ir_text, context, UnaryOperator::Neg)?,
+        "add" => parse_binary(ir_text, context, BinaryOperator::Add)?,
+        "sub" => parse_binary(ir_text, context, BinaryOperator::Sub)?,
+        "mul" => parse_binary(ir_text, context, BinaryOperator::Mul)?,
+        "div" => parse_binary(ir_text, context, BinaryOperator::Div)?,
+        "rem" => parse_binary(ir_text, context, BinaryOperator::Rem)?,
+        "lt" => parse_binary(ir_text, context, BinaryOperator::LT)?,
+        "lte" => parse_binary(ir_text, context, BinaryOperator::LTE)?,
+        "gt" => parse_binary(ir_text, context, BinaryOperator::GT)?,
+        "gte" => parse_binary(ir_text, context, BinaryOperator::GTE)?,
+        "eq" => parse_binary(ir_text, context, BinaryOperator::EQ)?,
+        "ne" => parse_binary(ir_text, context, BinaryOperator::NE)?,
         "call" => parse_call(ir_text, context)?,
         "read_prod" => parse_read_prod(ir_text, context)?,
         "write_prod" => parse_write_prod(ir_text, context)?,
@@ -413,67 +417,25 @@ fn parse_dynamic_constant_node<'a>(
     Ok((ir_text, Node::DynamicConstant { id }))
 }
 
-fn parse_add<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::Add { left, right }))
+fn parse_unary<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+    op: UnaryOperator,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (input,)) = parse_tuple1(parse_identifier)(ir_text)?;
+    let input = context.borrow_mut().get_node_id(input);
+    Ok((ir_text, Node::Unary { input, op }))
 }
 
-fn parse_sub<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+fn parse_binary<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+    op: BinaryOperator,
+) -> nom::IResult<&'a str, Node> {
     let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::Sub { left, right }))
-}
-
-fn parse_mul<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::Mul { left, right }))
-}
-
-fn parse_div<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::Div { left, right }))
-}
-
-fn parse_rem<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::Rem { left, right }))
-}
-
-fn parse_lt<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::LT { left, right }))
-}
-
-fn parse_lte<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::LTE { left, right }))
-}
-
-fn parse_gt<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::GT { left, right }))
-}
-
-fn parse_gte<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let left = context.borrow_mut().get_node_id(left);
-    let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::GTE { left, right }))
+    Ok((ir_text, Node::Binary { left, right, op }))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {

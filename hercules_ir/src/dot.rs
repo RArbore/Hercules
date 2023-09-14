@@ -154,72 +154,14 @@ fn write_node<W: std::fmt::Write>(
                 )?;
                 visited
             }
-            Node::Add { left, right } => {
-                write!(w, "{} [label=\"add\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+            Node::Unary { input, op } => {
+                write!(w, "{} [label=\"{}\"];\n", name, get_string_uop_kind(*op))?;
+                let (input_name, visited) = write_node(i, input.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"input\"];\n", input_name, name)?;
                 visited
             }
-            Node::Sub { left, right } => {
-                write!(w, "{} [label=\"sub\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::Mul { left, right } => {
-                write!(w, "{} [label=\"mul\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::Div { left, right } => {
-                write!(w, "{} [label=\"div\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::Rem { left, right } => {
-                write!(w, "{} [label=\"rem\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::LT { left, right } => {
-                write!(w, "{} [label=\"lt\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::LTE { left, right } => {
-                write!(w, "{} [label=\"lte\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::GT { left, right } => {
-                write!(w, "{} [label=\"gt\"];\n", name)?;
-                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
-                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
-                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
-                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
-                visited
-            }
-            Node::GTE { left, right } => {
-                write!(w, "{} [label=\"gte\"];\n", name)?;
+            Node::Binary { left, right, op } => {
+                write!(w, "{} [label=\"{}\"];\n", name, get_string_bop_kind(*op))?;
                 let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
                 let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
@@ -347,15 +289,12 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Parameter { index: _ } => "parameter",
         Node::DynamicConstant { id: _ } => "dynamic_constant",
         Node::Constant { id: _ } => "constant",
-        Node::Add { left: _, right: _ } => "add",
-        Node::Sub { left: _, right: _ } => "sub",
-        Node::Mul { left: _, right: _ } => "mul",
-        Node::Div { left: _, right: _ } => "div",
-        Node::Rem { left: _, right: _ } => "rem",
-        Node::LT { left: _, right: _ } => "lt",
-        Node::LTE { left: _, right: _ } => "lte",
-        Node::GT { left: _, right: _ } => "gt",
-        Node::GTE { left: _, right: _ } => "gte",
+        Node::Unary { input: _, op } => get_string_uop_kind(*op),
+        Node::Binary {
+            left: _,
+            right: _,
+            op,
+        } => get_string_bop_kind(*op),
         Node::Call {
             function: _,
             dynamic_constants: _,
@@ -379,5 +318,28 @@ fn get_string_node_kind(node: &Node) -> &'static str {
             sum_ty: _,
             variant: _,
         } => "build_sum",
+    }
+}
+
+fn get_string_uop_kind(uop: UnaryOperator) -> &'static str {
+    match uop {
+        UnaryOperator::Not => "not",
+        UnaryOperator::Neg => "neg",
+    }
+}
+
+fn get_string_bop_kind(bop: BinaryOperator) -> &'static str {
+    match bop {
+        BinaryOperator::Add => "add",
+        BinaryOperator::Sub => "sub",
+        BinaryOperator::Mul => "mul",
+        BinaryOperator::Div => "div",
+        BinaryOperator::Rem => "rem",
+        BinaryOperator::LT => "lt",
+        BinaryOperator::LTE => "lte",
+        BinaryOperator::GT => "gt",
+        BinaryOperator::GTE => "gte",
+        BinaryOperator::EQ => "eq",
+        BinaryOperator::NE => "ne",
     }
 }
