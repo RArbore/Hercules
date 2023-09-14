@@ -276,6 +276,8 @@ fn parse_node<'a>(
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "dynamic_constant" => parse_dynamic_constant_node(ir_text, context)?,
+        // Unary and binary ops are spelled out in the textual format, but we
+        // parse them into Unary or Binary node kinds.
         "not" => parse_unary(ir_text, context, UnaryOperator::Not)?,
         "neg" => parse_unary(ir_text, context, UnaryOperator::Neg)?,
         "add" => parse_binary(ir_text, context, BinaryOperator::Add)?,
@@ -357,6 +359,11 @@ fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
     let data = context.borrow_mut().get_node_id(data);
+
+    // A join node doesn't need to explicitly store a join factor. The join
+    // factor is implicitly stored at the tail of the control token's type
+    // level list of thread spawn factors. Intuitively, fork pushes to the end
+    // of this list, while join just pops from the end of this list.
     Ok((ir_text, Node::Join { control, data }))
 }
 
@@ -944,7 +951,7 @@ fn parse_array_constant<'a>(
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let ir_text = nom::character::complete::char(']')(ir_text)?.0;
 
-    // Check that entries is the correct size during typechecking.
+    // Will check that entries is the correct size during typechecking.
     Ok((
         ir_text,
         Constant::Array(array_ty, entries.into_boxed_slice()),
@@ -952,8 +959,8 @@ fn parse_array_constant<'a>(
 }
 
 fn parse_identifier<'a>(ir_text: &'a str) -> nom::IResult<&'a str, &'a str> {
-    // Here's the set of characters that can be in an identifier. Must be
-    // non-empty.
+    // Here's the set of characters that can be in an identifier. Must be non-
+    // empty.
     nom::combinator::verify(
         nom::bytes::complete::is_a(
             "1234567890_@ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
