@@ -129,7 +129,7 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
 
     // Assemble flat lists of interned goodies, now that we've figured out
     // everyones' IDs.
-    let mut types = vec![Type::Control(DynamicConstantID::new(0)); context.interned_types.len()];
+    let mut types = vec![Type::Control(Box::new([])); context.interned_types.len()];
     for (ty, id) in context.interned_types {
         types[id.idx()] = ty;
     }
@@ -346,20 +346,10 @@ fn parse_fork<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
 }
 
 fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (control, data, factor)) =
-        parse_tuple3(parse_identifier, parse_identifier, |x| {
-            parse_dynamic_constant_id(x, context)
-        })(ir_text)?;
+    let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
     let data = context.borrow_mut().get_node_id(data);
-    Ok((
-        ir_text,
-        Node::Join {
-            control,
-            data,
-            factor,
-        },
-    ))
+    Ok((ir_text, Node::Join { control, data }))
 }
 
 fn parse_phi<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
@@ -597,19 +587,31 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     // Parser combinators are very convenient, if a bit hard to read.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
     let (ir_text, ty) = nom::branch::alt((
-        // Control tokens are parameterized by a dynamic constant representing
-        // their thread count.
+        // Control tokens are parameterized by a list of dynamic constants
+        // representing their thread spawn factors.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("ctrl"),
                 nom::character::complete::multispace0,
                 nom::character::complete::char('('),
-                |x| parse_dynamic_constant_id(x, context),
+                nom::character::complete::multispace0,
+                nom::multi::separated_list1(
+                    nom::sequence::tuple((
+                        nom::character::complete::multispace0,
+                        nom::character::complete::char(','),
+                        nom::character::complete::multispace0,
+                    )),
+                    |x| parse_dynamic_constant_id(x, context),
+                ),
                 nom::character::complete::multispace0,
                 nom::character::complete::char(')'),
             )),
-            |(_, _, _, id, _, _)| Type::Control(id),
+            |(_, _, _, _, id, _, _)| Type::Control(id.into_boxed_slice()),
         ),
+        // If no arguments are provided, assumed that no forks have occurred.
+        nom::combinator::map(nom::bytes::complete::tag("ctrl"), |_| {
+            Type::Control(Box::new([]))
+        }),
         // Primitive types are written in Rust style.
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
         nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),

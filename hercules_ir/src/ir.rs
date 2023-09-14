@@ -37,16 +37,16 @@ pub struct Function {
  * feature of which being a merged control and data flow graph. Thus, control
  * is a type of value, just like any other type. However, the type system is
  * very restrictive over what can be done with control values. A novel addition
- * in Hercules IR is that a control type is parameterized by its thread count.
- * This is the mechanism in Hercules IR for representing parallelism. Summation
- * types are an IR equivalent of Rust's enum types. These are lowered into
- * tagged unions during scheduling. Array types are one-dimensional. Multi-
- * dimensional arrays are represented by nesting array types. An array extent
- * is represented with a dynamic constant.
+ * in Hercules IR is that a control type is parameterized by a list of thread
+ * spawning factors. This is the mechanism in Hercules IR for representing
+ * parallelism. Summation types are an IR equivalent of Rust's enum types.
+ * These are lowered into tagged unions during scheduling. Array types are one-
+ * dimensional. Multi-dimensional arrays are represented by nesting array types.
+ * An array extent is represented with a dynamic constant.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    Control(DynamicConstantID),
+    Control(Box<[DynamicConstantID]>),
     Integer8,
     Integer16,
     Integer32,
@@ -132,7 +132,6 @@ pub enum Node {
     Join {
         control: NodeID,
         data: NodeID,
-        factor: DynamicConstantID,
     },
     Phi {
         control: NodeID,

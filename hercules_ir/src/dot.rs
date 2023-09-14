@@ -93,17 +93,8 @@ fn write_node<W: std::fmt::Write>(
                 )?;
                 visited
             }
-            Node::Join {
-                control,
-                data,
-                factor,
-            } => {
-                write!(
-                    w,
-                    "{} [label=\"join<{:?}>\"];\n",
-                    name,
-                    module.dynamic_constants[factor.idx()]
-                )?;
+            Node::Join { control, data } => {
+                write!(w, "{} [label=\"join\"];\n", name,)?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
                 let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
                 write!(
@@ -312,7 +303,6 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Join {
             control: _,
             data: _,
-            factor: _,
         } => "join",
         Node::Phi {
             control: _,
