@@ -186,8 +186,40 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
                 visited
             }
-            Node::LessThan { left, right } => {
-                write!(w, "{} [label=\"less_than\"];\n", name)?;
+            Node::Rem { left, right } => {
+                write!(w, "{} [label=\"rem\"];\n", name)?;
+                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
+                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
+                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+                visited
+            }
+            Node::LT { left, right } => {
+                write!(w, "{} [label=\"lt\"];\n", name)?;
+                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
+                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
+                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+                visited
+            }
+            Node::LTE { left, right } => {
+                write!(w, "{} [label=\"lte\"];\n", name)?;
+                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
+                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
+                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+                visited
+            }
+            Node::GT { left, right } => {
+                write!(w, "{} [label=\"gt\"];\n", name)?;
+                let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
+                let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
+                write!(w, "{} -> {} [label=\"right\"];\n", right_name, name)?;
+                visited
+            }
+            Node::GTE { left, right } => {
+                write!(w, "{} [label=\"gte\"];\n", name)?;
                 let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
                 let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
@@ -319,7 +351,11 @@ fn get_string_node_kind(node: &Node) -> &'static str {
         Node::Sub { left: _, right: _ } => "sub",
         Node::Mul { left: _, right: _ } => "mul",
         Node::Div { left: _, right: _ } => "div",
-        Node::LessThan { left: _, right: _ } => "less_than",
+        Node::Rem { left: _, right: _ } => "rem",
+        Node::LT { left: _, right: _ } => "lt",
+        Node::LTE { left: _, right: _ } => "lte",
+        Node::GT { left: _, right: _ } => "gt",
+        Node::GTE { left: _, right: _ } => "gte",
         Node::Call {
             function: _,
             dynamic_constants: _,

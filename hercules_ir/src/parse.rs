@@ -280,7 +280,11 @@ fn parse_node<'a>(
         "sub" => parse_sub(ir_text, context)?,
         "mul" => parse_mul(ir_text, context)?,
         "div" => parse_div(ir_text, context)?,
-        "less_than" => parse_less_than(ir_text, context)?,
+        "rem" => parse_rem(ir_text, context)?,
+        "lt" => parse_lt(ir_text, context)?,
+        "lte" => parse_lte(ir_text, context)?,
+        "gt" => parse_gt(ir_text, context)?,
+        "gte" => parse_gte(ir_text, context)?,
         "call" => parse_call(ir_text, context)?,
         "read_prod" => parse_read_prod(ir_text, context)?,
         "write_prod" => parse_write_prod(ir_text, context)?,
@@ -437,14 +441,39 @@ fn parse_div<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     Ok((ir_text, Node::Div { left, right }))
 }
 
-fn parse_less_than<'a>(
-    ir_text: &'a str,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
+fn parse_rem<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
     let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
-    Ok((ir_text, Node::LessThan { left, right }))
+    Ok((ir_text, Node::Rem { left, right }))
+}
+
+fn parse_lt<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::LT { left, right }))
+}
+
+fn parse_lte<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::LTE { left, right }))
+}
+
+fn parse_gt<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::GT { left, right }))
+}
+
+fn parse_gte<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (left, right)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let left = context.borrow_mut().get_node_id(left);
+    let right = context.borrow_mut().get_node_id(right);
+    Ok((ir_text, Node::GTE { left, right }))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {

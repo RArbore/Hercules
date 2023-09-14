@@ -166,7 +166,23 @@ pub enum Node {
         left: NodeID,
         right: NodeID,
     },
-    LessThan {
+    Rem {
+        left: NodeID,
+        right: NodeID,
+    },
+    LT {
+        left: NodeID,
+        right: NodeID,
+    },
+    LTE {
+        left: NodeID,
+        right: NodeID,
+    },
+    GT {
+        left: NodeID,
+        right: NodeID,
+    },
+    GTE {
         left: NodeID,
         right: NodeID,
     },
