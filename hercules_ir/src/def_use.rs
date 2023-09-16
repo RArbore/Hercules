@@ -7,7 +7,7 @@ use crate::*;
 #[derive(Debug, Clone)]
 pub struct ImmutableDefUseMap {
     first_edges: Vec<u32>,
-    uses: Vec<NodeID>,
+    users: Vec<NodeID>,
 }
 
 impl ImmutableDefUseMap {
@@ -22,7 +22,7 @@ impl ImmutableDefUseMap {
     pub fn get_uses(&self, id: NodeID) -> &[NodeID] {
         let first_edge = self.first_edges[id.idx()] as usize;
         let num_edges = self.num_edges(id) as usize;
-        &self.uses[first_edge..first_edge + num_edges]
+        &self.users[first_edge..first_edge + num_edges]
     }
 }
 
@@ -33,14 +33,36 @@ pub fn def_use(function: &Function) -> ImmutableDefUseMap {
     // Step 1: get uses for each node.
     let node_uses: Vec<NodeUses> = function.nodes.iter().map(|node| get_uses(node)).collect();
 
-    // Step 2: assemble first_edges and uses vectors simultaneously.
-    let mut first_edges: Vec<u32> = vec![];
-    let mut uses: Vec<NodeID> = vec![];
-    for u in node_uses {
-        first_edges.push(uses.len() as u32);
-        uses.extend_from_slice(u.as_ref());
+    // Step 2: count number of users per node.
+    let mut num_users: Vec<u32> = vec![0; node_uses.len()];
+    for uses in node_uses.iter() {
+        for u in uses.as_ref() {
+            num_users[u.idx()] += 1;
+        }
     }
-    ImmutableDefUseMap { first_edges, uses }
+
+    // Step 3: assemble first_edges vector.
+    let mut first_edges: Vec<u32> = vec![];
+    let mut num_edges = 0;
+    for num_users in num_users {
+        first_edges.push(num_edges);
+        num_edges += num_users;
+    }
+
+    // Step 4: assemble users vector.
+    let mut users: Vec<NodeID> = vec![NodeID::new(0); num_edges as usize];
+    let mut num_users_per_node: Vec<u32> = vec![0; node_uses.len()];
+    for (idx, uses) in node_uses.iter().enumerate() {
+        for u in uses.as_ref() {
+            let first_edge = first_edges[u.idx()];
+            let num_users_so_far = num_users_per_node[u.idx()];
+            users[first_edge as usize + num_users_so_far as usize] = NodeID::new(idx);
+            num_users_per_node[u.idx()] = num_users_so_far + 1;
+        }
+    }
+
+    // Step 5: pack and return.
+    ImmutableDefUseMap { first_edges, users }
 }
 
 /*
