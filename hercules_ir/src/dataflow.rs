@@ -48,5 +48,14 @@ fn reverse_postorder_helper(
     mut order: Vec<NodeID>,
     mut visited: BitVec<u8, Lsb0>,
 ) -> (Vec<NodeID>, BitVec<u8, Lsb0>) {
-    todo!()
+    if visited[node.idx()] {
+        (order, visited)
+    } else {
+        visited.set(node.idx(), true);
+        for user in def_uses.get_users(node) {
+            (order, visited) = reverse_postorder_helper(*user, def_uses, order, visited);
+        }
+        order.push(node);
+        (order, visited)
+    }
 }

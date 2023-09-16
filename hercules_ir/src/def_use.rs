@@ -19,7 +19,7 @@ impl ImmutableDefUseMap {
         }
     }
 
-    pub fn get_uses(&self, id: NodeID) -> &[NodeID] {
+    pub fn get_users(&self, id: NodeID) -> &[NodeID] {
         let first_edge = self.first_edges[id.idx()] as usize;
         let num_edges = self.num_edges(id) as usize;
         &self.users[first_edge..first_edge + num_edges]
