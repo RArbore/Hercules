@@ -19,14 +19,10 @@ impl ImmutableDefUseMap {
         }
     }
 
-    pub fn get_use(&self, id: NodeID, n: u32) -> NodeID {
-        assert!(
-            n < self.num_edges(id),
-            "PANIC: Attempted to get use edge #{} from node with only {} use edges.",
-            n + 1,
-            self.num_edges(id)
-        );
-        self.uses[(self.first_edges[id.idx()] + n) as usize]
+    pub fn get_uses(&self, id: NodeID) -> &[NodeID] {
+        let first_edge = self.first_edges[id.idx()] as usize;
+        let num_edges = self.num_edges(id) as usize;
+        &self.uses[first_edge..first_edge + num_edges]
     }
 }
 
@@ -58,6 +54,9 @@ pub enum NodeUses<'a> {
     Two([NodeID; 2]),
     Three([NodeID; 3]),
     Variable(&'a Box<[NodeID]>),
+    // Phi nodes are special, and store both a NodeID locally *and* many in a
+    // boxed slice. Since these NodeIDs are not stored contiguously, we have to
+    // construct a new contiguous slice by copying. Sigh.
     Phi(Box<[NodeID]>),
 }
 
