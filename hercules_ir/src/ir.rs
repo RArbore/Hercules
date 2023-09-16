@@ -28,6 +28,7 @@ pub struct Function {
     pub param_types: Vec<TypeID>,
     pub return_type: TypeID,
     pub nodes: Vec<Node>,
+    pub node_types: Option<Vec<TypeID>>,
     pub num_dynamic_constants: u32,
 }
 
@@ -111,7 +112,7 @@ pub enum DynamicConstant {
  * type instead. For example, the if node produces prod(control(N),
  * control(N)), where the first control token represents the false branch, and
  * the second control token represents the true branch. Another example is the
- * fork node, which produces prod(control(N*k), u64), where the u64 is the
+ * fork node, which produces prod(control(N, K), u64), where the u64 is the
  * thread ID. Functions are devoid of side effects, so call nodes don't take as
  * input or output control tokens. There is also no global memory - use arrays.
  */
