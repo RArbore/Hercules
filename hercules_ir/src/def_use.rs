@@ -34,7 +34,17 @@ impl ImmutableDefUseMap {
  * Top level def_use function.
  */
 pub fn def_use(function: &Function) -> ImmutableDefUseMap {
-    todo!()
+    // Step 1: get uses for each node.
+    let node_uses: Vec<NodeUses> = function.nodes.iter().map(|node| get_uses(node)).collect();
+
+    // Step 2: assemble first_edges and uses vectors simultaneously.
+    let mut first_edges: Vec<u32> = vec![];
+    let mut uses: Vec<NodeID> = vec![];
+    for u in node_uses {
+        first_edges.push(uses.len() as u32);
+        uses.extend_from_slice(u.as_ref());
+    }
+    ImmutableDefUseMap { first_edges, uses }
 }
 
 /*
