@@ -28,7 +28,6 @@ pub struct Function {
     pub param_types: Vec<TypeID>,
     pub return_type: TypeID,
     pub nodes: Vec<Node>,
-    pub node_types: Option<Vec<TypeID>>,
     pub num_dynamic_constants: u32,
 }
 

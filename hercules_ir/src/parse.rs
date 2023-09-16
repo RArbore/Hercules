@@ -116,7 +116,6 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
             param_types: vec![],
             return_type: TypeID::new(0),
             nodes: vec![],
-            node_types: None,
             num_dynamic_constants: 0
         };
         context.function_ids.len()
@@ -251,7 +250,6 @@ fn parse_function<'a>(
             param_types: params.into_iter().map(|x| x.5).collect(),
             return_type,
             nodes: fixed_nodes,
-            node_types: None,
             num_dynamic_constants,
         },
     ))
