@@ -26,7 +26,8 @@ fn main() {
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .expect("PANIC: Unable to read input file contents.");
-    let module = hercules_ir::parse::parse(&contents);
+    let module =
+        hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
         tmp_path.push("hercules_dot.dot");

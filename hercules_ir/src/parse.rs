@@ -9,8 +9,10 @@ use crate::*;
 /*
  * Top level parse function.
  */
-pub fn parse(ir_test: &str) -> Module {
-    parse_module(ir_test, Context::default()).unwrap().1
+pub fn parse(ir_test: &str) -> Result<Module, ()> {
+    parse_module(ir_test, Context::default())
+        .map(|x| x.1)
+        .map_err(|_| ())
 }
 
 /*
@@ -1063,6 +1065,7 @@ fn add<1>(x: i32, y: i32) -> i32
   w = add(z, c)
   z = add(x, y)
 ",
-        );
+        )
+        .unwrap();
     }
 }
