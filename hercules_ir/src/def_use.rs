@@ -24,6 +24,10 @@ impl ImmutableDefUseMap {
         let num_edges = self.num_edges(id) as usize;
         &self.users[first_edge..first_edge + num_edges]
     }
+
+    pub fn num_nodes(&self) -> usize {
+        self.first_edges.len()
+    }
 }
 
 /*
