@@ -280,6 +280,7 @@ fn parse_node<'a>(
         // parse them into Unary or Binary node kinds.
         "not" => parse_unary(ir_text, context, UnaryOperator::Not)?,
         "neg" => parse_unary(ir_text, context, UnaryOperator::Neg)?,
+        "bitflip" => parse_unary(ir_text, context, UnaryOperator::Bitflip)?,
         "add" => parse_binary(ir_text, context, BinaryOperator::Add)?,
         "sub" => parse_binary(ir_text, context, BinaryOperator::Sub)?,
         "mul" => parse_binary(ir_text, context, BinaryOperator::Mul)?,
@@ -291,6 +292,8 @@ fn parse_node<'a>(
         "gte" => parse_binary(ir_text, context, BinaryOperator::GTE)?,
         "eq" => parse_binary(ir_text, context, BinaryOperator::EQ)?,
         "ne" => parse_binary(ir_text, context, BinaryOperator::NE)?,
+        "lsh" => parse_binary(ir_text, context, BinaryOperator::LSh)?,
+        "rsh" => parse_binary(ir_text, context, BinaryOperator::RSh)?,
         "call" => parse_call(ir_text, context)?,
         "read_prod" => parse_read_prod(ir_text, context)?,
         "write_prod" => parse_write_prod(ir_text, context)?,

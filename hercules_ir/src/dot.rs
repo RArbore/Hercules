@@ -325,6 +325,7 @@ fn get_string_uop_kind(uop: UnaryOperator) -> &'static str {
     match uop {
         UnaryOperator::Not => "not",
         UnaryOperator::Neg => "neg",
+        UnaryOperator::Bitflip => "bitflip",
     }
 }
 
@@ -341,5 +342,7 @@ fn get_string_bop_kind(bop: BinaryOperator) -> &'static str {
         BinaryOperator::GTE => "gte",
         BinaryOperator::EQ => "eq",
         BinaryOperator::NE => "ne",
+        BinaryOperator::LSh => "lsh",
+        BinaryOperator::RSh => "rsh",
     }
 }

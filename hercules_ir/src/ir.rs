@@ -197,6 +197,7 @@ pub enum Node {
 pub enum UnaryOperator {
     Not,
     Neg,
+    Bitflip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -212,6 +213,8 @@ pub enum BinaryOperator {
     GTE,
     EQ,
     NE,
+    LSh,
+    RSh,
 }
 
 /*
