@@ -135,12 +135,35 @@ fn typeflow(
     // Each node requires different type logic. This unfortunately results in a
     // large match statement. Oh well. Each arm returns the lattice value for
     // the "out" type of the node.
-    match function.nodes[id.idx()] {
+    match &function.nodes[id.idx()] {
         Start => {
             if inputs.len() != 0 {
                 Error(String::from("Start node must have zero inputs."))
             } else {
                 Concrete(get_type_id(Type::Control(Box::new([]))))
+            }
+        }
+        Region { preds: _ } => {
+            if inputs.len() == 0 {
+                Error(String::from(
+                    "Region node must have at least one predecessor.",
+                ))
+            } else {
+                let mut meet = inputs[0].clone();
+                for l in inputs[1..].iter() {
+                    meet = TypeSemilattice::meet(&meet, l);
+                }
+                if let Concrete(id) = meet {
+                    if let Type::Control(_) = types[id.idx()] {
+                        meet
+                    } else {
+                        Error(String::from(
+                            "Region node's input type cannot be non-control.",
+                        ))
+                    }
+                } else {
+                    meet
+                }
             }
         }
         _ => todo!(),
