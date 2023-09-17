@@ -54,10 +54,14 @@ where
             for u in uses[node.idx()].as_ref() {
                 meet = L::meet(&meet, &outs[u.idx()]);
             }
+
+            // Compute new "out" value from new "in" value.
             let new_out = flow_function(&meet, auxiliary_data, *node);
             if outs[node.idx()] != new_out {
                 change = true;
             }
+
+            // Update ins and outs vectors.
             ins[node.idx()] = meet;
             outs[node.idx()] = new_out;
         }
@@ -69,7 +73,7 @@ where
         }
     }
 
-    // Return both in "in" and "out" sets.
+    // Step 5: return both "in" and "out" sets.
     (ins, outs)
 }
 
