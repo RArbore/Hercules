@@ -47,6 +47,7 @@ pub struct Function {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Control(Box<[DynamicConstantID]>),
+    Boolean,
     Integer8,
     Integer16,
     Integer32,
@@ -62,6 +63,20 @@ pub enum Type {
     Array(TypeID, DynamicConstantID),
 }
 
+impl Type {
+    pub fn is_control(&self) -> bool {
+        if let Type::Control(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_bool(&self) -> bool {
+        self == &Type::Boolean
+    }
+}
+
 /*
  * Constants are pretty standard in Hercules IR. Float constants used the
  * ordered_float crate so that constants can be keys in maps (used for
@@ -72,6 +87,7 @@ pub enum Type {
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
+    Boolean(bool),
     Integer8(i8),
     Integer16(i16),
     Integer32(i32),

@@ -121,16 +121,17 @@ fn typeflow(
     // start node), we need to get its type ID. This helper function gets the
     // ID if it already exists. If the type doesn't already exist, the helper
     // adds it to the type intern list.
-    let mut get_type_id = |ty: Type| -> TypeID {
-        if let Some(id) = reverse_type_map.get(&ty) {
-            *id
-        } else {
-            let id = TypeID::new(reverse_type_map.len());
-            reverse_type_map.insert(ty.clone(), id);
-            types.push(ty);
-            id
-        }
-    };
+    let get_type_id =
+        |ty: Type, types: &mut Vec<Type>, reverse_type_map: &mut HashMap<Type, TypeID>| -> TypeID {
+            if let Some(id) = reverse_type_map.get(&ty) {
+                *id
+            } else {
+                let id = TypeID::new(reverse_type_map.len());
+                reverse_type_map.insert(ty.clone(), id);
+                types.push(ty);
+                id
+            }
+        };
 
     // Each node requires different type logic. This unfortunately results in a
     // large match statement. Oh well. Each arm returns the lattice value for
@@ -138,33 +139,73 @@ fn typeflow(
     match &function.nodes[id.idx()] {
         Start => {
             if inputs.len() != 0 {
-                Error(String::from("Start node must have zero inputs."))
-            } else {
-                Concrete(get_type_id(Type::Control(Box::new([]))))
+                return Error(String::from("Start node must have zero inputs."));
             }
+
+            // The start node is the producer of the control token.
+            Concrete(get_type_id(
+                Type::Control(Box::new([])),
+                types,
+                reverse_type_map,
+            ))
         }
         Region { preds: _ } => {
             if inputs.len() == 0 {
-                Error(String::from(
-                    "Region node must have at least one predecessor.",
-                ))
-            } else {
-                let mut meet = inputs[0].clone();
-                for l in inputs[1..].iter() {
-                    meet = TypeSemilattice::meet(&meet, l);
-                }
-                if let Concrete(id) = meet {
-                    if let Type::Control(_) = types[id.idx()] {
-                        meet
-                    } else {
-                        Error(String::from(
-                            "Region node's input type cannot be non-control.",
-                        ))
-                    }
-                } else {
-                    meet
+                return Error(String::from("Region node must have at least one input."));
+            }
+
+            let mut meet = inputs[0].clone();
+            for l in inputs[1..].iter() {
+                meet = TypeSemilattice::meet(&meet, l);
+            }
+
+            // Only special case is if concrete type is non-control. In
+            // this case, we override that concrete type with an error,
+            // since the input types must all be control types. Any other
+            // lattice value can be returned as-is.
+            if let Concrete(id) = meet {
+                if !types[id.idx()].is_control() {
+                    return Error(String::from(
+                        "Region node's input type cannot be non-control.",
+                    ));
                 }
             }
+
+            meet
+        }
+        If {
+            control: _,
+            cond: _,
+        } => {
+            if inputs.len() != 2 {
+                return Error(String::from("If node must have exactly two inputs."));
+            }
+
+            // Check type of data input first, since we may return while
+            // checking control input.
+            if let Concrete(id) = inputs[1] {
+                if !types[id.idx()].is_bool() {
+                    return Error(String::from(
+                        "If node's condition input cannot have non-boolean type.",
+                    ));
+                }
+            }
+
+            if let Concrete(id) = inputs[0] {
+                if !types[id.idx()].is_control() {
+                    return Error(String::from(
+                        "If node's control input cannot have non-control type.",
+                    ));
+                } else {
+                    // At this point, data input is already "good" (not
+                    // necessarily non-error, but at this point the lattice
+                    // output doesn't need to be an error).
+                    let out_ty = Type::Product(Box::new([*id, *id]));
+                    return Concrete(get_type_id(out_ty, types, reverse_type_map));
+                }
+            }
+
+            inputs[0].clone()
         }
         _ => todo!(),
     }

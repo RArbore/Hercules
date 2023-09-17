@@ -616,6 +616,7 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             Type::Control(Box::new([]))
         }),
         // Primitive types are written in Rust style.
+        nom::combinator::map(nom::bytes::complete::tag("bool"), |_| Type::Boolean),
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
         nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),
         nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
@@ -755,6 +756,7 @@ fn parse_constant<'a>(
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
         }))?,
+        Type::Boolean => parse_boolean(ir_text)?,
         Type::Integer8 => parse_integer8(ir_text)?,
         Type::Integer16 => parse_integer16(ir_text)?,
         Type::Integer32 => parse_integer32(ir_text)?,
@@ -800,6 +802,14 @@ fn parse_prim<'a, T: FromStr>(ir_text: &'a str, chars: &'static str) -> nom::IRe
         })
     })?;
     Ok((ir_text, x))
+}
+
+fn parse_boolean<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, val) = nom::branch::alt((
+        nom::combinator::map(nom::bytes::complete::tag("false"), |_| false),
+        nom::combinator::map(nom::bytes::complete::tag("true"), |_| true),
+    ))(ir_text)?;
+    Ok((ir_text, Constant::Boolean(val)))
 }
 
 fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
