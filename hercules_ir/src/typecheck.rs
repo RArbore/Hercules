@@ -16,6 +16,28 @@ enum TypeSemilattice {
     Error(String),
 }
 
+impl TypeSemilattice {
+    fn is_unconstrained(&self) -> bool {
+        self == &Unconstrained
+    }
+
+    fn is_concrete(&self) -> bool {
+        if let Concrete(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_error(&self) -> bool {
+        if let Error(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 impl PartialEq for TypeSemilattice {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -189,6 +211,10 @@ fn typeflow(
                         "If node's condition input cannot have non-boolean type.",
                     ));
                 }
+            } else if inputs[1].is_error() {
+                // If an input has an error lattice value, it must be
+                // propagated.
+                return inputs[1].clone();
             }
 
             if let Concrete(id) = inputs[0] {
@@ -197,9 +223,6 @@ fn typeflow(
                         "If node's control input cannot have non-control type.",
                     ));
                 } else {
-                    // At this point, data input is already "good" (not
-                    // necessarily non-error, but at this point the lattice
-                    // output doesn't need to be an error).
                     let out_ty = Type::Product(Box::new([*id, *id]));
                     return Concrete(get_type_id(out_ty, types, reverse_type_map));
                 }
