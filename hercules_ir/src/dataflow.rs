@@ -15,29 +15,33 @@ pub trait Semilattice: Eq {
 }
 
 /*
- * Top level dataflow function.
+ * Top level dataflow function. This routine is slightly more generic than the
+ * typical textbook definition. The flow function takes an ordered slice of
+ * predecessor lattice values, rather than an unordered set. Thus, the flow
+ * function can perform non-associative operations on the "in" lattice values.
+ * This makes this routine useful for some analyses, such as typechecking.
  */
 pub fn dataflow<L, F, D>(
     function: &Function,
     reverse_post_order: &Vec<NodeID>,
     flow_function: F,
     auxiliary_data: &D,
-) -> (Vec<L>, Vec<L>)
+) -> Vec<L>
 where
     L: Semilattice,
-    F: Fn(&L, &D, NodeID) -> L,
+    F: Fn(&[&L], &D, NodeID) -> L,
 {
     // Step 1: create initial set of "in" points. The start node is initialized
     // to bottom, and everything else is initialized to top.
-    let mut ins: Vec<L> = (0..function.nodes.len())
+    let ins: Vec<L> = (0..function.nodes.len())
         .map(|id| if id == 0 { L::bottom() } else { L::top() })
         .collect();
 
     // Step 2: create initial set of "out" points.
     let mut outs: Vec<L> = ins
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(id, l)| flow_function(l, auxiliary_data, NodeID::new(id)))
+        .map(|(id, l)| flow_function(&[&l], auxiliary_data, NodeID::new(id)))
         .collect();
 
     // Step 3: compute NodeUses for each node in function.
@@ -49,20 +53,23 @@ where
 
         // Iterate nodes in reverse post order.
         for node in reverse_post_order {
-            // Compute meet of "out" lattice values.
-            let mut meet = L::top();
+            // Assemble the "out" values of the predecessors of this node. This
+            // vector's definition is hopefully LICMed out, so that we don't do
+            // an allocation per node. This can't be done manually because of
+            // Rust's ownership rules (in particular, pred_outs holds a
+            // reference to a value inside outs, which is mutated below).
+            let mut pred_outs = vec![];
             for u in uses[node.idx()].as_ref() {
-                meet = L::meet(&meet, &outs[u.idx()]);
+                pred_outs.push(&outs[u.idx()]);
             }
 
-            // Compute new "out" value from new "in" value.
-            let new_out = flow_function(&meet, auxiliary_data, *node);
+            // Compute new "out" value from predecessor "out" values.
+            let new_out = flow_function(&pred_outs[..], auxiliary_data, *node);
             if outs[node.idx()] != new_out {
                 change = true;
             }
 
-            // Update ins and outs vectors.
-            ins[node.idx()] = meet;
+            // Update outs vector.
             outs[node.idx()] = new_out;
         }
 
@@ -73,8 +80,8 @@ where
         }
     }
 
-    // Step 5: return both "in" and "out" sets.
-    (ins, outs)
+    // Step 5: return "out" set.
+    outs
 }
 
 /*
