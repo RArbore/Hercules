@@ -17,19 +17,21 @@ pub trait Semilattice: Eq {
 /*
  * Top level dataflow function. This routine is slightly more generic than the
  * typical textbook definition. The flow function takes an ordered slice of
- * predecessor lattice values, rather than an unordered set. Thus, the flow
+ * predecessor lattice values, rather a single lattice value. Thus, the flow
  * function can perform non-associative operations on the "in" lattice values.
- * This makes this routine useful for some analyses, such as typechecking.
+ * This makes this routine useful for some analyses, such as typechecking. To
+ * perform the typical behavior, the flow function should start by meeting the
+ * input lattice values into a single lattice value.
  */
 pub fn dataflow<L, F, D>(
     function: &Function,
     reverse_post_order: &Vec<NodeID>,
     flow_function: F,
-    auxiliary_data: &D,
+    auxiliary_data: &mut D,
 ) -> Vec<L>
 where
     L: Semilattice,
-    F: Fn(&[&L], &D, NodeID) -> L,
+    F: Fn(&[&L], &mut D, NodeID) -> L,
 {
     // Step 1: create initial set of "in" points. The start node is initialized
     // to bottom, and everything else is initialized to top.

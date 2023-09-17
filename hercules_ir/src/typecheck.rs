@@ -1,5 +1,11 @@
 use crate::*;
 
+use std::collections::HashMap;
+
+use Node::*;
+
+use self::TypeSemilattice::*;
+
 /*
  * Enum for type semilattice.
  */
@@ -9,8 +15,6 @@ enum TypeSemilattice {
     Concrete(TypeID),
     Error(String),
 }
-
-use self::TypeSemilattice::*;
 
 impl PartialEq for TypeSemilattice {
     fn eq(&self, other: &Self) -> bool {
@@ -64,9 +68,81 @@ impl Semilattice for TypeSemilattice {
  */
 pub fn typecheck(
     function: &Function,
-    types: &Vec<Type>,
-    constants: &Vec<Constant>,
+    types: &mut Vec<Type>,
+    constants: &Vec<ir::Constant>,
     reverse_post_order: &Vec<NodeID>,
-) -> Result<Vec<Type>, String> {
-    todo!()
+) -> Result<Vec<TypeID>, String> {
+    // Step 1: assemble a reverse type map. This is needed to get or create the
+    // ID of potentially new types.
+    let mut reverse_type_map: HashMap<Type, TypeID> = types
+        .iter()
+        .enumerate()
+        .map(|(idx, ty)| (ty.clone(), TypeID::new(idx)))
+        .collect();
+
+    // Step 2: run dataflow. This is an occurrence of dataflow where the flow
+    // function performs a non-associative operation on the predecessor "out"
+    // values.
+    let result = dataflow(
+        function,
+        reverse_post_order,
+        typeflow,
+        &mut (function, types, constants, &mut reverse_type_map),
+    );
+
+    // Step 3: convert the individual type lattice values into a list of
+    // concrete type values, or a single error.
+    result
+        .into_iter()
+        .map(|x| match x {
+            Unconstrained => Err(String::from("Found unconstrained type in program.")),
+            Concrete(id) => Ok(id),
+            Error(msg) => Err(msg),
+        })
+        .collect()
+}
+
+/*
+ * Flow function for typechecking.
+ */
+fn typeflow(
+    inputs: &[&TypeSemilattice],
+    auxiliary: &mut (
+        &Function,
+        &mut Vec<Type>,
+        &Vec<ir::Constant>,
+        &mut HashMap<Type, TypeID>,
+    ),
+    id: NodeID,
+) -> TypeSemilattice {
+    let (function, types, constant, reverse_type_map) = auxiliary;
+
+    // Whenever we want to reference a specific type (for example, for the
+    // start node), we need to get its type ID. This helper function gets the
+    // ID if it already exists. If the type doesn't already exist, the helper
+    // adds it to the type intern list.
+    let mut get_type_id = |ty: Type| -> TypeID {
+        if let Some(id) = reverse_type_map.get(&ty) {
+            *id
+        } else {
+            let id = TypeID::new(reverse_type_map.len());
+            reverse_type_map.insert(ty.clone(), id);
+            types.push(ty);
+            id
+        }
+    };
+
+    // Each node requires different type logic. This unfortunately results in a
+    // large match statement. Oh well. Each arm returns the lattice value for
+    // the "out" type of the node.
+    match function.nodes[id.idx()] {
+        Start => {
+            if inputs.len() != 0 {
+                Error(String::from("Start node must have zero inputs."))
+            } else {
+                Concrete(get_type_id(Type::Control(Box::new([]))))
+            }
+        }
+        _ => todo!(),
+    }
 }
