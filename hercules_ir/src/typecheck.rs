@@ -316,6 +316,43 @@ fn typeflow(
 
             inputs[1].clone()
         }
+        Phi {
+            control: _,
+            data: _,
+        } => {
+            if inputs.len() < 2 {
+                return Error(String::from("Phi node must have at least two inputs."));
+            }
+
+            // Check type of control input first, since this may produce an
+            // error.
+            if let Concrete(id) = inputs[inputs.len() - 1] {
+                if !types[id.idx()].is_control() {
+                    return Error(String::from(
+                        "Phi node's control input cannot have non-control type.",
+                    ));
+                }
+            } else if inputs[1].is_error() {
+                // If an input has an error lattice value, it must be
+                // propagated.
+                return inputs[1].clone();
+            }
+
+            // Output type of phi node is same type as every data input.
+            let mut meet = inputs[0].clone();
+            for l in inputs[1..inputs.len() - 1].iter() {
+                if let Concrete(id) = l {
+                    if types[id.idx()].is_control() {
+                        return Error(String::from(
+                            "Phi node's data inputs cannot have control type.",
+                        ));
+                    }
+                }
+                meet = TypeSemilattice::meet(&meet, l);
+            }
+
+            meet
+        }
         _ => todo!(),
     }
 }
