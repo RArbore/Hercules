@@ -387,7 +387,42 @@ fn typeflow(
                 return Error(String::from("Return node must have exactly two inputs."));
             }
 
-            todo!()
+            // Check type of control input first, since this may produce an
+            // error.
+            if let Concrete(id) = inputs[0] {
+                if let Type::Control(factors) = &types[id.idx()] {
+                    if factors.len() != 0 {
+                        return Error(String::from(
+                            "Return node's control input must have no thread replications.",
+                        ));
+                    }
+                } else {
+                    return Error(String::from(
+                        "Return node's control input cannot have non-control type.",
+                    ));
+                }
+            } else if inputs[0].is_error() {
+                // If an input has an error lattice value, it must be
+                // propagated.
+                return inputs[0].clone();
+            }
+
+            if let Concrete(id) = inputs[1] {
+                if *id != function.return_type {
+                    return Error(String::from("Return node's data input type must be the same as the function's return type."));
+                }
+            } else if inputs[1].is_error() {
+                return inputs[1].clone();
+            }
+
+            // Return nodes are special - they cannot have any users. Thus, we
+            // set the return node's lattice value to a specific error. When
+            // converting lattice values to types, this particular error gets
+            // converted to an empty product type if it's the type of a return
+            // node. If any node uses a return node, it's lattice value will be
+            // this error. This will result in a normal error when attempting to
+            // extract conrete types.
+            TypeSemilattice::get_return_type_error()
         }
         _ => todo!(),
     }
