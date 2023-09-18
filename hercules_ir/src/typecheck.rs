@@ -230,6 +230,39 @@ fn typeflow(
 
             inputs[0].clone()
         }
+        Fork { control: _, factor } => {
+            if inputs.len() != 1 {
+                return Error(String::from("Fork node must have exactly one input."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                if let Type::Control(factors) = &types[id.idx()] {
+                    // Fork adds a new factor to the thread spawn factor list.
+                    let mut new_factors = factors.clone().into_vec();
+                    new_factors.push(*factor);
+
+                    // Out type is a pair - first element is the control type,
+                    // second is the index type (u64). Each thread gets a
+                    // different thread ID at runtime.
+                    let control_out_id = get_type_id(
+                        Type::Control(new_factors.into_boxed_slice()),
+                        types,
+                        reverse_type_map,
+                    );
+                    let index_out_id =
+                        get_type_id(Type::UnsignedInteger64, types, reverse_type_map);
+                    let out_ty = Type::Product(Box::new([control_out_id, index_out_id]));
+                    return Concrete(get_type_id(out_ty, types, reverse_type_map));
+                } else {
+                    return Error(String::from(
+                        "Fork node's input cannot have non-control type.",
+                    ));
+                }
+            }
+
+            inputs[0].clone()
+        }
+
         _ => todo!(),
     }
 }
