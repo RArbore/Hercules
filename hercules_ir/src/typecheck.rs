@@ -332,10 +332,10 @@ fn typeflow(
                         "Phi node's control input cannot have non-control type.",
                     ));
                 }
-            } else if inputs[1].is_error() {
+            } else if inputs[inputs.len() - 1].is_error() {
                 // If an input has an error lattice value, it must be
                 // propagated.
-                return inputs[1].clone();
+                return inputs[inputs.len() - 1].clone();
             }
 
             // Output type of phi node is same type as every data input.
