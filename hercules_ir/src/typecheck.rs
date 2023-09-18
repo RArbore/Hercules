@@ -262,7 +262,60 @@ fn typeflow(
 
             inputs[0].clone()
         }
+        Join {
+            control: _,
+            data: _,
+        } => {
+            if inputs.len() != 2 {
+                return Error(String::from("Join node must have exactly two inputs."));
+            }
 
+            // If the data input isn't concrete, we can't assemble a concrete
+            // output type yet, so just return data input's type (either
+            // unconstrained or error) instead.
+            if let Concrete(data_id) = inputs[1] {
+                if types[data_id.idx()].is_control() {
+                    return Error(String::from(
+                        "Join node's second input must not have a control type.",
+                    ));
+                }
+
+                // Similarly, if the control input isn't concrete yet, we can't
+                // assemble a concrete output type, so just return the control
+                // input non-concrete type.
+                if let Concrete(control_id) = inputs[0] {
+                    if let Type::Control(factors) = &types[control_id.idx()] {
+                        // Join removes a factor from the factor list.
+                        if factors.len() == 0 {
+                            return Error(String::from("Join node's first input must have a control type with at least one thread replication factor."));
+                        }
+                        let mut new_factors = factors.clone().into_vec();
+                        let dc_id = new_factors.pop().unwrap();
+
+                        // Out type is a pair - first element is the control
+                        // type, second is the result array from the parallel
+                        // computation.
+                        let control_out_id = get_type_id(
+                            Type::Control(new_factors.into_boxed_slice()),
+                            types,
+                            reverse_type_map,
+                        );
+                        let array_out_id =
+                            get_type_id(Type::Array(*data_id, dc_id), types, reverse_type_map);
+                        let out_ty = Type::Product(Box::new([control_out_id, array_out_id]));
+                        return Concrete(get_type_id(out_ty, types, reverse_type_map));
+                    } else {
+                        return Error(String::from(
+                            "Join node's first input cannot have non-control type.",
+                        ));
+                    }
+                } else {
+                    return inputs[0].clone();
+                }
+            }
+
+            inputs[1].clone()
+        }
         _ => todo!(),
     }
 }
