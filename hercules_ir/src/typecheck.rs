@@ -1,6 +1,7 @@
 use crate::*;
 
 use std::collections::HashMap;
+use std::iter::zip;
 
 use Node::*;
 
@@ -35,6 +36,15 @@ impl TypeSemilattice {
         } else {
             false
         }
+    }
+
+    // During typeflow, the return node is given an error type, even when
+    // typechecking succeeds. This is done so that any node that uses a return
+    // node will have its output type set to this error. In the top-level type
+    // checking function, we ignore this particular error if the node being
+    // checked is a return node.
+    fn get_return_type_error() -> Self {
+        Error(String::from("No node can take a return node as input."))
     }
 }
 
@@ -112,14 +122,30 @@ pub fn typecheck(
         &mut (function, types, constants, &mut reverse_type_map),
     );
 
-    // Step 3: convert the individual type lattice values into a list of
+    // Step 3: add type for empty product. This is the type of the return node.
+    let empty_prod_ty = Type::Product(Box::new([]));
+    let empty_prod_id = if let Some(id) = reverse_type_map.get(&empty_prod_ty) {
+        *id
+    } else {
+        let id = TypeID::new(reverse_type_map.len());
+        reverse_type_map.insert(empty_prod_ty.clone(), id);
+        types.push(empty_prod_ty);
+        id
+    };
+
+    // Step 4: convert the individual type lattice values into a list of
     // concrete type values, or a single error.
-    result
-        .into_iter()
-        .map(|x| match x {
+    zip(result.into_iter(), function.nodes.iter())
+        .map(|(x, n)| match x {
             Unconstrained => Err(String::from("Found unconstrained type in program.")),
             Concrete(id) => Ok(id),
-            Error(msg) => Err(msg),
+            Error(msg) => {
+                if n.is_return() && Error(msg.clone()) == TypeSemilattice::get_return_type_error() {
+                    Ok(empty_prod_id)
+                } else {
+                    Err(msg)
+                }
+            }
         })
         .collect()
 }
@@ -352,6 +378,16 @@ fn typeflow(
             }
 
             meet
+        }
+        Return {
+            control: _,
+            value: _,
+        } => {
+            if inputs.len() != 2 {
+                return Error(String::from("Return node must have exactly two inputs."));
+            }
+
+            todo!()
         }
         _ => todo!(),
     }

@@ -209,6 +209,20 @@ pub enum Node {
     },
 }
 
+impl Node {
+    pub fn is_return(&self) -> bool {
+        if let Node::Return {
+            control: _,
+            value: _,
+        } = self
+        {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOperator {
     Not,
