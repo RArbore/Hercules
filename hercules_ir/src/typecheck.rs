@@ -485,6 +485,17 @@ fn typeflow(
                 Constant::Array(id, _) => Concrete(id),
             }
         }
+        Node::DynamicConstant { id: _ } => {
+            if inputs.len() != 0 {
+                return Error(String::from("DynamicConstant node must have zero inputs."));
+            }
+
+            Concrete(get_type_id(
+                Type::UnsignedInteger64,
+                types,
+                reverse_type_map,
+            ))
+        }
         _ => todo!(),
     }
 }
