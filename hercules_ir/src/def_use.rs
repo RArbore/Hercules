@@ -139,5 +139,6 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             sum_ty: _,
             variant: _,
         } => NodeUses::One([*data]),
+        Node::ExtractSum { data, variant: _ } => NodeUses::One([*data]),
     }
 }

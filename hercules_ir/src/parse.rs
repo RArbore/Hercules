@@ -306,6 +306,7 @@ fn parse_node<'a>(
         "write_array" => parse_write_array(ir_text, context)?,
         "match" => parse_match(ir_text, context)?,
         "build_sum" => parse_build_sum(ir_text, context)?,
+        "extract_sum" => parse_extract_sum(ir_text, context)?,
         _ => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
@@ -587,6 +588,16 @@ fn parse_build_sum<'a>(
             variant,
         },
     ))
+}
+
+fn parse_extract_sum<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (data, variant)) =
+        parse_tuple2(parse_identifier, |x| parse_prim::<usize>(x, "1234567890"))(ir_text)?;
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((ir_text, Node::ExtractSum { data, variant }))
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Type> {

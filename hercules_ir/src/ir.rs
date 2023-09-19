@@ -237,6 +237,10 @@ pub enum Node {
         sum_ty: TypeID,
         variant: usize,
     },
+    ExtractSum {
+        data: NodeID,
+        variant: usize,
+    },
 }
 
 impl Node {

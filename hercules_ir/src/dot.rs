@@ -257,6 +257,12 @@ fn write_node<W: std::fmt::Write>(
                 write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
                 visited
             }
+            Node::ExtractSum { data, variant } => {
+                write!(w, "{} [label=\"extract_sum({})\"];\n", name, variant)?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
+                write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
+                visited
+            }
         };
         Ok((visited.get(&id).unwrap().clone(), visited))
     }
@@ -318,6 +324,10 @@ fn get_string_node_kind(node: &Node) -> &'static str {
             sum_ty: _,
             variant: _,
         } => "build_sum",
+        Node::ExtractSum {
+            data: _,
+            variant: _,
+        } => "extract_sum",
     }
 }
 
