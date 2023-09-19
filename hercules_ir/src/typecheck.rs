@@ -99,7 +99,8 @@ impl Semilattice for TypeSemilattice {
 pub fn typecheck(
     function: &Function,
     types: &mut Vec<Type>,
-    constants: &Vec<ir::Constant>,
+    constants: &Vec<Constant>,
+    dynamic_constants: &Vec<DynamicConstant>,
     reverse_post_order: &Vec<NodeID>,
 ) -> Result<Vec<TypeID>, String> {
     // Step 1: assemble a reverse type map. This is needed to get or create the
@@ -117,7 +118,13 @@ pub fn typecheck(
         function,
         reverse_post_order,
         typeflow,
-        &mut (function, types, constants, &mut reverse_type_map),
+        &mut (
+            function,
+            types,
+            constants,
+            dynamic_constants,
+            &mut reverse_type_map,
+        ),
     );
 
     // Step 3: add type for empty product. This is the type of the return node.
@@ -156,12 +163,13 @@ fn typeflow(
     auxiliary: &mut (
         &Function,
         &mut Vec<Type>,
-        &Vec<ir::Constant>,
+        &Vec<Constant>,
+        &Vec<DynamicConstant>,
         &mut HashMap<Type, TypeID>,
     ),
     id: NodeID,
 ) -> TypeSemilattice {
-    let (function, types, constants, reverse_type_map) = auxiliary;
+    let (function, types, constants, dynamic_constants, reverse_type_map) = auxiliary;
 
     // Whenever we want to reference a specific type (for example, for the
     // start node), we need to get its type ID. This helper function gets the
@@ -431,6 +439,7 @@ fn typeflow(
                 return Error(String::from("Parameter node must reference an index corresponding to an existing function argument."));
             }
 
+            // Type of parameter is stored directly in function.
             let param_id = function.param_types[*index];
 
             Concrete(param_id)
@@ -440,6 +449,7 @@ fn typeflow(
                 return Error(String::from("Constant node must have zero inputs."));
             }
 
+            // Most constants' type are obvious.
             match constants[id.idx()] {
                 Constant::Boolean(_) => {
                     Concrete(get_type_id(Type::Boolean, types, reverse_type_map))
@@ -480,9 +490,45 @@ fn typeflow(
                 Constant::Float64(_) => {
                     Concrete(get_type_id(Type::Float64, types, reverse_type_map))
                 }
-                Constant::Product(id, _) => Concrete(id),
-                Constant::Summation(id, _, _) => Concrete(id),
-                Constant::Array(id, _) => Concrete(id),
+                // Product, summation, and array constants are exceptions.
+                // Technically, only summation constants need to explicitly
+                // store their type, but product and array constants also
+                // explicitly store their type specifically to make this code
+                // simpler (although their type could be derived from the
+                // constant itself).
+                Constant::Product(id, _) => {
+                    if let Type::Product(_) = types[id.idx()] {
+                        Concrete(id)
+                    } else {
+                        Error(String::from(
+                            "Product constant must store an explicit product type.",
+                        ))
+                    }
+                }
+                Constant::Summation(id, _, _) => {
+                    if let Type::Summation(_) = types[id.idx()] {
+                        Concrete(id)
+                    } else {
+                        Error(String::from(
+                            "Summation constant must store an explicit summation type.",
+                        ))
+                    }
+                }
+                // Array typechecking also consists of validating the number of constant elements.
+                Constant::Array(id, ref elems) => {
+                    if let Type::Array(_, dc_id) = types[id.idx()] {
+                        if dynamic_constants[dc_id.idx()] == DynamicConstant::Constant(elems.len())
+                        {
+                            Concrete(id)
+                        } else {
+                            Error(String::from("Array constant must have the correct number of constant elements as specified by its type."))
+                        }
+                    } else {
+                        Error(String::from(
+                            "Array constant must store an explicit array type.",
+                        ))
+                    }
+                }
             }
         }
         Node::DynamicConstant { id: _ } => {
@@ -490,6 +536,7 @@ fn typeflow(
                 return Error(String::from("DynamicConstant node must have zero inputs."));
             }
 
+            // Dynamic constants are always u64.
             Concrete(get_type_id(
                 Type::UnsignedInteger64,
                 types,
