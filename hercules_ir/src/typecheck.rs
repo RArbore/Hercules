@@ -496,6 +496,39 @@ fn typeflow(
                 reverse_type_map,
             ))
         }
+        Node::Unary { input: _, op } => {
+            if inputs.len() != 1 {
+                return Error(String::from("Unary node must have exactly one input."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                match op {
+                    UnaryOperator::Not => {
+                        if !types[id.idx()].is_bool() {
+                            return Error(String::from(
+                                "Not unary node input cannot have non-boolean type.",
+                            ));
+                        }
+                    }
+                    UnaryOperator::Neg => {
+                        if !types[id.idx()].is_arithmetic() {
+                            return Error(String::from(
+                                "Neg unary node input cannot have non-arithmetic type.",
+                            ));
+                        }
+                    }
+                    UnaryOperator::Bitflip => {
+                        if !types[id.idx()].is_fixed() {
+                            return Error(String::from(
+                                "Bitflip unary node input cannot have non-fixed type.",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            inputs[0].clone()
+        }
         _ => todo!(),
     }
 }

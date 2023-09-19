@@ -75,6 +75,36 @@ impl Type {
     pub fn is_bool(&self) -> bool {
         self == &Type::Boolean
     }
+
+    pub fn is_fixed(&self) -> bool {
+        match self {
+            Type::Integer8 => true,
+            Type::Integer16 => true,
+            Type::Integer32 => true,
+            Type::Integer64 => true,
+            Type::UnsignedInteger8 => true,
+            Type::UnsignedInteger16 => true,
+            Type::UnsignedInteger32 => true,
+            Type::UnsignedInteger64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_float(&self) -> bool {
+        match self {
+            Type::Float32 => true,
+            Type::Float64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_arithmetic(&self) -> bool {
+        self.is_fixed() || self.is_float()
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        self.is_bool() || self.is_fixed() || self.is_float()
+    }
 }
 
 /*
@@ -243,6 +273,9 @@ pub enum BinaryOperator {
     GTE,
     EQ,
     NE,
+    Or,
+    And,
+    Xor,
     LSh,
     RSh,
 }
