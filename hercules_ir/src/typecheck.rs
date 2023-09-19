@@ -3,8 +3,6 @@ use crate::*;
 use std::collections::HashMap;
 use std::iter::zip;
 
-use Node::*;
-
 use self::TypeSemilattice::*;
 
 /*
@@ -163,7 +161,7 @@ fn typeflow(
     ),
     id: NodeID,
 ) -> TypeSemilattice {
-    let (function, types, constant, reverse_type_map) = auxiliary;
+    let (function, types, constants, reverse_type_map) = auxiliary;
 
     // Whenever we want to reference a specific type (for example, for the
     // start node), we need to get its type ID. This helper function gets the
@@ -185,7 +183,7 @@ fn typeflow(
     // large match statement. Oh well. Each arm returns the lattice value for
     // the "out" type of the node.
     match &function.nodes[id.idx()] {
-        Start => {
+        Node::Start => {
             if inputs.len() != 0 {
                 return Error(String::from("Start node must have zero inputs."));
             }
@@ -197,7 +195,7 @@ fn typeflow(
                 reverse_type_map,
             ))
         }
-        Region { preds: _ } => {
+        Node::Region { preds: _ } => {
             if inputs.len() == 0 {
                 return Error(String::from("Region node must have at least one input."));
             }
@@ -221,7 +219,7 @@ fn typeflow(
 
             meet
         }
-        If {
+        Node::If {
             control: _,
             cond: _,
         } => {
@@ -256,7 +254,7 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        Fork { control: _, factor } => {
+        Node::Fork { control: _, factor } => {
             if inputs.len() != 1 {
                 return Error(String::from("Fork node must have exactly one input."));
             }
@@ -288,7 +286,7 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        Join {
+        Node::Join {
             control: _,
             data: _,
         } => {
@@ -342,7 +340,7 @@ fn typeflow(
 
             inputs[1].clone()
         }
-        Phi {
+        Node::Phi {
             control: _,
             data: _,
         } => {
@@ -379,7 +377,7 @@ fn typeflow(
 
             meet
         }
-        Return {
+        Node::Return {
             control: _,
             value: _,
         } => {
@@ -424,7 +422,7 @@ fn typeflow(
             // extract conrete types.
             TypeSemilattice::get_return_type_error()
         }
-        Parameter { index } => {
+        Node::Parameter { index } => {
             if inputs.len() != 0 {
                 return Error(String::from("Parameter node must have zero inputs."));
             }
@@ -435,7 +433,57 @@ fn typeflow(
 
             let param_id = function.param_types[*index];
 
-            TypeSemilattice::Concrete(param_id)
+            Concrete(param_id)
+        }
+        Node::Constant { id } => {
+            if inputs.len() != 0 {
+                return Error(String::from("Constant node must have zero inputs."));
+            }
+
+            match constants[id.idx()] {
+                Constant::Boolean(_) => {
+                    Concrete(get_type_id(Type::Boolean, types, reverse_type_map))
+                }
+                Constant::Integer8(_) => {
+                    Concrete(get_type_id(Type::Integer8, types, reverse_type_map))
+                }
+                Constant::Integer16(_) => {
+                    Concrete(get_type_id(Type::Integer16, types, reverse_type_map))
+                }
+                Constant::Integer32(_) => {
+                    Concrete(get_type_id(Type::Integer32, types, reverse_type_map))
+                }
+                Constant::Integer64(_) => {
+                    Concrete(get_type_id(Type::Integer64, types, reverse_type_map))
+                }
+                Constant::UnsignedInteger8(_) => {
+                    Concrete(get_type_id(Type::UnsignedInteger8, types, reverse_type_map))
+                }
+                Constant::UnsignedInteger16(_) => Concrete(get_type_id(
+                    Type::UnsignedInteger16,
+                    types,
+                    reverse_type_map,
+                )),
+                Constant::UnsignedInteger32(_) => Concrete(get_type_id(
+                    Type::UnsignedInteger32,
+                    types,
+                    reverse_type_map,
+                )),
+                Constant::UnsignedInteger64(_) => Concrete(get_type_id(
+                    Type::UnsignedInteger64,
+                    types,
+                    reverse_type_map,
+                )),
+                Constant::Float32(_) => {
+                    Concrete(get_type_id(Type::Float32, types, reverse_type_map))
+                }
+                Constant::Float64(_) => {
+                    Concrete(get_type_id(Type::Float64, types, reverse_type_map))
+                }
+                Constant::Product(id, _) => Concrete(id),
+                Constant::Summation(id, _, _) => Concrete(id),
+                Constant::Array(id, _) => Concrete(id),
+            }
         }
         _ => todo!(),
     }
