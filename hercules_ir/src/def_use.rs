@@ -115,9 +115,9 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             NodeUses::Phi(uses.into_boxed_slice())
         }
         Node::Return { control, value } => NodeUses::Two([*control, *value]),
-        Node::Parameter { index: _ } => todo!(),
-        Node::Constant { id: _ } => todo!(),
-        Node::DynamicConstant { id: _ } => todo!(),
+        Node::Parameter { index: _ } => NodeUses::Zero,
+        Node::Constant { id: _ } => NodeUses::Zero,
+        Node::DynamicConstant { id: _ } => NodeUses::Zero,
         Node::Unary { input, op: _ } => NodeUses::One([*input]),
         Node::Binary { left, right, op: _ } => NodeUses::Two([*left, *right]),
         Node::Call {

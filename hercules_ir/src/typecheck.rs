@@ -692,6 +692,7 @@ fn typeflow(
                 return Error(String::from("ReadProd node must have exactly one input."));
             }
 
+            // If the input type isn't concrete, just propagate input type.
             if let Concrete(id) = inputs[0] {
                 if let Type::Product(elem_tys) = &types[id.idx()] {
                     if *index >= elem_tys.len() {
@@ -703,6 +704,40 @@ fn typeflow(
                 } else {
                     return Error(String::from(
                         "ReadProd node's input type must be a product type.",
+                    ));
+                }
+            }
+
+            inputs[0].clone()
+        }
+        Node::WriteProd {
+            prod: _,
+            data: _,
+            index,
+        } => {
+            if inputs.len() != 2 {
+                return Error(String::from("WriteProd node must have exactly two inputs."));
+            }
+
+            // If the input type isn't concrete, just propagate input type.
+            if let Concrete(id) = inputs[0] {
+                if let Type::Product(elem_tys) = &types[id.idx()] {
+                    if *index >= elem_tys.len() {
+                        // ReadProd's index being out of range is a type error.
+                        return Error(String::from("WriteProd node's index must be within range of input product type's element list."));
+                    } else if let Concrete(data_id) = inputs[1] {
+                        if elem_tys[*index] != *data_id {
+                            return Error(format!("WriteProd node's data input doesn't match the type of the element at index {} inside the product type.", index));
+                        }
+                    } else if inputs[1].is_error() {
+                        // If an input lattice value is an error, we must
+                        // propagate it.
+                        return inputs[1].clone();
+                    }
+                    return Concrete(elem_tys[*index]);
+                } else {
+                    return Error(String::from(
+                        "WriteProd node's input type must be a product type.",
                     ));
                 }
             }
