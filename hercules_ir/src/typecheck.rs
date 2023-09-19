@@ -98,6 +98,7 @@ impl Semilattice for TypeSemilattice {
  */
 pub fn typecheck(
     function: &Function,
+    functions: &Vec<Function>,
     types: &mut Vec<Type>,
     constants: &Vec<Constant>,
     dynamic_constants: &Vec<DynamicConstant>,
@@ -120,6 +121,7 @@ pub fn typecheck(
         typeflow,
         &mut (
             function,
+            functions,
             types,
             constants,
             dynamic_constants,
@@ -162,6 +164,7 @@ fn typeflow(
     inputs: &[&TypeSemilattice],
     auxiliary: &mut (
         &Function,
+        &Vec<Function>,
         &mut Vec<Type>,
         &Vec<Constant>,
         &Vec<DynamicConstant>,
@@ -169,7 +172,7 @@ fn typeflow(
     ),
     id: NodeID,
 ) -> TypeSemilattice {
-    let (function, types, constants, dynamic_constants, reverse_type_map) = auxiliary;
+    let (function, functions, types, constants, dynamic_constants, reverse_type_map) = auxiliary;
 
     // Whenever we want to reference a specific type (for example, for the
     // start node), we need to get its type ID. This helper function gets the
@@ -611,6 +614,8 @@ fn typeflow(
                                 op,
                             ));
                         }
+
+                        // Comparison operators change the input type.
                         return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
                     }
                     BinaryOperator::EQ | BinaryOperator::NE => {
@@ -620,6 +625,8 @@ fn typeflow(
                                 op,
                             ));
                         }
+
+                        // Equality operators potentially change the input type.
                         return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
                     }
                     BinaryOperator::Or
@@ -638,6 +645,47 @@ fn typeflow(
             }
 
             inputs[0].clone()
+        }
+        Node::Call {
+            function: callee_id,
+            dynamic_constants: dc_args,
+            args: _,
+        } => {
+            let callee = &functions[callee_id.idx()];
+
+            // Check number of run-time arguments.
+            if inputs.len() != callee.param_types.len() {
+                return Error(format!(
+                    "Call node has {} inputs, but calls a function with {} parameters.",
+                    inputs.len(),
+                    callee.param_types.len(),
+                ));
+            }
+
+            // Check number of dynamic constant arguments.
+            if dc_args.len() != callee.num_dynamic_constants as usize {
+                return Error(format!(
+                    "Call node references {} dynamic constants, but calls a function expecting {} dynamic constants.",
+                    dc_args.len(),
+                    callee.num_dynamic_constants
+                ));
+            }
+
+            // Check argument types.
+            for (input, param_ty) in zip(inputs.iter(), callee.param_types.iter()) {
+                if let Concrete(input_id) = input {
+                    if input_id != param_ty {
+                        return Error(String::from(
+                            "Call node mismatches argument types with callee function.",
+                        ));
+                    }
+                } else if input.is_error() {
+                    // If an input type is an error, we must propagate it.
+                    return (*input).clone();
+                }
+            }
+
+            Concrete(callee.return_type)
         }
         _ => todo!(),
     }
