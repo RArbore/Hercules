@@ -342,6 +342,9 @@ fn get_string_bop_kind(bop: BinaryOperator) -> &'static str {
         BinaryOperator::GTE => "gte",
         BinaryOperator::EQ => "eq",
         BinaryOperator::NE => "ne",
+        BinaryOperator::Or => "or",
+        BinaryOperator::And => "and",
+        BinaryOperator::Xor => "xor",
         BinaryOperator::LSh => "lsh",
         BinaryOperator::RSh => "rsh",
     }

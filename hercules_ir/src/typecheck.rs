@@ -529,6 +529,69 @@ fn typeflow(
 
             inputs[0].clone()
         }
+        Node::Binary {
+            left: _,
+            right: _,
+            op,
+        } => {
+            if inputs.len() != 1 {
+                return Error(String::from("Binary node must have exactly two inputs."));
+            }
+
+            let input_ty = TypeSemilattice::meet(inputs[0], inputs[1]);
+
+            if let Concrete(id) = input_ty {
+                match op {
+                    BinaryOperator::Add
+                    | BinaryOperator::Sub
+                    | BinaryOperator::Mul
+                    | BinaryOperator::Div
+                    | BinaryOperator::Rem => {
+                        if !types[id.idx()].is_arithmetic() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have non-arithmetic type.",
+                                op,
+                            ));
+                        }
+                    }
+                    BinaryOperator::LT
+                    | BinaryOperator::LTE
+                    | BinaryOperator::GT
+                    | BinaryOperator::GTE => {
+                        if !types[id.idx()].is_arithmetic() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have non-arithmetic type.",
+                                op,
+                            ));
+                        }
+                        return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
+                    }
+                    BinaryOperator::EQ | BinaryOperator::NE => {
+                        if types[id.idx()].is_control() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have control type.",
+                                op,
+                            ));
+                        }
+                        return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
+                    }
+                    BinaryOperator::Or
+                    | BinaryOperator::And
+                    | BinaryOperator::Xor
+                    | BinaryOperator::LSh
+                    | BinaryOperator::RSh => {
+                        if !types[id.idx()].is_fixed() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have non-fixed type.",
+                                op,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            inputs[0].clone()
+        }
         _ => todo!(),
     }
 }
