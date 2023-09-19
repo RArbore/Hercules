@@ -424,6 +424,19 @@ fn typeflow(
             // extract conrete types.
             TypeSemilattice::get_return_type_error()
         }
+        Parameter { index } => {
+            if inputs.len() != 0 {
+                return Error(String::from("Parameter node must have zero inputs."));
+            }
+
+            if *index >= function.param_types.len() {
+                return Error(String::from("Parameter node must reference an index corresponding to an existing function argument."));
+            }
+
+            let param_id = function.param_types[*index];
+
+            TypeSemilattice::Concrete(param_id)
+        }
         _ => todo!(),
     }
 }
