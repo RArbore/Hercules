@@ -687,6 +687,28 @@ fn typeflow(
 
             Concrete(callee.return_type)
         }
+        Node::ReadProd { prod: _, index } => {
+            if inputs.len() != 1 {
+                return Error(String::from("ReadProd node must have exactly one input."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                if let Type::Product(elem_tys) = &types[id.idx()] {
+                    if *index >= elem_tys.len() {
+                        // ReadProd's index being out of range is a type error.
+                        return Error(String::from("ReadProd node's index must be within range of input product type's element list."));
+                    } else {
+                        return Concrete(elem_tys[*index]);
+                    }
+                } else {
+                    return Error(String::from(
+                        "ReadProd node's input type must be a product type.",
+                    ));
+                }
+            }
+
+            inputs[0].clone()
+        }
         _ => todo!(),
     }
 }
