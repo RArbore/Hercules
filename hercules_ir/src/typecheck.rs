@@ -820,8 +820,8 @@ fn typeflow(
                 return Error(String::from("Match node must have exactly two inputs."));
             }
 
-            // Check sum and control inputs in if nest, since both need to be
-            // concrete to determine a concrete type for a match node.
+            // Check sum and control inputs simultaneously, since both need to
+            // be concrete to determine a concrete type for a match node.
             if let (Concrete(control_id), Concrete(sum_id)) = (inputs[0], inputs[1]) {
                 if let Type::Summation(variants) = &types[sum_id.idx()] {
                     if !types[control_id.idx()].is_control() {
@@ -840,6 +840,7 @@ fn typeflow(
                 }
             }
 
+            // Otherwise, currently unconstrained, or an error.
             match TypeSemilattice::meet(inputs[0], inputs[1]) {
                 TypeSemilattice::Unconstrained => TypeSemilattice::Unconstrained,
                 TypeSemilattice::Concrete(_) => TypeSemilattice::Unconstrained,
