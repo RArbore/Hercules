@@ -26,7 +26,7 @@ pub trait Semilattice: Eq {
  */
 pub fn dataflow<L, F>(
     function: &Function,
-    reverse_post_order: &Vec<NodeID>,
+    reverse_postorder: &Vec<NodeID>,
     mut flow_function: F,
 ) -> Vec<L>
 where
@@ -54,7 +54,7 @@ where
         let mut change = false;
 
         // Iterate nodes in reverse post order.
-        for node_id in reverse_post_order {
+        for node_id in reverse_postorder {
             // Assemble the "out" values of the predecessors of this node. This
             // vector's definition is hopefully LICMed out, so that we don't do
             // an allocation per node. This can't be done manually because of

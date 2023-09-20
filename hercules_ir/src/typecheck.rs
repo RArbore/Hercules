@@ -82,18 +82,20 @@ impl Semilattice for TypeSemilattice {
 }
 
 /*
- * Top level typecheck function.
+ * Top level typecheck function. Typechecking is a module-wide operation.
+ * Returns a type for every node in every function.
  */
-pub fn typecheck(
-    function_id: FunctionID,
-    functions: &Vec<Function>,
-    types: &mut Vec<Type>,
-    constants: &Vec<Constant>,
-    dynamic_constants: &Vec<DynamicConstant>,
-    reverse_post_order: &Vec<NodeID>,
-) -> Result<Vec<TypeID>, String> {
+pub fn typecheck(module: &mut Module) -> Result<Vec<Vec<TypeID>>, String> {
     // Step 1: assemble a reverse type map. This is needed to get or create the
-    // ID of potentially new types.
+    // ID of potentially new types. Break down module into references to
+    // individual elements at this point, so that borrows don't overlap each
+    // other.
+    let Module {
+        ref functions,
+        ref mut types,
+        ref constants,
+        ref dynamic_constants,
+    } = module;
     let mut reverse_type_map: HashMap<Type, TypeID> = types
         .iter()
         .enumerate()
@@ -103,24 +105,28 @@ pub fn typecheck(
     // Step 2: run dataflow. This is an occurrence of dataflow where the flow
     // function performs a non-associative operation on the predecessor "out"
     // values.
-    let result = dataflow(
-        &functions[function_id.idx()],
-        reverse_post_order,
-        |inputs, id| {
-            typeflow(
-                inputs,
-                id,
-                function_id,
-                functions,
-                types,
-                constants,
-                dynamic_constants,
-                &mut reverse_type_map,
-            )
-        },
-    );
+    let results: Vec<Vec<TypeSemilattice>> = functions
+        .iter()
+        .map(|function| {
+            let def_use_map = def_use(function);
+            let reverse_postorder = reverse_postorder(&def_use_map);
 
-    // Step 3: add type for empty product. This is the type of the return node.
+            dataflow(function, &reverse_postorder, |inputs, id| {
+                typeflow(
+                    inputs,
+                    id,
+                    function,
+                    functions,
+                    types,
+                    constants,
+                    dynamic_constants,
+                    &mut reverse_type_map,
+                )
+            })
+        })
+        .collect();
+
+    // Step 3: add type for empty product. This is the type of return nodes.
     let empty_prod_ty = Type::Product(Box::new([]));
     let empty_prod_id = if let Some(id) = reverse_type_map.get(&empty_prod_ty) {
         *id
@@ -131,24 +137,32 @@ pub fn typecheck(
         id
     };
 
-    // Step 4: convert the individual type lattice values into a list of
+    // Step 4: convert the individual type lattice values into lists of
     // concrete type values, or a single error.
-    zip(
-        result.into_iter(),
-        functions[function_id.idx()].nodes.iter(),
-    )
-    .map(|(x, n)| match x {
-        Unconstrained => Err(String::from("Found unconstrained type in program.")),
-        Concrete(id) => Ok(id),
-        Error(msg) => {
-            if n.is_return() && Error(msg.clone()) == TypeSemilattice::get_return_type_error() {
-                Ok(empty_prod_id)
-            } else {
-                Err(msg)
-            }
-        }
-    })
-    .collect()
+    results
+        .into_iter()
+        .enumerate()
+        // For each type list, we want to convert its element TypeSemilattices
+        // into Result<TypeID, String>.
+        .map(|(function_idx, result): (usize, Vec<TypeSemilattice>)| {
+            zip(result.into_iter(), functions[function_idx].nodes.iter())
+                // For each TypeSemilattice, convert into Result<TypeID, String>.
+                .map(|(x, n): (TypeSemilattice, &Node)| match x {
+                    Unconstrained => Err(String::from("Found unconstrained type in program.")),
+                    Concrete(id) => Ok(id),
+                    Error(msg) => {
+                        if n.is_return()
+                            && Error(msg.clone()) == TypeSemilattice::get_return_type_error()
+                        {
+                            Ok(empty_prod_id)
+                        } else {
+                            Err(msg.clone())
+                        }
+                    }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /*
@@ -157,7 +171,7 @@ pub fn typecheck(
 fn typeflow(
     inputs: &[&TypeSemilattice],
     node: &Node,
-    function_id: FunctionID,
+    function: &Function,
     functions: &Vec<Function>,
     types: &mut Vec<Type>,
     constants: &Vec<Constant>,
@@ -407,7 +421,7 @@ fn typeflow(
             }
 
             if let Concrete(id) = inputs[1] {
-                if *id != functions[function_id.idx()].return_type {
+                if *id != function.return_type {
                     return Error(String::from("Return node's data input type must be the same as the function's return type."));
                 }
             } else if inputs[1].is_error() {
@@ -428,12 +442,12 @@ fn typeflow(
                 return Error(String::from("Parameter node must have zero inputs."));
             }
 
-            if *index >= functions[function_id.idx()].param_types.len() {
+            if *index >= function.param_types.len() {
                 return Error(String::from("Parameter node must reference an index corresponding to an existing function argument."));
             }
 
             // Type of parameter is stored directly in function.
-            let param_id = functions[function_id.idx()].param_types[*index];
+            let param_id = function.param_types[*index];
 
             Concrete(param_id)
         }
