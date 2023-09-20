@@ -867,6 +867,27 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        _ => todo!(),
+        Node::ExtractSum { data: _, variant } => {
+            if inputs.len() != 1 {
+                return Error(String::from("ExtractSum node must have exactly one input."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                if let Type::Summation(variants) = &types[id.idx()] {
+                    // Must reference an existing variant.
+                    if *variant >= variants.len() {
+                        return Error(String::from("BuildSum node's variant number must be in range of valid variant numbers for referenced sum type."));
+                    }
+
+                    return Concrete(variants[*variant]);
+                } else {
+                    return Error(String::from(
+                        "ExtractSum node's input cannot have non-sum type.",
+                    ));
+                }
+            }
+
+            inputs[0].clone()
+        }
     }
 }
