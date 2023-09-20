@@ -588,7 +588,7 @@ fn typeflow(
             right: _,
             op,
         } => {
-            if inputs.len() != 1 {
+            if inputs.len() != 2 {
                 return Error(String::from("Binary node must have exactly two inputs."));
             }
 

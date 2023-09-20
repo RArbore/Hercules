@@ -33,23 +33,20 @@ where
     L: Semilattice,
     F: FnMut(&[&L], &Node) -> L,
 {
-    // Step 1: create initial set of "in" points. The start node is initialized
-    // to bottom, and everything else is initialized to top.
-    let ins: Vec<L> = (0..function.nodes.len())
-        .map(|id| if id == 0 { L::bottom() } else { L::top() })
-        .collect();
-
-    // Step 2: create initial set of "out" points.
-    let mut outs: Vec<L> = ins
-        .into_iter()
-        .enumerate()
-        .map(|(id, l)| flow_function(&[&l], &function.nodes[id]))
-        .collect();
-
-    // Step 3: compute NodeUses for each node in function.
+    // Step 1: compute NodeUses for each node in function.
     let uses: Vec<NodeUses> = function.nodes.iter().map(|n| get_uses(n)).collect();
 
-    // Step 4: peform main dataflow loop.
+    // Step 2: create initial set of "out" points.
+    let mut outs: Vec<L> = (0..function.nodes.len())
+        .map(|id| {
+            flow_function(
+                &vec![&(if id == 0 { L::bottom() } else { L::top() }); uses[id].as_ref().len()],
+                &function.nodes[id],
+            )
+        })
+        .collect();
+
+    // Step 3: peform main dataflow loop.
     loop {
         let mut change = false;
 
@@ -82,7 +79,7 @@ where
         }
     }
 
-    // Step 5: return "out" set.
+    // Step 4: return "out" set.
     outs
 }
 

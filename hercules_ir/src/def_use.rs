@@ -15,7 +15,7 @@ impl ImmutableDefUseMap {
         if id.idx() + 1 < self.first_edges.len() {
             self.first_edges[id.idx() + 1] - self.first_edges[id.idx()]
         } else {
-            self.first_edges.len() as u32 - self.first_edges[id.idx()]
+            self.users.len() as u32 - self.first_edges[id.idx()]
         }
     }
 
