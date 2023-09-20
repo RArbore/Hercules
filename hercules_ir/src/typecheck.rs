@@ -85,7 +85,7 @@ impl Semilattice for TypeSemilattice {
  * Top level typecheck function.
  */
 pub fn typecheck(
-    function: &Function,
+    function_id: FunctionID,
     functions: &Vec<Function>,
     types: &mut Vec<Type>,
     constants: &Vec<Constant>,
@@ -104,17 +104,20 @@ pub fn typecheck(
     // function performs a non-associative operation on the predecessor "out"
     // values.
     let result = dataflow(
-        function,
+        &functions[function_id.idx()],
         reverse_post_order,
-        typeflow,
-        &mut (
-            function,
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-            &mut reverse_type_map,
-        ),
+        |inputs, id| {
+            typeflow(
+                inputs,
+                id,
+                function_id,
+                functions,
+                types,
+                constants,
+                dynamic_constants,
+                &mut reverse_type_map,
+            )
+        },
     );
 
     // Step 3: add type for empty product. This is the type of the return node.
@@ -130,19 +133,22 @@ pub fn typecheck(
 
     // Step 4: convert the individual type lattice values into a list of
     // concrete type values, or a single error.
-    zip(result.into_iter(), function.nodes.iter())
-        .map(|(x, n)| match x {
-            Unconstrained => Err(String::from("Found unconstrained type in program.")),
-            Concrete(id) => Ok(id),
-            Error(msg) => {
-                if n.is_return() && Error(msg.clone()) == TypeSemilattice::get_return_type_error() {
-                    Ok(empty_prod_id)
-                } else {
-                    Err(msg)
-                }
+    zip(
+        result.into_iter(),
+        functions[function_id.idx()].nodes.iter(),
+    )
+    .map(|(x, n)| match x {
+        Unconstrained => Err(String::from("Found unconstrained type in program.")),
+        Concrete(id) => Ok(id),
+        Error(msg) => {
+            if n.is_return() && Error(msg.clone()) == TypeSemilattice::get_return_type_error() {
+                Ok(empty_prod_id)
+            } else {
+                Err(msg)
             }
-        })
-        .collect()
+        }
+    })
+    .collect()
 }
 
 /*
@@ -150,18 +156,14 @@ pub fn typecheck(
  */
 fn typeflow(
     inputs: &[&TypeSemilattice],
-    auxiliary: &mut (
-        &Function,
-        &Vec<Function>,
-        &mut Vec<Type>,
-        &Vec<Constant>,
-        &Vec<DynamicConstant>,
-        &mut HashMap<Type, TypeID>,
-    ),
-    id: NodeID,
+    node: &Node,
+    function_id: FunctionID,
+    functions: &Vec<Function>,
+    types: &mut Vec<Type>,
+    constants: &Vec<Constant>,
+    dynamic_constants: &Vec<DynamicConstant>,
+    reverse_type_map: &mut HashMap<Type, TypeID>,
 ) -> TypeSemilattice {
-    let (function, functions, types, constants, dynamic_constants, reverse_type_map) = auxiliary;
-
     // Whenever we want to reference a specific type (for example, for the
     // start node), we need to get its type ID. This helper function gets the
     // ID if it already exists. If the type doesn't already exist, the helper
@@ -181,7 +183,7 @@ fn typeflow(
     // Each node requires different type logic. This unfortunately results in a
     // large match statement. Oh well. Each arm returns the lattice value for
     // the "out" type of the node.
-    match &function.nodes[id.idx()] {
+    match node {
         Node::Start => {
             if inputs.len() != 0 {
                 return Error(String::from("Start node must have zero inputs."));
@@ -405,7 +407,7 @@ fn typeflow(
             }
 
             if let Concrete(id) = inputs[1] {
-                if *id != function.return_type {
+                if *id != functions[function_id.idx()].return_type {
                     return Error(String::from("Return node's data input type must be the same as the function's return type."));
                 }
             } else if inputs[1].is_error() {
@@ -426,12 +428,12 @@ fn typeflow(
                 return Error(String::from("Parameter node must have zero inputs."));
             }
 
-            if *index >= function.param_types.len() {
+            if *index >= functions[function_id.idx()].param_types.len() {
                 return Error(String::from("Parameter node must reference an index corresponding to an existing function argument."));
             }
 
             // Type of parameter is stored directly in function.
-            let param_id = function.param_types[*index];
+            let param_id = functions[function_id.idx()].param_types[*index];
 
             Concrete(param_id)
         }

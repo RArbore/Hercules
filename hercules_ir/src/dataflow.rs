@@ -17,21 +17,21 @@ pub trait Semilattice: Eq {
 /*
  * Top level dataflow function. This routine is slightly more generic than the
  * typical textbook definition. The flow function takes an ordered slice of
- * predecessor lattice values, rather a single lattice value. Thus, the flow
- * function can perform non-associative operations on the "in" lattice values.
- * This makes this routine useful for some analyses, such as typechecking. To
- * perform the typical behavior, the flow function should start by meeting the
- * input lattice values into a single lattice value.
+ * predecessor lattice values, rather than a single lattice value. Thus, the
+ * flow function can perform non-associative and non-commutative operations on
+ * the "in" lattice values. This makes this routine more useful for some
+ * analyses, such as typechecking. To perform the typical behavior, the flow
+ * function should start by meeting the input lattice values into a single
+ * lattice value.
  */
-pub fn dataflow<L, F, D>(
+pub fn dataflow<L, F>(
     function: &Function,
     reverse_post_order: &Vec<NodeID>,
-    flow_function: F,
-    auxiliary_data: &mut D,
+    mut flow_function: F,
 ) -> Vec<L>
 where
     L: Semilattice,
-    F: Fn(&[&L], &mut D, NodeID) -> L,
+    F: FnMut(&[&L], &Node) -> L,
 {
     // Step 1: create initial set of "in" points. The start node is initialized
     // to bottom, and everything else is initialized to top.
@@ -43,7 +43,7 @@ where
     let mut outs: Vec<L> = ins
         .into_iter()
         .enumerate()
-        .map(|(id, l)| flow_function(&[&l], auxiliary_data, NodeID::new(id)))
+        .map(|(id, l)| flow_function(&[&l], &function.nodes[id]))
         .collect();
 
     // Step 3: compute NodeUses for each node in function.
@@ -54,25 +54,25 @@ where
         let mut change = false;
 
         // Iterate nodes in reverse post order.
-        for node in reverse_post_order {
+        for node_id in reverse_post_order {
             // Assemble the "out" values of the predecessors of this node. This
             // vector's definition is hopefully LICMed out, so that we don't do
             // an allocation per node. This can't be done manually because of
             // Rust's ownership rules (in particular, pred_outs holds a
             // reference to a value inside outs, which is mutated below).
             let mut pred_outs = vec![];
-            for u in uses[node.idx()].as_ref() {
+            for u in uses[node_id.idx()].as_ref() {
                 pred_outs.push(&outs[u.idx()]);
             }
 
             // Compute new "out" value from predecessor "out" values.
-            let new_out = flow_function(&pred_outs[..], auxiliary_data, *node);
-            if outs[node.idx()] != new_out {
+            let new_out = flow_function(&pred_outs[..], &function.nodes[node_id.idx()]);
+            if outs[node_id.idx()] != new_out {
                 change = true;
             }
 
             // Update outs vector.
-            outs[node.idx()] = new_out;
+            outs[node_id.idx()] = new_out;
         }
 
         // If no lattice value changed, we've reached the maximum fixed point
