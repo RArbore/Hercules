@@ -76,6 +76,16 @@ impl Type {
         self == &Type::Boolean
     }
 
+    pub fn is_unsigned(&self) -> bool {
+        match self {
+            Type::UnsignedInteger8 => true,
+            Type::UnsignedInteger16 => true,
+            Type::UnsignedInteger32 => true,
+            Type::UnsignedInteger64 => true,
+            _ => false,
+        }
+    }
+
     pub fn is_fixed(&self) -> bool {
         match self {
             Type::Integer8 => true,

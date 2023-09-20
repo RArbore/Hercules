@@ -744,6 +744,35 @@ fn typeflow(
 
             inputs[0].clone()
         }
+        Node::ReadArray { array: _, index: _ } => {
+            if inputs.len() != 2 {
+                return Error(String::from("ReadArray node must have exactly two inputs."));
+            }
+
+            // Check that index has unsigned type.
+            if let Concrete(id) = inputs[1] {
+                if !types[id.idx()].is_unsigned() {
+                    return Error(String::from(
+                        "ReadyArray node's index input must have unsigned type.",
+                    ));
+                }
+            } else if inputs[1].is_error() {
+                return inputs[1].clone();
+            }
+
+            // If array input is concrete, we can get type of ReadArray node.
+            if let Concrete(id) = inputs[0] {
+                if let Type::Array(elem_id, _) = types[id.idx()] {
+                    return Concrete(elem_id);
+                } else {
+                    return Error(String::from(
+                        "ReadyArray node's array input must have array type.",
+                    ));
+                }
+            }
+
+            inputs[0].clone()
+        }
         _ => todo!(),
     }
 }
