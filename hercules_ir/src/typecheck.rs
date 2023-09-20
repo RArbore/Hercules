@@ -822,36 +822,28 @@ fn typeflow(
 
             // Check sum and control inputs in if nest, since both need to be
             // concrete to determine a concrete type for a match node.
-            if let Concrete(id) = inputs[1] {
-                if let Type::Summation(variants) = &types[id.idx()] {
-                    if let Concrete(id) = inputs[0] {
-                        if !types[id.idx()].is_control() {
-                            Error(String::from(
-                                "Match node's control input cannot have non-control type.",
-                            ))
-                        } else {
-                            let out_ty =
-                                Type::Product(vec![*id; variants.len()].into_boxed_slice());
-                            Concrete(get_type_id(out_ty, types, reverse_type_map))
-                        }
-                    } else if inputs[0].is_error() {
-                        // If an input has an error lattice value, it must be
-                        // propagated.
-                        inputs[0].clone()
+            if let (Concrete(control_id), Concrete(sum_id)) = (inputs[0], inputs[1]) {
+                if let Type::Summation(variants) = &types[sum_id.idx()] {
+                    if !types[control_id.idx()].is_control() {
+                        return Error(String::from(
+                            "Match node's control input cannot have non-control type.",
+                        ));
                     } else {
-                        TypeSemilattice::Unconstrained
+                        let out_ty =
+                            Type::Product(vec![*control_id; variants.len()].into_boxed_slice());
+                        return Concrete(get_type_id(out_ty, types, reverse_type_map));
                     }
                 } else {
-                    Error(String::from(
+                    return Error(String::from(
                         "Match node's condition input cannot have non-sum type.",
-                    ))
+                    ));
                 }
-            } else if inputs[1].is_error() {
-                // If an input has an error lattice value, it must be
-                // propagated.
-                inputs[1].clone()
-            } else {
-                TypeSemilattice::Unconstrained
+            }
+
+            match TypeSemilattice::meet(inputs[0], inputs[1]) {
+                TypeSemilattice::Unconstrained => TypeSemilattice::Unconstrained,
+                TypeSemilattice::Concrete(_) => TypeSemilattice::Unconstrained,
+                TypeSemilattice::Error(msg) => TypeSemilattice::Error(msg),
             }
         }
         _ => todo!(),
