@@ -16,18 +16,6 @@ enum TypeSemilattice {
 }
 
 impl TypeSemilattice {
-    fn is_unconstrained(&self) -> bool {
-        self == &Unconstrained
-    }
-
-    fn is_concrete(&self) -> bool {
-        if let Concrete(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
     fn is_error(&self) -> bool {
         if let Error(_) = self {
             true
@@ -846,6 +834,38 @@ fn typeflow(
                 TypeSemilattice::Concrete(_) => TypeSemilattice::Unconstrained,
                 TypeSemilattice::Error(msg) => TypeSemilattice::Error(msg),
             }
+        }
+        Node::BuildSum {
+            data: _,
+            sum_ty,
+            variant,
+        } => {
+            if inputs.len() != 1 {
+                return Error(String::from("BuildSum node must have exactly one input."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                // BuildSum node stores its own result type.
+                if let Type::Summation(variants) = &types[sum_ty.idx()] {
+                    // Must reference an existing variant.
+                    if *variant >= variants.len() {
+                        return Error(String::from("BuildSum node's variant number must be in range of valid variant numbers for referenced sum type."));
+                    }
+
+                    // The variant type has to be the same as the type of data.
+                    if *id == variants[*variant] {
+                        return Error(String::from(
+                            "BuildSum node's input type must match the referenced variant type.",
+                        ));
+                    }
+
+                    return Concrete(*sum_ty);
+                } else {
+                    return Error(String::from("BuildSum node must reference a sum type."));
+                }
+            }
+
+            inputs[0].clone()
         }
         _ => todo!(),
     }
