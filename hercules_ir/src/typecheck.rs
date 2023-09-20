@@ -753,7 +753,7 @@ fn typeflow(
             if let Concrete(id) = inputs[1] {
                 if !types[id.idx()].is_unsigned() {
                     return Error(String::from(
-                        "ReadyArray node's index input must have unsigned type.",
+                        "ReadArray node's index input must have unsigned type.",
                     ));
                 }
             } else if inputs[1].is_error() {
@@ -766,9 +766,51 @@ fn typeflow(
                     return Concrete(elem_id);
                 } else {
                     return Error(String::from(
-                        "ReadyArray node's array input must have array type.",
+                        "ReadArray node's array input must have array type.",
                     ));
                 }
+            }
+
+            inputs[0].clone()
+        }
+        Node::WriteArray {
+            array: _,
+            data: _,
+            index: _,
+        } => {
+            if inputs.len() != 3 {
+                return Error(String::from("WriteArray node must have exactly 3 inputs."));
+            }
+
+            // Check that index has unsigned type.
+            if let Concrete(id) = inputs[2] {
+                if !types[id.idx()].is_unsigned() {
+                    return Error(String::from(
+                        "WriteArray node's index input must have unsigned type.",
+                    ));
+                }
+            } else if inputs[2].is_error() {
+                return inputs[2].clone();
+            }
+
+            // Check that array and data types match.
+            if let Concrete(array_id) = inputs[0] {
+                if let Type::Array(elem_id, _) = types[array_id.idx()] {
+                    if let Concrete(data_id) = inputs[1] {
+                        if elem_id != *data_id {
+                            return Error(String::from("WriteArray node's array and data inputs must have compatible types (type of data input must be the same as the array input's element type)."));
+                        }
+                    }
+                } else {
+                    return Error(String::from(
+                        "WriteArray node's array input must have array type.",
+                    ));
+                }
+            }
+
+            // If an input type is an error, we must propagate it.
+            if inputs[1].is_error() {
+                return inputs[1].clone();
             }
 
             inputs[0].clone()
