@@ -1,11 +1,19 @@
 [package]
 name = "hercules_frontend"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Aaron Councilman <aaronjc4@illinois.edu>"]
 
 [[bin]]
 name = "hercules_compiler"
 path = "src/main.rs"
 
+[build-dependencies]
+cfgrammar = "0.13"
+lrlex = "0.13"
+lrpar = "0.13"
+
 [dependencies]
 clap = { version = "*", features = ["derive"] }
+cfgrammar = "0.13"
+lrlex = "0.13"
+lrpar = "0.13"
