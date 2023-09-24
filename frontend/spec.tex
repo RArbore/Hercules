@@ -28,13 +28,13 @@
 \pagestyle{fancy}
 \fancyhf{}
 \chead{}
-\rhead{Code Name Hydra Spec}
+\rhead{Front-End Spec}
 \lhead{DRAFT: 2023-09-11}
 
 \renewcommand{\footrulewidth}{1pt}
 \rfoot{\thepage}
 
-\title{Code Name Hydra \\ \large Language Specification}
+\title{Hercules Front-End Spec (Name TBD) \\ \large Language Specification}
 \author{Aaron Councilman, Russel Arbore}
 \date{September 11, 2023}
 
@@ -50,7 +50,7 @@
 \begin{document}
 \maketitle
 
-This document gives the formal specification of the Code Name Hydra language.
+This document gives the formal specification of the Hercules front-end language.
 Section~\ref{sec:overview} provides an informal overview of the language: its features and notable differences from other languages.
 The formal description of the language is contained in Section~\ref{sec:syntax} which defines the syntax, Section~\ref{sec:types} which defines the type-system and semantic analysis rules, and Section~\ref{sec:semantics} which defines the formal semantics.
 
@@ -109,7 +109,8 @@ The language also supports C/C++ style line comments and block comments, allowin
   \nonterminal{TypeVar} ::&= \nonterminal{Id}
     \gramOr \nonterminal{Id} \terminal{:} \nonterminal{Kind} \\
 %
-  \nonterminal{Kind} ::&= \terminal{type} \gramOr \nonterminal{PrimType} \\
+  \nonterminal{Kind} ::&= \terminal{type} \gramOr \terminal{size}
+    \gramOr \terminal{number} \gramOr \terminal{integer} \\
 %
   \nonterminal{Type} ::&= \nonterminal{PrimType}
     \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)} \\
