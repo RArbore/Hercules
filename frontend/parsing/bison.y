@@ -24,7 +24,8 @@
 %token TILD "~"
 %token BANG "!"
 
-%right "else"
+%nonassoc ")"
+%nonassoc "else"
 %left "||"
 %left "&&"
 %left "|"
@@ -37,6 +38,7 @@
 %left "*" "/" "%"
 %left "as" "size"
 %right "~" "!" UNARY
+%left "." "DOT_NUM" "[" "]"
 
 %%
 Program
@@ -117,7 +119,7 @@ Type
   : PrimType {}
   | "(" Types ")" {}
   | PackageName {}
-  | PackageName "<" Types ">" {}
+  | PackageName "::" "<" TypeExprs ">" {}
   | Type "[" Exprs "]" {}
   ;
 Types
@@ -229,6 +231,8 @@ Stmt
   | "while" "(" Expr ")" Stmt {}
   | "return" Expr ";" {}
   | "{" Stmts "}" {}
+  | PackageName "(" Params ")" ";" {}
+  | PackageName "::" "<" TypeExprs ">" "(" Params ")" ";" {}
   ;
 Stmts
   : {}
@@ -311,7 +315,7 @@ Expr
   | Expr ">>" Expr {}
   | "if" Expr "then" Expr "else" Expr {}
   | PackageName "(" Params ")" {}
-  | PackageName "<" Types ">" "(" Params ")" {}
+  | PackageName "::" "<" TypeExprs ">" "(" Params ")" {}
   ;
 IdExprs
   : "ID" "=" Expr {}
@@ -333,4 +337,29 @@ ParamsS
   | "&" Expr {}
   | ParamsS "," Expr {}
   | ParamsS "," "&" Expr {}
+  ;
+
+TypeExprs
+  :                         {}
+  | TypeExpr                {}
+  | TypeExprsS "," TypeExpr {}
+  ;
+TypeExprsS
+  : TypeExpr                {}
+  | TypeExprsS "," TypeExpr {}
+  ;
+TypeExpr
+  : PrimType                      {}
+  | "(" TypeExprs ")"             {}
+  | PackageName                   {}
+  | PackageName "<" TypeExprs ">" {}
+  | TypeExpr "[" Exprs "]"        {}
+  | "true"                        {}
+  | "false"                       {}
+  | IntLit                        {}
+  | "FLOAT"                       {}
+  | "-" TypeExpr %prec UNARY      {}
+  | TypeExpr "+" TypeExpr         {}
+  | TypeExpr "-" TypeExpr         {}
+  | TypeExpr "*" TypeExpr         {}
   ;

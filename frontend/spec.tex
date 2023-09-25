@@ -116,7 +116,7 @@ The language also supports C/C++ style line comments and block comments, allowin
     \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)} \\
     &\gramOr \nonterminal{PackageName}
       \gramOption{\terminal{\textless}
-        \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
     \gramOr \nonterminal{Type}
       \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
 %
@@ -166,6 +166,10 @@ The language also supports C/C++ style line comments and block comments, allowin
       \nonterminal{Stmt} \\
     &\gramOr \terminal{return} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \terminal{\{} \gramRepeat{\nonterminal{Stmt}} \terminal{\}} \\
+    &\gramOr \nonterminal{PackageName}
+      \gramOption{\terminal{::} \terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
+      \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \terminal{;} \\
 %
   \nonterminal{Cases} ::&= \nonterminal{Case}
     \gramOr \terminal{\{} \gramRepeat{\nonterminal{Case}} \terminal{\}} \\
@@ -227,9 +231,19 @@ The language also supports C/C++ style line comments and block comments, allowin
     &\gramOr \terminal{if} \nonterminal{Expr} \terminal{then} \nonterminal{Expr}
              \terminal{else} \nonterminal{Expr} \\
     &\gramOr \nonterminal{PackageName}
-      \gramOption{\terminal{\textless}
-        \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{\textgreater}}
+      \gramOption{\terminal{::} \terminal{\textless}
+        \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
       \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \\
+%
+\nonterminal{TypeExpr} ::&= \nonterminal{PrimType}
+  \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{)} \\
+  &\gramOr \nonterminal{PackageName} \gramOption{\terminal{\textless} \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
+  \gramOr \nonterminal{TypeExpr} \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
+  &\gramOr \nonterminal{BoolLit} \gramOr \nonterminal{IntLit} \gramOr \nonterminal{FloatLit}
+   \gramOr \terminal{-} \nonterminal{TypeExpr} \\
+  &\gramOr \nonterminal{TypeExpr} \terminal{+} \nonterminal{TypeExpr}
+   \gramOr \nonterminal{TypeExpr} \terminal{-} \nonterminal{TypeExpr} \\
+  &\gramOr \nonterminal{TypeExpr} \terminal{*} \nonterminal{TypeExpr} \\
 %
   \nonterminal{PrimType} ::&= \terminal{bool}
     \gramOr \terminal{i8} \gramOr \terminal{u8}
@@ -257,7 +271,8 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     This is resolved though associativities and precedences, listed below.
     In this list, the top of the list are the operators which bind most tightly.
     \begin{enumerate}
-      \item Non associative: `-' (unary), `\texttildelow', `!', and `\&' (unary)
+      \item Left associative: `.', (dot number), `[]'
+      \item Right associative: `-' (unary), `\texttildelow', `!', and `\&' (unary)
       \item Left associative: `as' and `size'
       \item Left associative: `*', `/', and `\%'
       \item Left associative: `+' and `-' (binary)
@@ -269,7 +284,8 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
       \item Left associative: `\textbar'
       \item Left associative: `\&\&'
       \item Left associative: `\textbar\textbar'
-      \item Right associative: `if' $\cdots$ `then' $\cdots$ `else' $\cdots$
+      \item Non associative: `if' $\cdots$ `then' $\cdots$ `else' $\cdots$
+      \item Non associative: `)' (used for disambiguating dangling else)
     \end{enumerate}
 \end{enumerate}
 %
