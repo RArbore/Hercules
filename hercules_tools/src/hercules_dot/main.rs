@@ -28,7 +28,7 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let _types = hercules_ir::typecheck::typecheck(&mut module)
+    let _types = hercules_ir::verify::verify(&mut module)
         .expect("PANIC: Failed to typecheck Hercules IR module.");
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();

@@ -81,11 +81,13 @@ impl Semilattice for TypeSemilattice {
     }
 }
 
+pub type ModuleTyping = Vec<Vec<TypeID>>;
+
 /*
  * Top level typecheck function. Typechecking is a module-wide operation.
  * Returns a type for every node in every function.
  */
-pub fn typecheck(module: &mut Module) -> Result<Vec<Vec<TypeID>>, String> {
+pub fn typecheck(module: &mut Module) -> Result<ModuleTyping, String> {
     // Step 1: assemble a reverse type map. This is needed to get or create the
     // ID of potentially new types. Break down module into references to
     // individual elements at this point, so that borrows don't overlap each
