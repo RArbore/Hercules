@@ -33,14 +33,28 @@ fn main() {
         eprintln!("ERROR: {}", e.pp(&lexer, &lang_y::token_epp));
     }
     match res {
-        Some(Ok(r)) => println!("Result: {:?}", r),
+        Some(Ok(r)) => println!("Unparsed Result:\n{}", unparse_prg(&r)),
         _ => eprintln!("Fatal Error.")
     }
-    /*
-    match ast {
-        ParseResult::Valid(prg) => println!("{}\n", unparse_program(&prg)),
-        ParseResult::Error(_)   => eprintln!("Parse Error"),
-        ParseResult::Fatal()    => eprintln!("Fatal Parse Error"),
+}
+
+fn unparse_prg(r : &Prg) -> String {
+    r.iter().map(|t| unparse_top(t)).collect::<Vec<_>>().join("\n")
+}
+
+fn unparse_top(t : &Top) -> String {
+    match t {
+        Top::Import{ span : _, name : name }
+            => format!("use {};", "TODO"),
+        Top::TypeDecl{ span : _, public : public, name : name, tyVars : tyVars,
+                       body : body }
+            => format!("TODO: Type"),
+        Top::ConstDecl{ span : _, public : public, name : name, ty : ty, body : body }
+            => format!("TODO: Const"),
+        Top::FuncDecl{ span : _, public : public, attr : attr, name : name, tyVars : tyVars,
+                       args : args, ty : ty, body : body }
+            => format!("TODO: Func"),
+        Top::ModDecl{ span : _, public : public, name : name, body : body }
+            => format!("mod TODO {{ TODO }}\n"),
     }
-    */
 }

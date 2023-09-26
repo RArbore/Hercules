@@ -109,7 +109,7 @@ The language also supports C/C++ style line comments and block comments, allowin
   \nonterminal{TypeVar} ::&= \nonterminal{Id}
     \gramOr \nonterminal{Id} \terminal{:} \nonterminal{Kind} \\
 %
-  \nonterminal{Kind} ::&= \terminal{type} \gramOr \terminal{size}
+  \nonterminal{Kind} ::&= \terminal{type} \gramOr \terminal{usize}
     \gramOr \terminal{number} \gramOr \terminal{integer} \\
 %
   \nonterminal{Type} ::&= \nonterminal{PrimType}
@@ -250,7 +250,7 @@ The language also supports C/C++ style line comments and block comments, allowin
     \gramOr \terminal{i16} \gramOr \terminal{u16}
     \gramOr \terminal{i32} \gramOr \terminal{u32}
     \gramOr \terminal{i64} \gramOr \terminal{u64} \\
-    &\gramOr \terminal{f32} \gramOr \terminal{f64} \gramOr \terminal{void} \\
+    &\gramOr \terminal{usize} \gramOr \terminal{f32} \gramOr \terminal{f64} \gramOr \terminal{void} \\
 %
   \nonterminal{Id} ::&= \regex{[a-zA-Z][a-zA-Z0-9_\\-]*} \\
 %

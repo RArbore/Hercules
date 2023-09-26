@@ -76,7 +76,7 @@ TypeVar -> Result<TypeVar, ()>
 
 Kind -> Result<Kind, ()>
   : 'type'    { Ok(Kind::Type) }
-  | 'size'    { Ok(Kind::Size) }
+  | 'usize'   { Ok(Kind::USize) }
   | 'number'  { Ok(Kind::Number) }
   | 'integer' { Ok(Kind::Integer) }
   ;
@@ -137,6 +137,7 @@ PrimType -> Result<Primitive, ()>
   | 'u32'   { Ok(Primitive::U32) }
   | 'i64'   { Ok(Primitive::I64) }
   | 'u64'   { Ok(Primitive::U64) }
+  | 'usize' { Ok(Primitive::USize) }
   | 'f32'   { Ok(Primitive::F32) }
   | 'f64'   { Ok(Primitive::F64) }
   | 'void'  { Ok(Primitive::Void) }
@@ -496,9 +497,9 @@ pub type PackageName = Vec<Span>;
 pub type ImportName  = (PackageName, Option<Span>); // option is the wildcard *
 
 #[derive(Debug)]
-pub enum Kind { Type, Size, Number, Integer }
+pub enum Kind { Type, USize, Number, Integer }
 #[derive(Debug)]
-pub enum Primitive { Bool, I8, U8, I16, U16, I32, U32, I64, U64, F32, F64, Void }
+pub enum Primitive { Bool, I8, U8, I16, U16, I32, U32, I64, U64, USize, F32, F64, Void }
 #[derive(Debug)]
 pub enum AssignOp { None, Add, Sub, Mul, Div, Mod, BitAnd, BitOr, Xor, LogAnd, LogOr,
                     LShift, RShift }
