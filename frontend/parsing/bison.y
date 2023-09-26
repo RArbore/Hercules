@@ -349,17 +349,16 @@ TypeExprsS
   | TypeExprsS "," TypeExpr {}
   ;
 TypeExpr
-  : PrimType                      {}
-  | "(" TypeExprs ")"             {}
-  | PackageName                   {}
-  | PackageName "<" TypeExprs ">" {}
-  | TypeExpr "[" Exprs "]"        {}
-  | "true"                        {}
-  | "false"                       {}
-  | IntLit                        {}
-  | "FLOAT"                       {}
-  | "-" TypeExpr %prec UNARY      {}
-  | TypeExpr "+" TypeExpr         {}
-  | TypeExpr "-" TypeExpr         {}
-  | TypeExpr "*" TypeExpr         {}
+  : PrimType                            {}
+  | "(" TypeExprs ")"                   {}
+  | PackageName                         {}
+  | PackageName "::" "<" TypeExprs ">"  {}
+  | TypeExpr "[" Exprs "]"              {}
+  | "true"                              {}
+  | "false"                             {}
+  | IntLit                              {}
+  | "-" TypeExpr %prec UNARY            {}
+  | TypeExpr "+" TypeExpr               {}
+  | TypeExpr "-" TypeExpr               {}
+  | TypeExpr "*" TypeExpr               {}
   ;

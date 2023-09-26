@@ -2,6 +2,7 @@
 name = "hercules_frontend"
 version = "0.0.1"
 authors = ["Aaron Councilman <aaronjc4@illinois.edu>"]
+edition = "2021"
 
 [[bin]]
 name = "hercules_compiler"

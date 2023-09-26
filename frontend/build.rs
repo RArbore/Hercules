@@ -1,6 +1,3 @@
-extern crate cfgrammar;
-extern crate lrlex;
-
 use cfgrammar::yacc::YaccKind;
 use lrlex::CTLexerBuilder;
 

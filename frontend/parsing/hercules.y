@@ -4,7 +4,8 @@
 %avoid_insert "FUNC_ATTR" "DOT_NUM" "ID" "INT" "HEX_INT" "BIN_INT" "OCT_INT" "FLOAT"
 %expect-unused Unmatched 'UNMATCHED' 'UNARY'
 
-%right 'else'
+%nonassoc ')'
+%nonassoc 'else'
 %left '||'
 %left '&&'
 %left '|'
@@ -17,6 +18,7 @@
 %left '*' '/' '%'
 %left 'as' 'size'
 %right '~' '!' 'UNARY'
+%left '.' 'DOT_NUM' '[' ']'
 
 %%
 Program -> Result<Prg, ()>
@@ -34,7 +36,8 @@ Top -> Result<Top, ()>
 
 PubOption -> Result<bool, ()>
   :       { Ok(true) }
-  | 'pub' { Ok(false) };
+  | 'pub' { Ok(false) }
+  ;
 
 Module -> Result<Top, ()>
   : PubOption 'module' 'ID' '{' Program '}'
@@ -71,19 +74,19 @@ TypeVar -> Result<TypeVar, ()>
   | 'ID' ':' Kind { Ok(TypeVar{ span : $span, name : $1, kind : $3? }) }
   ;
 
-Kind -> Result<Kind, ()>:
-    'type'    { Ok(Kind::Type) }
+Kind -> Result<Kind, ()>
+  : 'type'    { Ok(Kind::Type) }
   | 'size'    { Ok(Kind::Size) }
   | 'number'  { Ok(Kind::Number) }
   | 'integer' { Ok(Kind::Integer) }
   ;
 
-TypeDecl -> Result<Top, ()>:
-  PubOption 'type' 'ID' TypeVars '=' TypeDef ';'
+TypeDecl -> Result<Top, ()>
+  : PubOption 'type' 'ID' TypeVars '=' TypeDef ';'
     { Ok(Top::TypeDecl{ span : $span, public : $1?, name : $3, tyVars : $4?, body : $6? } )};
 
-TypeDef -> Result<TyDef, ()>:
-    Type
+TypeDef -> Result<TyDef, ()>
+  : Type
       { Ok(TyDef::TypeAlias{ span : $span, body : $1? }) }
   | PubOption 'struct' '{' ObjFields '}'
       { Ok(TyDef::Struct{ span : $span, public : $1?, fields : $4? }) }
@@ -91,40 +94,40 @@ TypeDef -> Result<TyDef, ()>:
       { Ok(TyDef::Union { span : $span, public : $1?, fields : $4? }) }
   ;
 
-ObjFields -> Result<Vec<ObjField>, ()>:
-                        { Ok(vec![]) }
+ObjFields -> Result<Vec<ObjField>, ()>
+  :                     { Ok(vec![]) }
   | ObjFields ObjField  { flatten($1, $2) }
   ;
-ObjField -> Result<ObjField, ()>:
-    PubOption 'ID' ';'
+ObjField -> Result<ObjField, ()>
+  : PubOption 'ID' ';'
         { Ok(ObjField{ span : $span, public : $1?, name : $2, typ : None() }) }
   | PubOption 'ID' ':' Type ';'
         { Ok(ObjField{ span : $span, public : $1?, name : $2, typ : Some($4?) }) }
   ;
 
-Type -> Result<Type, ()>:
-    PrimType
+Type -> Result<Type, ()>
+  : PrimType
         { Ok(Type::PrimType{ span : $span, typ : $1? }) }
   | '(' Types ')'
         { Ok(Type::TupleType{ span : $span, tys : $2? }) }
   | PackageName
         { Ok(Type::NamedType{ span : $span, name : $1?, args : vec![] }) }
-  | PackageName '<' Types '>'
+  | PackageName '::' '<' TypeExprs '>'
         { Ok(Type::NamedType{ span : $span, name : $1?, args : $3? }) }
   | Type '[' Exprs ']'
         { Ok(Type::ArrayType{ span : $span, elem : Box::new($1?), dims : $3? }) }
   ;
-Types -> Result<Vec<Type>, ()>:
-                      { Ok(vec![]) }
+Types -> Result<Vec<Type>, ()>
+  :                   { Ok(vec![]) }
   | Type              { Ok(vec![$1?]) }
   | TypesS ',' Type   { flatten($1, $3) }
   ;
-TypesS -> Result<Vec<Type>, ()>:
-    Type              { Ok(vec![$1?]) }
+TypesS -> Result<Vec<Type>, ()>
+  : Type              { Ok(vec![$1?]) }
   | TypesS ',' Type   { flatten($1, $3) }
   ;
-PrimType -> Result<Primitive, ()>:
-    'bool'  { Ok(Primitive::Bool) }
+PrimType -> Result<Primitive, ()>
+  : 'bool'  { Ok(Primitive::Bool) }
   | 'i8'    { Ok(Primitive::I8) }
   | 'u8'    { Ok(Primitive::U8) }
   | 'i16'   { Ok(Primitive::I16) }
@@ -138,8 +141,8 @@ PrimType -> Result<Primitive, ()>:
   | 'void'  { Ok(Primitive::Void) }
   ;
 
-ConstDecl -> Result<Top, ()>:
-    PubOption 'const' 'ID' '=' Expr ';'
+ConstDecl -> Result<Top, ()>
+  : PubOption 'const' 'ID' '=' Expr ';'
         { Ok(Top::ConstDecl{ span : $span, public : $1?, name : $3, ty : None(), body : $5? }) }
   | PubOption 'const' 'ID' ':' Type '=' Expr ';'
         { Ok(Top::ConstDecl{ span : $span, public : $1?, name : $3, ty : Some($5?), body : $7? }) }
@@ -159,57 +162,57 @@ FuncDecl -> Result<Top, ()>
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : $1, name : $4?, tyVars : $5?,
                           args : $7?, ty : Some($9?), body : $10? }) }
   ;
-Arguments -> Result<Vec<(Option<Span>, VarBind)>, ()>:
-                          { Ok(vec![]) }
+Arguments -> Result<Vec<(Option<Span>, VarBind)>, ()>
+  :                       { Ok(vec![]) }
   | ArgBind               { Ok(vec![$1?]) }
   | ArgumentsS ',' ArgBind { flatten($1, $3) }
   ;
-ArgumentsS -> Result<Vec<(Option<Span>, VarBind)>, ()>:
-    ArgBind               { Ok(vec![$1?]) }
+ArgumentsS -> Result<Vec<(Option<Span>, VarBind)>, ()>
+  : ArgBind               { Ok(vec![$1?]) }
   | ArgumentsS ',' ArgBind { flatten($1, $3) }
   ;
-ArgBind -> Result<(Option<Span>, VarBind), ()>:
-    'inout' VarBind { Ok((Some($1), $2?)) }
+ArgBind -> Result<(Option<Span>, VarBind), ()>
+  : 'inout' VarBind { Ok((Some($1), $2?)) }
   | VarBind         { Ok((None(), $1?)) }
   ;
 
-VarBind -> Result<VarBind, ()>:
-    SPattern          { Ok(VarBind{ span : $span, pattern : $1?, typ : None() }) }
+VarBind -> Result<VarBind, ()>
+  : SPattern          { Ok(VarBind{ span : $span, pattern : $1?, typ : None() }) }
   | SPattern ':' Type { Ok(VarBind{ span : $span, pattern : $1?, typ : Some($3?) }) }
   ;
 
-Pattern -> Result<Pattern, ()>:
-    SPattern              { Ok(Pattern::SimplePattern{ span : $span, pat : $1? }) }
+Pattern -> Result<Pattern, ()>
+  : SPattern              { Ok(Pattern::SimplePattern{ span : $span, pat : $1? }) }
   | PackageName SPattern  { Ok(Pattern::UnionPattern{ span : $span, name : $1?, pat : $2? }) }
   ;
-SPattern -> Result<SPattern, ()>:
-    '_'                   { Ok(SPattern::Wildcard{ span : $span }}
+SPattern -> Result<SPattern, ()>
+  : '_'                   { Ok(SPattern::Wildcard{ span : $span }}
   | IntLit                { Ok(SPattern::IntLit{ span : $1?.0, base : $1?.1 }) }
   | PackageName           { Ok(SPattern::Variable{ span : $span, name : $1? }) }
   | '(' PatternsComma ')' { Ok(SPattern::TuplePat{ span : $span, pats : $2? }) }
   | '{' PatternsComma '}' { Ok(SPattern::OrderedStructPat{ span : $span, pats : $2? }) }
   | '{' NamePatterns  '}' { Ok(SPattern::NamedStructPat{ span : $span, pats : $2? }) }
   ;
-PatternsComma -> Result<Vec<Pattern>, ()>:
-                                { Ok(vec![]) }
+PatternsComma -> Result<Vec<Pattern>, ()>
+  :                             { Ok(vec![]) }
   | Pattern                     { Ok(vec![$1?]) }
   | PatternsCommaS ',' Pattern  { flatten($1, $3) }
   ;
-PatternsCommaS -> Result<Vec<Pattern>, ()>:
-    Pattern                     { Ok(vec![$1?]) }
+PatternsCommaS -> Result<Vec<Pattern>, ()>
+  : Pattern                     { Ok(vec![$1?]) }
   | PatternsCommaS ',' Pattern  { flatten($1, $3) }
   ;
 NamePatterns -> Result<Vec<(Id, Pattern)>, ()>
   : 'ID' '=' Pattern                    { Ok(vec![($1, $3?)]) }
   | NamePatternsS ',' 'ID' '=' Pattern  { flatten($1, ($3, $5?)) }
   ;
-NamePatternsS -> Result<Vec<(Id, Pattern)>, ()>:
-    'ID' '=' Pattern                    { Ok(vec![($1, $3?)]) }
+NamePatternsS -> Result<Vec<(Id, Pattern)>, ()>
+  : 'ID' '=' Pattern                    { Ok(vec![($1, $3?)]) }
   | NamePatternsS ',' 'ID' '=' Pattern  { flatten($1, ($3, $5?)) }
   ;
 
-Stmt -> Result<Stmt, ()>:
-    'let' VarBind ';'
+Stmt -> Result<Stmt, ()>
+  : 'let' VarBind ';'
       { Ok(Stmt::LetStmt{ span : $span, var : $2?, init : None() }) }
   | 'let' VarBind '=' Expr ';'
       { Ok(Stmt::LetStmt{ span : $span, var : $2?, init : Some($4?) }) }
@@ -272,54 +275,58 @@ Stmt -> Result<Stmt, ()>:
       { Ok(Stmt::ReturnStmt{ span : $span, expr : $2?}) }
   | '{' Stmts '}'
       { Ok(Stmt::BlockStmt{ span : $span, body : $2? }) }
+  | PackageName '(' Params ')' ';'
+      { Ok(Stmt::CallStmt{ span : $span, name : $1?, tyArgs : vec![], args : $3? }) }
+  | PackageName '::' '<' TypeExprs '>' '(' Params ')' ';'
+      { Ok(Stmt::CallStmt{ span : $span, name : $1?, tyArgs : $4?, args : $7? }) }
   ;
-Stmts -> Result<Vec<Stmt>, ()>:
-                { Ok(vec![]) }
+Stmts -> Result<Vec<Stmt>, ()>
+  :             { Ok(vec![]) }
   | Stmts Stmt  { flatten($1, $2) }
   ;
 
-Cases -> Result<Vec<Case>, ()>:
-    Case              { Ok(vec![]) }
+Cases -> Result<Vec<Case>, ()>
+  : Case              { Ok(vec![]) }
   | '{' CaseList '}'  { $2 }
   ;
 CaseList -> Result<Vec<Case>, ()>
   : Case          { Ok(vec![$1?]) }
   | CaseList Case { flatten($1, $2) }
   ;
-Case -> Result<Case, ()>:
-  Patterns '=>' Stmt { Ok(Case{ span : $span, patSpan : $1.span(), pat : $1?, body : $3? }) };
-Patterns -> Result<Vec<Pattern>, ()>:
-    Pattern               { Ok(vec![$1?]) }
+Case -> Result<Case, ()>
+  : Patterns '=>' Stmt { Ok(Case{ span : $span, patSpan : $1.span(), pat : $1?, body : $3? }) };
+Patterns -> Result<Vec<Pattern>, ()>
+  : Pattern               { Ok(vec![$1?]) }
   | '|' Pattern           { Ok(vec![$1?]) }
   | Patterns '|' Pattern  { flatten($1, $3) }
   ;
 
-LExpr -> Result<LExpr, ()>:
-    'ID'                { Ok(LExpr::VariableLExpr{ span : $1 }) }
+LExpr -> Result<LExpr, ()>
+  : 'ID'                { Ok(LExpr::VariableLExpr{ span : $1 }) }
   | LExpr '.' 'ID'      { Ok(LExpr::FieldLExpr{ span : $span, lhs : Box::new($1?), rhs : $3 }) }
   | LExpr 'DOT_NUM'     { Ok(LExpr::NumFieldLExpr { span : $span, lhs : Box::new($1?), rhs : $2 }) }
   | LExpr '[' Exprs ']' { Ok(LExpr::IndexLExpr{ span : $span, lhs : Box::new($1?), index : $3? }) }
   ;
 
-IntLit -> Result<(Span, IntBase), ()>:
-    'INT'     { Ok(($span, IntBase::Decimal)) }
+IntLit -> Result<(Span, IntBase), ()>
+  : 'INT'     { Ok(($span, IntBase::Decimal)) }
   | 'HEX_INT' { Ok(($span, IntBase::Hexadecimal)) }
   | 'BIN_INT' { Ok(($span, IntBase::Binary)) }
   | 'OCT_INT' { Ok(($span, IntBase::Octal)) }
   ;
 
-Exprs -> Result<Vec<Expr>, ()>:
-                    { Ok(vec![]) }
+Exprs -> Result<Vec<Expr>, ()>
+  :                 { Ok(vec![]) }
   | Expr            { Ok(vec![$1?]) }
   | ExprsS ',' Expr { flatten($1, $3) }
   ;
-ExprsS -> Result<Vec<Expr>, ()>:
-    Expr            { Ok(vec![$1?]) }
+ExprsS -> Result<Vec<Expr>, ()>
+  : Expr            { Ok(vec![$1?]) }
   | ExprsS ',' Expr { flatten($1, $3) }
   ;
 
-Expr -> Result<Expr, ()>:
-    PackageName
+Expr -> Result<Expr, ()>
+  : PackageName
       { Ok(Expr::Variable{ span : $span, name : $1? }) }
   | Expr '.' 'ID'
       { Ok(Expr::Field{ span : $span, lhs : Box::new($1?), rhs : $3 }) }
@@ -391,29 +398,53 @@ Expr -> Result<Expr, ()>:
       { Ok(Expr::CondExpr{ span: $span, cond : Box::new($2?), thn : Box::new($4?), els : Box::new($6?) })}
   | PackageName '(' Params ')'
       { Ok(Expr::CallExpr{ span : $span, name : $1?, tyArgs : vec![], args: $3? }) }
-  | PackageName '<' Types '>' '(' Params ')'
+  | PackageName '::' '<' TypeExprs '>' '(' Params ')'
       { Ok(Expr::CallExpr{ span : $span, name : $1?, tyArgs : $3?, args: $6? }) }
   ;
 IdExprs -> Result<Vec<(Id, Expr)>, ()>
   : 'ID' '=' Expr               { Ok(vec![($1, $3?)]) }
   | IdExprsS ',' 'ID' '=' Expr  { flatten($1, ($3, $5?)) }
   ;
-IdExprsS -> Result<Vec<(Id, Expr)>, ()>:
-    'ID' '=' Expr               { Ok(vec![($1, $3?)]) }
+IdExprsS -> Result<Vec<(Id, Expr)>, ()>
+  : 'ID' '=' Expr               { Ok(vec![($1, $3?)]) }
   | IdExprsS ',' 'ID' '=' Expr  { flatten($1, ($3, $5?)) }
   ;
-Params -> Result<Vec<(bool, Expr)>, ()>:
-                          { Ok(vec![]) }
+Params -> Result<Vec<(bool, Expr)>, ()>
+  :                       { Ok(vec![]) }
   | Expr                  { Ok(vec![(false, $1?)]) }
   | '&' Expr              { Ok(vec![(true, $2?)]) }
   | ParamsS ',' Expr      { flatten($1, (false, $3?)) }
   | ParamsS ',' '&' Expr  { flatten($1, (true, $4?)) }
   ;
-ParamsS -> Result<Vec<(bool, Expr)>, ()>:
-    Expr                  { Ok(vec![(false, $1?)]) }
+ParamsS -> Result<Vec<(bool, Expr)>, ()>
+  : Expr                  { Ok(vec![(false, $1?)]) }
   | '&' Expr              { Ok(vec![(true, $2?)]) }
   | ParamsS ',' Expr      { flatten($1, (false, $3?)) }
   | ParamsS ',' '&' Expr  { flatten($1, (true, $4?)) }
+  ;
+
+TypeExprs -> Result<Vec<TypeExpr>, ()>
+  :                         { Ok(vec![]) }
+  | TypeExpr                { Ok(vec![$1?] }
+  | TypeExprsS ',' TypeExpr { flatten($1, $3) }
+  ;
+TypeExprsS -> Result<Vec<TypeExpr>, ()>
+  : TypeExpr                { Ok(vec![$1?]) }
+  | TypeExprsS ',' TypeExpr { flatten($1, $3) }
+  ;
+TypeExpr -> Result<TypeExpr, ()>
+  : PrimType                            { Ok(TypeExpr::PrimType{ span : $span, typ : $1? }) }
+  | '(' Types ')'                       { Ok(TypeExpr::TupleType{ span : $span, tys : $2? }) }
+  | PackageName                         { Ok(TypeExpr::NamedTypeExpr{ span : $span, name : $1?, args : vec![]}) }
+  | PackageName '::' '<' TypeExprs '>'  { Ok(TypeExpr::NamedTypeExpr{ span : $span, name : $1?, args : $4? }) }
+  | TypeExpr '[' Exprs ']'              { Ok(TypeExpr::ArrayTypeExpr{ span : $span, elem : Box::new($1?), dims : $3? }) }
+  | 'true'                              { Ok(TypeExpr::BoolLiteral{ span : $span, val : true}) }
+  | 'false'                             { Ok(TypeExpr::BoolLiteral{ span : $span, val : false}) }
+  | IntLit                              { Ok(TypeExpr::IntLiteral{ span : $1?.0, base : $1?.1 }) }
+  | '-' TypeExpr %prec UNARY            { Ok(TypeExpr::Negative{ span : $span, expr : Box::new($2?}) }
+  | TypeExpr '+' TypeExpr               { Ok(TypeExpr::Add{ span : $span, lhs : $1?, rhs : $3? }) }
+  | TypeExpr '-' TypeExpr               { Ok(TypeExpr::Sub{ span : $span, lhs : $1?, rhs : $3? }) }
+  | TypeExpr '*' TypeExpr               { Ok(TypeExpr::Mul{ span : $span, lhs : $1?, rhs : $3? }) }
   ;
 
 Unmatched -> (): 'UNMATCHED' { };
@@ -478,7 +509,7 @@ pub enum TyDef {
 pub enum Type {
   PrimType  { span : Span, typ : Primitive },
   TupleType { span : Span, tys : Vec<Type> },
-  NamedType { span : Span, name : PackageName, args : Vec<Type> },
+  NamedType { span : Span, name : PackageName, args : Vec<TypeExpr> },
   ArrayType { span : Span, elem : Box<Type>, dims : Vec<Expr> },
 }
 
@@ -494,6 +525,8 @@ pub enum Stmt {
   WhileStmt  { span : Span, cond : Expr, body : Box<Stmt> },
   ReturnStmt { span : Span, expr : Expr },
   BlockStmt  { span : Span, body : Vec<Stmt> },
+  CallStmt   { span : Span, name : PackageName, tyArgs : Vec<TypeExpr>,
+               args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
 }
 
 #[derive(Debug)]
@@ -537,6 +570,20 @@ pub enum Expr {
   CastExpr      { span : Span, expr : Box<Expr>, typ : Type },
   SizeExpr      { span : Span, expr : Box<Expr> },
   CondExpr      { span : Span, cond : Box<Expr>, thn : Box<Expr>, els : Box<Expr> },
-  CallExpr      { span : Span, name : PackageName, tyArgs : Vec<Type>,
+  CallExpr      { span : Span, name : PackageName, tyArgs : Vec<TypeExpr>,
                   args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
+}
+
+#[derive(Debug)]
+pub enum TypeExpr {
+  PrimType        { span : Span, typ : Primitive },
+  TupleType       { span : Span, tys : Vec<Type> },
+  NamedTypeExpr   { span : Span, name : PackageName, args : Vec<TypeExpr> },
+  ArrayTypeExpr   { span : Span, elem : Box<TypeExpr>, dims : Vec<Expr> },
+  BoolLiteral     { span : Span, val : bool },
+  IntLiteral      { span : Span, base : IntBase },
+  Negative        { span : Span, expr : Box<TypeExpr> },
+  Add             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
+  Sub             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
+  Mul             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
 }
