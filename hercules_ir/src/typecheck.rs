@@ -23,15 +23,6 @@ impl TypeSemilattice {
             false
         }
     }
-
-    // During typeflow, the return node is given an error type, even when
-    // typechecking succeeds. This is done so that any node that uses a return
-    // node will have its output type set to this error. In the top-level type
-    // checking function, we ignore this particular error if the node being
-    // checked is a return node.
-    fn get_return_type_error() -> Self {
-        Error(String::from("No node can take a return node as input."))
-    }
 }
 
 impl PartialEq for TypeSemilattice {
@@ -127,39 +118,20 @@ pub fn typecheck(
         })
         .collect();
 
-    // Step 3: add type for empty product. This is the type of return nodes.
-    let empty_prod_ty = Type::Product(Box::new([]));
-    let empty_prod_id = if let Some(id) = reverse_type_map.get(&empty_prod_ty) {
-        *id
-    } else {
-        let id = TypeID::new(reverse_type_map.len());
-        reverse_type_map.insert(empty_prod_ty.clone(), id);
-        types.push(empty_prod_ty);
-        id
-    };
-
-    // Step 4: convert the individual type lattice values into lists of
+    // Step 3: convert the individual type lattice values into lists of
     // concrete type values, or a single error.
     results
         .into_iter()
-        .enumerate()
         // For each type list, we want to convert its element TypeSemilattices
         // into Result<TypeID, String>.
-        .map(|(function_idx, result): (usize, Vec<TypeSemilattice>)| {
-            zip(result.into_iter(), functions[function_idx].nodes.iter())
+        .map(|result| {
+            result
+                .into_iter()
                 // For each TypeSemilattice, convert into Result<TypeID, String>.
-                .map(|(x, n): (TypeSemilattice, &Node)| match x {
+                .map(|x| match x {
                     Unconstrained => Err(String::from("Found unconstrained type in program.")),
                     Concrete(id) => Ok(id),
-                    Error(msg) => {
-                        if n.is_return()
-                            && Error(msg.clone()) == TypeSemilattice::get_return_type_error()
-                        {
-                            Ok(empty_prod_id)
-                        } else {
-                            Err(msg.clone())
-                        }
-                    }
+                    Error(msg) => Err(msg.clone()),
                 })
                 .collect()
         })
@@ -429,14 +401,11 @@ fn typeflow(
                 return inputs[1].clone();
             }
 
-            // Return nodes are special - they cannot have any users. Thus, we
-            // set the return node's lattice value to a specific error. When
-            // converting lattice values to types, this particular error gets
-            // converted to an empty product type if it's the type of a return
-            // node. If any node uses a return node, it's lattice value will be
-            // this error. This will result in a normal error when attempting to
-            // extract conrete types.
-            TypeSemilattice::get_return_type_error()
+            Concrete(get_type_id(
+                Type::Product(Box::new([])),
+                types,
+                reverse_type_map,
+            ))
         }
         Node::Parameter { index } => {
             if inputs.len() != 0 {

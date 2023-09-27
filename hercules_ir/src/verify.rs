@@ -31,6 +31,7 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
  */
 fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result<(), String> {
     for (idx, node) in function.nodes.iter().enumerate() {
+        let users = def_use.get_users(NodeID::new(idx));
         match node {
             Node::Phi { control, data: _ } => {
                 if let Node::Region { preds: _ } = function.nodes[control.idx()] {
@@ -42,7 +43,6 @@ fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result
                 control: _,
                 cond: _,
             } => {
-                let users = def_use.get_users(NodeID::new(idx));
                 if users.len() != 2 {
                     Err(format!("If node must have 2 users, not {}.", users.len()))?;
                 }
@@ -64,6 +64,17 @@ fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result
                     }
                 } else {
                     Err("If node's users must both be ReadProd nodes.")?;
+                }
+            }
+            Node::Return {
+                control: _,
+                value: _,
+            } => {
+                if users.len() != 0 {
+                    Err(format!(
+                        "Return node must have 0 users, not {}.",
+                        users.len()
+                    ))?;
                 }
             }
             _ => {}
