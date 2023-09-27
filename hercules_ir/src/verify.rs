@@ -47,9 +47,21 @@ fn verify_structure(
             Node::If {
                 control: _,
                 cond: _,
+            }
+            | Node::Fork {
+                control: _,
+                factor: _,
+            }
+            | Node::Join {
+                control: _,
+                data: _,
             } => {
                 if users.len() != 2 {
-                    Err(format!("If node must have 2 users, not {}.", users.len()))?;
+                    Err(format!(
+                        "{} node must have 2 users, not {}.",
+                        node.upper_case_name(),
+                        users.len()
+                    ))?;
                 }
                 if let (
                     Node::ReadProd {
@@ -65,10 +77,13 @@ fn verify_structure(
                     &function.nodes[users[1].idx()],
                 ) {
                     if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
-                        Err("If node's user ReadProd nodes must reference different elements of If node's output product.")?;
+                        Err(format!("{} node's user ReadProd nodes must reference different elements of output product.", node.upper_case_name()))?;
                     }
                 } else {
-                    Err("If node's users must both be ReadProd nodes.")?;
+                    Err(format!(
+                        "{} node's users must both be ReadProd nodes.",
+                        node.upper_case_name()
+                    ))?;
                 }
             }
             Node::Phi { control, data: _ } => {

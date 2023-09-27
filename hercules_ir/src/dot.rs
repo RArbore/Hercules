@@ -46,7 +46,7 @@ fn write_node<W: std::fmt::Write>(
         Ok((visited.get(&id).unwrap().clone(), visited))
     } else {
         let node = &module.functions[i].nodes[j];
-        let name = format!("{}_{}_{}", get_string_node_kind(node), i, j);
+        let name = format!("{}_{}_{}", node.lower_case_name(), i, j);
         visited.insert(NodeID::new(j), name.clone());
         let visited = match node {
             Node::Start => {
@@ -155,13 +155,13 @@ fn write_node<W: std::fmt::Write>(
                 visited
             }
             Node::Unary { input, op } => {
-                write!(w, "{} [label=\"{}\"];\n", name, get_string_uop_kind(*op))?;
+                write!(w, "{} [label=\"{}\"];\n", name, op.lower_case_name())?;
                 let (input_name, visited) = write_node(i, input.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"input\"];\n", input_name, name)?;
                 visited
             }
             Node::Binary { left, right, op } => {
-                write!(w, "{} [label=\"{}\"];\n", name, get_string_bop_kind(*op))?;
+                write!(w, "{} [label=\"{}\"];\n", name, op.lower_case_name())?;
                 let (left_name, visited) = write_node(i, left.idx(), module, visited, w)?;
                 let (right_name, visited) = write_node(i, right.idx(), module, visited, w)?;
                 write!(w, "{} -> {} [label=\"left\"];\n", left_name, name)?;
@@ -265,97 +265,5 @@ fn write_node<W: std::fmt::Write>(
             }
         };
         Ok((visited.get(&id).unwrap().clone(), visited))
-    }
-}
-
-fn get_string_node_kind(node: &Node) -> &'static str {
-    match node {
-        Node::Start => "start",
-        Node::Region { preds: _ } => "region",
-        Node::If {
-            control: _,
-            cond: _,
-        } => "if",
-        Node::Fork {
-            control: _,
-            factor: _,
-        } => "fork",
-        Node::Join {
-            control: _,
-            data: _,
-        } => "join",
-        Node::Phi {
-            control: _,
-            data: _,
-        } => "phi",
-        Node::Return {
-            control: _,
-            value: _,
-        } => "return",
-        Node::Parameter { index: _ } => "parameter",
-        Node::DynamicConstant { id: _ } => "dynamic_constant",
-        Node::Constant { id: _ } => "constant",
-        Node::Unary { input: _, op } => get_string_uop_kind(*op),
-        Node::Binary {
-            left: _,
-            right: _,
-            op,
-        } => get_string_bop_kind(*op),
-        Node::Call {
-            function: _,
-            dynamic_constants: _,
-            args: _,
-        } => "call",
-        Node::ReadProd { prod: _, index: _ } => "read_prod",
-        Node::WriteProd {
-            prod: _,
-            data: _,
-            index: _,
-        } => "write_prod ",
-        Node::ReadArray { array: _, index: _ } => "read_array",
-        Node::WriteArray {
-            array: _,
-            data: _,
-            index: _,
-        } => "write_array",
-        Node::Match { control: _, sum: _ } => "match",
-        Node::BuildSum {
-            data: _,
-            sum_ty: _,
-            variant: _,
-        } => "build_sum",
-        Node::ExtractSum {
-            data: _,
-            variant: _,
-        } => "extract_sum",
-    }
-}
-
-fn get_string_uop_kind(uop: UnaryOperator) -> &'static str {
-    match uop {
-        UnaryOperator::Not => "not",
-        UnaryOperator::Neg => "neg",
-        UnaryOperator::Bitflip => "bitflip",
-    }
-}
-
-fn get_string_bop_kind(bop: BinaryOperator) -> &'static str {
-    match bop {
-        BinaryOperator::Add => "add",
-        BinaryOperator::Sub => "sub",
-        BinaryOperator::Mul => "mul",
-        BinaryOperator::Div => "div",
-        BinaryOperator::Rem => "rem",
-        BinaryOperator::LT => "lt",
-        BinaryOperator::LTE => "lte",
-        BinaryOperator::GT => "gt",
-        BinaryOperator::GTE => "gte",
-        BinaryOperator::EQ => "eq",
-        BinaryOperator::NE => "ne",
-        BinaryOperator::Or => "or",
-        BinaryOperator::And => "and",
-        BinaryOperator::Xor => "xor",
-        BinaryOperator::LSh => "lsh",
-        BinaryOperator::RSh => "rsh",
     }
 }
