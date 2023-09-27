@@ -21,7 +21,11 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
         .iter()
         .map(|def_use| reverse_postorder(def_use))
         .collect();
+
+    // Typecheck the module.
     let typing = typecheck(module, &reverse_postorders)?;
+
+    // Check the structure of the functions in the module.
     for (function, (def_use, typing)) in
         zip(module.functions.iter(), zip(def_uses.iter(), typing.iter()))
     {
@@ -44,6 +48,9 @@ fn verify_structure(
     for (idx, node) in function.nodes.iter().enumerate() {
         let users = def_use.get_users(NodeID::new(idx));
         match node {
+            // If, fork, and join nodes all have the same structural
+            // constraints - each must have exactly two ReadProd users, which
+            // reference differing elements of the node's output product.
             Node::If {
                 control: _,
                 cond: _,
@@ -86,12 +93,14 @@ fn verify_structure(
                     ))?;
                 }
             }
+            // Phi nodes must depend on a region node.
             Node::Phi { control, data: _ } => {
                 if let Node::Region { preds: _ } = function.nodes[control.idx()] {
                 } else {
                     Err("Phi node's control input must be a region node.")?;
                 }
             }
+            // Return nodes must have no users.
             Node::Return {
                 control: _,
                 value: _,
@@ -103,6 +112,8 @@ fn verify_structure(
                     ))?;
                 }
             }
+            // Match nodes are similar to if nodes, but have a variable number
+            // of ReadProd users, corresponding to the sum type being matched.
             Node::Match { control: _, sum } => {
                 let sum_ty = &types[typing[sum.idx()].idx()];
                 if let Type::Summation(tys) = sum_ty {
