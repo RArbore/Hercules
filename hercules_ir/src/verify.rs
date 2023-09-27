@@ -1,3 +1,5 @@
+use std::iter::zip;
+
 use crate::*;
 
 /*
@@ -6,9 +8,18 @@ use crate::*;
  * return those useful results. Otherwise, return the first error string found.
  */
 pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
-    let typing = typecheck(module)?;
-    for function in module.functions.iter() {
-        verify_structure(&function)?;
+    let def_uses: Vec<_> = module
+        .functions
+        .iter()
+        .map(|function| def_use(function))
+        .collect();
+    let reverse_postorders: Vec<_> = def_uses
+        .iter()
+        .map(|def_use| reverse_postorder(def_use))
+        .collect();
+    let typing = typecheck(module, &reverse_postorders)?;
+    for (function, def_use) in zip(module.functions.iter(), def_uses.iter()) {
+        verify_structure(function, def_use)?;
     }
     Ok(typing)
 }
@@ -18,13 +29,41 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
  * control input must be a region node. This is where those properties are
  * verified.
  */
-fn verify_structure(function: &Function) -> Result<(), String> {
-    for node in function.nodes.iter() {
+fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result<(), String> {
+    for (idx, node) in function.nodes.iter().enumerate() {
         match node {
             Node::Phi { control, data: _ } => {
                 if let Node::Region { preds: _ } = function.nodes[control.idx()] {
                 } else {
                     Err("Phi node's control input must be a region node.")?;
+                }
+            }
+            Node::If {
+                control: _,
+                cond: _,
+            } => {
+                let users = def_use.get_users(NodeID::new(idx));
+                if users.len() != 2 {
+                    Err(format!("If node must have 2 users, not {}.", users.len()))?;
+                }
+                if let (
+                    Node::ReadProd {
+                        prod: _,
+                        index: index1,
+                    },
+                    Node::ReadProd {
+                        prod: _,
+                        index: index2,
+                    },
+                ) = (
+                    &function.nodes[users[0].idx()],
+                    &function.nodes[users[1].idx()],
+                ) {
+                    if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
+                        Err("If node's user ReadProd nodes must reference different elements of If node's output product.")?;
+                    }
+                } else {
+                    Err("If node's users must both be ReadProd nodes.")?;
                 }
             }
             _ => {}

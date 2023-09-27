@@ -1,7 +1,7 @@
-use crate::*;
-
 use std::collections::HashMap;
 use std::iter::zip;
+
+use crate::*;
 
 use self::TypeSemilattice::*;
 
@@ -84,10 +84,13 @@ impl Semilattice for TypeSemilattice {
 pub type ModuleTyping = Vec<Vec<TypeID>>;
 
 /*
- * Top level typecheck function. Typechecking is a module-wide operation.
+ * Top level typecheck function. Typechecking is a module-wide analysis.
  * Returns a type for every node in every function.
  */
-pub fn typecheck(module: &mut Module) -> Result<ModuleTyping, String> {
+pub fn typecheck(
+    module: &mut Module,
+    reverse_postorders: &Vec<Vec<NodeID>>,
+) -> Result<ModuleTyping, String> {
     // Step 1: assemble a reverse type map. This is needed to get or create the
     // ID of potentially new types. Break down module into references to
     // individual elements at this point, so that borrows don't overlap each
@@ -107,13 +110,9 @@ pub fn typecheck(module: &mut Module) -> Result<ModuleTyping, String> {
     // Step 2: run dataflow. This is an occurrence of dataflow where the flow
     // function performs a non-associative operation on the predecessor "out"
     // values.
-    let results: Vec<Vec<TypeSemilattice>> = functions
-        .iter()
-        .map(|function| {
-            let def_use_map = def_use(function);
-            let reverse_postorder = reverse_postorder(&def_use_map);
-
-            dataflow(function, &reverse_postorder, |inputs, id| {
+    let results: Vec<Vec<TypeSemilattice>> = zip(functions, reverse_postorders)
+        .map(|(function, reverse_postorder)| {
+            dataflow(function, reverse_postorder, |inputs, id| {
                 typeflow(
                     inputs,
                     id,
