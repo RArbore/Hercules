@@ -1,4 +1,8 @@
+extern crate bitvec;
+
 use std::iter::zip;
+
+use verify::bitvec::prelude::*;
 
 use crate::*;
 
@@ -18,8 +22,10 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
         .map(|def_use| reverse_postorder(def_use))
         .collect();
     let typing = typecheck(module, &reverse_postorders)?;
-    for (function, def_use) in zip(module.functions.iter(), def_uses.iter()) {
-        verify_structure(function, def_use)?;
+    for (function, (def_use, typing)) in
+        zip(module.functions.iter(), zip(def_uses.iter(), typing.iter()))
+    {
+        verify_structure(function, def_use, typing, &module.types)?;
     }
     Ok(typing)
 }
@@ -29,16 +35,15 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
  * control input must be a region node. This is where those properties are
  * verified.
  */
-fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result<(), String> {
+fn verify_structure(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
+) -> Result<(), String> {
     for (idx, node) in function.nodes.iter().enumerate() {
         let users = def_use.get_users(NodeID::new(idx));
         match node {
-            Node::Phi { control, data: _ } => {
-                if let Node::Region { preds: _ } = function.nodes[control.idx()] {
-                } else {
-                    Err("Phi node's control input must be a region node.")?;
-                }
-            }
             Node::If {
                 control: _,
                 cond: _,
@@ -66,6 +71,12 @@ fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result
                     Err("If node's users must both be ReadProd nodes.")?;
                 }
             }
+            Node::Phi { control, data: _ } => {
+                if let Node::Region { preds: _ } = function.nodes[control.idx()] {
+                } else {
+                    Err("Phi node's control input must be a region node.")?;
+                }
+            }
             Node::Return {
                 control: _,
                 value: _,
@@ -75,6 +86,31 @@ fn verify_structure(function: &Function, def_use: &ImmutableDefUseMap) -> Result
                         "Return node must have 0 users, not {}.",
                         users.len()
                     ))?;
+                }
+            }
+            Node::Match { control: _, sum } => {
+                let sum_ty = &types[typing[sum.idx()].idx()];
+                if let Type::Summation(tys) = sum_ty {
+                    let correct_number_of_users = tys.len();
+                    if users.len() != correct_number_of_users {
+                        Err(format!(
+                            "Match node must have {} users, not {}.",
+                            correct_number_of_users,
+                            users.len()
+                        ))?;
+                    }
+                    let mut users_covered = bitvec![u8, Lsb0; 0; users.len()];
+                    for user in users {
+                        if let Node::ReadProd { prod: _, index } = function.nodes[user.idx()] {
+                            assert!(index < users.len(), "ReadProd child of match node reads from bad index, but ran after typecheck succeeded.");
+                            users_covered.set(index, true);
+                        }
+                    }
+                    if users_covered.count_ones() != users.len() {
+                        Err(format!("Match node's user ReadProd nodes must reference all {} elements of match node's output product, but they only reference {} of them.", users.len(), users_covered.count_ones()))?;
+                    }
+                } else {
+                    panic!("Type of match node's sum input is not a summation type, but ran after typecheck succeeded.");
                 }
             }
             _ => {}
