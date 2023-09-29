@@ -15,16 +15,16 @@ pub trait Semilattice: Eq {
 }
 
 /*
- * Top level dataflow function. This routine is slightly more generic than the
- * typical textbook definition. The flow function takes an ordered slice of
- * predecessor lattice values, rather than a single lattice value. Thus, the
- * flow function can perform non-associative and non-commutative operations on
- * the "in" lattice values. This makes this routine more useful for some
- * analyses, such as typechecking. To perform the typical behavior, the flow
- * function should start by meeting the input lattice values into a single
- * lattice value.
+ * Top level forward dataflow function. This routine is slightly more generic
+ * than the typical textbook definition. The flow function takes an ordered
+ * slice of predecessor lattice values, rather than a single lattice value.
+ * Thus, the flow function can perform non-associative and non-commutative
+ * operations on the "in" lattice values. This makes this routine more useful
+ * for some analyses, such as typechecking. To perform the typical behavior,
+ * the flow function should start by meeting the input lattice values into a
+ * single lattice value.
  */
-pub fn dataflow<L, F>(
+pub fn forward_dataflow<L, F>(
     function: &Function,
     reverse_postorder: &Vec<NodeID>,
     mut flow_function: F,

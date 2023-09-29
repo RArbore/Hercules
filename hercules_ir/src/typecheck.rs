@@ -103,7 +103,7 @@ pub fn typecheck(
     // values.
     let results: Vec<Vec<TypeSemilattice>> = zip(functions, reverse_postorders)
         .map(|(function, reverse_postorder)| {
-            dataflow(function, reverse_postorder, |inputs, id| {
+            forward_dataflow(function, reverse_postorder, |inputs, id| {
                 typeflow(
                     inputs,
                     id,
