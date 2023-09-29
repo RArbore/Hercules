@@ -1,5 +1,6 @@
 pub mod dataflow;
 pub mod def_use;
+pub mod dom;
 pub mod dot;
 pub mod ir;
 pub mod parse;
@@ -8,6 +9,7 @@ pub mod verify;
 
 pub use crate::dataflow::*;
 pub use crate::def_use::*;
+pub use crate::dom::*;
 pub use crate::dot::*;
 pub use crate::ir::*;
 pub use crate::parse::*;
