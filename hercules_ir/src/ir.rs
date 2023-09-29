@@ -47,6 +47,7 @@ pub struct Function {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Control(Box<[DynamicConstantID]>),
+    Boolean,
     Integer8,
     Integer16,
     Integer32,
@@ -62,6 +63,60 @@ pub enum Type {
     Array(TypeID, DynamicConstantID),
 }
 
+impl Type {
+    pub fn is_control(&self) -> bool {
+        if let Type::Control(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_bool(&self) -> bool {
+        self == &Type::Boolean
+    }
+
+    pub fn is_unsigned(&self) -> bool {
+        match self {
+            Type::UnsignedInteger8 => true,
+            Type::UnsignedInteger16 => true,
+            Type::UnsignedInteger32 => true,
+            Type::UnsignedInteger64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_fixed(&self) -> bool {
+        match self {
+            Type::Integer8 => true,
+            Type::Integer16 => true,
+            Type::Integer32 => true,
+            Type::Integer64 => true,
+            Type::UnsignedInteger8 => true,
+            Type::UnsignedInteger16 => true,
+            Type::UnsignedInteger32 => true,
+            Type::UnsignedInteger64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_float(&self) -> bool {
+        match self {
+            Type::Float32 => true,
+            Type::Float64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_arithmetic(&self) -> bool {
+        self.is_fixed() || self.is_float()
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        self.is_bool() || self.is_fixed() || self.is_float()
+    }
+}
+
 /*
  * Constants are pretty standard in Hercules IR. Float constants used the
  * ordered_float crate so that constants can be keys in maps (used for
@@ -72,6 +127,7 @@ pub enum Type {
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
+    Boolean(bool),
     Integer8(i8),
     Integer16(i16),
     Integer32(i32),
@@ -111,7 +167,7 @@ pub enum DynamicConstant {
  * type instead. For example, the if node produces prod(control(N),
  * control(N)), where the first control token represents the false branch, and
  * the second control token represents the true branch. Another example is the
- * fork node, which produces prod(control(N*k), u64), where the u64 is the
+ * fork node, which produces prod(control(N, K), u64), where the u64 is the
  * thread ID. Functions are devoid of side effects, so call nodes don't take as
  * input or output control tokens. There is also no global memory - use arrays.
  */
@@ -191,12 +247,17 @@ pub enum Node {
         sum_ty: TypeID,
         variant: usize,
     },
+    ExtractSum {
+        data: NodeID,
+        variant: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOperator {
     Not,
     Neg,
+    Bitflip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -212,6 +273,213 @@ pub enum BinaryOperator {
     GTE,
     EQ,
     NE,
+    Or,
+    And,
+    Xor,
+    LSh,
+    RSh,
+}
+
+impl Node {
+    pub fn is_return(&self) -> bool {
+        if let Node::Return {
+            control: _,
+            value: _,
+        } = self
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn upper_case_name(&self) -> &'static str {
+        match self {
+            Node::Start => "Start",
+            Node::Region { preds: _ } => "Region",
+            Node::If {
+                control: _,
+                cond: _,
+            } => "If",
+            Node::Fork {
+                control: _,
+                factor: _,
+            } => "Fork",
+            Node::Join {
+                control: _,
+                data: _,
+            } => "Join",
+            Node::Phi {
+                control: _,
+                data: _,
+            } => "Phi",
+            Node::Return {
+                control: _,
+                value: _,
+            } => "Return",
+            Node::Parameter { index: _ } => "Parameter",
+            Node::DynamicConstant { id: _ } => "DynamicConstant",
+            Node::Constant { id: _ } => "Constant",
+            Node::Unary { input: _, op } => op.upper_case_name(),
+            Node::Binary {
+                left: _,
+                right: _,
+                op,
+            } => op.upper_case_name(),
+            Node::Call {
+                function: _,
+                dynamic_constants: _,
+                args: _,
+            } => "Unary",
+            Node::ReadProd { prod: _, index: _ } => "ReadProd",
+            Node::WriteProd {
+                prod: _,
+                data: _,
+                index: _,
+            } => "WriteProd",
+            Node::ReadArray { array: _, index: _ } => "ReadArray",
+            Node::WriteArray {
+                array: _,
+                data: _,
+                index: _,
+            } => "WriteArray",
+            Node::Match { control: _, sum: _ } => "Match",
+            Node::BuildSum {
+                data: _,
+                sum_ty: _,
+                variant: _,
+            } => "BuildSum",
+            Node::ExtractSum {
+                data: _,
+                variant: _,
+            } => "ExtractSum",
+        }
+    }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            Node::Start => "start",
+            Node::Region { preds: _ } => "region",
+            Node::If {
+                control: _,
+                cond: _,
+            } => "if",
+            Node::Fork {
+                control: _,
+                factor: _,
+            } => "fork",
+            Node::Join {
+                control: _,
+                data: _,
+            } => "join",
+            Node::Phi {
+                control: _,
+                data: _,
+            } => "phi",
+            Node::Return {
+                control: _,
+                value: _,
+            } => "return",
+            Node::Parameter { index: _ } => "parameter",
+            Node::DynamicConstant { id: _ } => "dynamic_constant",
+            Node::Constant { id: _ } => "constant",
+            Node::Unary { input: _, op } => op.lower_case_name(),
+            Node::Binary {
+                left: _,
+                right: _,
+                op,
+            } => op.lower_case_name(),
+            Node::Call {
+                function: _,
+                dynamic_constants: _,
+                args: _,
+            } => "call",
+            Node::ReadProd { prod: _, index: _ } => "read_prod",
+            Node::WriteProd {
+                prod: _,
+                data: _,
+                index: _,
+            } => "write_prod ",
+            Node::ReadArray { array: _, index: _ } => "read_array",
+            Node::WriteArray {
+                array: _,
+                data: _,
+                index: _,
+            } => "write_array",
+            Node::Match { control: _, sum: _ } => "match",
+            Node::BuildSum {
+                data: _,
+                sum_ty: _,
+                variant: _,
+            } => "build_sum",
+            Node::ExtractSum {
+                data: _,
+                variant: _,
+            } => "extract_sum",
+        }
+    }
+}
+
+impl UnaryOperator {
+    pub fn upper_case_name(&self) -> &'static str {
+        match self {
+            UnaryOperator::Not => "Not",
+            UnaryOperator::Neg => "Neg",
+            UnaryOperator::Bitflip => "Bitflip",
+        }
+    }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            UnaryOperator::Not => "not",
+            UnaryOperator::Neg => "neg",
+            UnaryOperator::Bitflip => "bitflip",
+        }
+    }
+}
+
+impl BinaryOperator {
+    pub fn upper_case_name(&self) -> &'static str {
+        match self {
+            BinaryOperator::Add => "Add",
+            BinaryOperator::Sub => "Sub",
+            BinaryOperator::Mul => "Mul",
+            BinaryOperator::Div => "Div",
+            BinaryOperator::Rem => "Rem",
+            BinaryOperator::LT => "LT",
+            BinaryOperator::LTE => "LTE",
+            BinaryOperator::GT => "GT",
+            BinaryOperator::GTE => "GTE",
+            BinaryOperator::EQ => "EQ",
+            BinaryOperator::NE => "NE",
+            BinaryOperator::Or => "Or",
+            BinaryOperator::And => "And",
+            BinaryOperator::Xor => "Xor",
+            BinaryOperator::LSh => "LSh",
+            BinaryOperator::RSh => "RSh",
+        }
+    }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            BinaryOperator::Add => "add",
+            BinaryOperator::Sub => "sub",
+            BinaryOperator::Mul => "mul",
+            BinaryOperator::Div => "div",
+            BinaryOperator::Rem => "rem",
+            BinaryOperator::LT => "lt",
+            BinaryOperator::LTE => "lte",
+            BinaryOperator::GT => "gt",
+            BinaryOperator::GTE => "gte",
+            BinaryOperator::EQ => "eq",
+            BinaryOperator::NE => "ne",
+            BinaryOperator::Or => "or",
+            BinaryOperator::And => "and",
+            BinaryOperator::Xor => "xor",
+            BinaryOperator::LSh => "lsh",
+            BinaryOperator::RSh => "rsh",
+        }
+    }
 }
 
 /*
