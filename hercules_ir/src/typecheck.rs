@@ -702,6 +702,10 @@ fn typeflow(
                     } else if let Concrete(data_id) = inputs[1] {
                         if elem_tys[*index] != *data_id {
                             return Error(format!("WriteProd node's data input doesn't match the type of the element at index {} inside the product type.", index));
+                        } else if let Type::Control(_) = &types[data_id.idx()] {
+                            return Error(String::from(
+                                "WriteProd node's data input cannot have a control type.",
+                            ));
                         }
                     } else if inputs[1].is_error() {
                         // If an input lattice value is an error, we must
@@ -773,6 +777,10 @@ fn typeflow(
                     if let Concrete(data_id) = inputs[1] {
                         if elem_id != *data_id {
                             return Error(String::from("WriteArray node's array and data inputs must have compatible types (type of data input must be the same as the array input's element type)."));
+                        } else if let Type::Control(_) = &types[data_id.idx()] {
+                            return Error(String::from(
+                                "WriteArray node's data input cannot have a control type.",
+                            ));
                         }
                     }
                 } else {
@@ -831,6 +839,12 @@ fn typeflow(
             }
 
             if let Concrete(id) = inputs[0] {
+                if let Type::Control(_) = &types[id.idx()] {
+                    return Error(String::from(
+                        "BuildSum node's data input cannot have a control type.",
+                    ));
+                }
+
                 // BuildSum node stores its own result type.
                 if let Type::Summation(variants) = &types[sum_ty.idx()] {
                     // Must reference an existing variant.
