@@ -9,8 +9,10 @@ use crate::*;
 /*
  * Top level parse function.
  */
-pub fn parse(ir_test: &str) -> Module {
-    parse_module(ir_test, Context::default()).unwrap().1
+pub fn parse(ir_test: &str) -> Result<Module, ()> {
+    parse_module(ir_test, Context::default())
+        .map(|x| x.1)
+        .map_err(|_| ())
 }
 
 /*
@@ -280,6 +282,7 @@ fn parse_node<'a>(
         // parse them into Unary or Binary node kinds.
         "not" => parse_unary(ir_text, context, UnaryOperator::Not)?,
         "neg" => parse_unary(ir_text, context, UnaryOperator::Neg)?,
+        "bitflip" => parse_unary(ir_text, context, UnaryOperator::Bitflip)?,
         "add" => parse_binary(ir_text, context, BinaryOperator::Add)?,
         "sub" => parse_binary(ir_text, context, BinaryOperator::Sub)?,
         "mul" => parse_binary(ir_text, context, BinaryOperator::Mul)?,
@@ -291,6 +294,11 @@ fn parse_node<'a>(
         "gte" => parse_binary(ir_text, context, BinaryOperator::GTE)?,
         "eq" => parse_binary(ir_text, context, BinaryOperator::EQ)?,
         "ne" => parse_binary(ir_text, context, BinaryOperator::NE)?,
+        "or" => parse_binary(ir_text, context, BinaryOperator::Or)?,
+        "and" => parse_binary(ir_text, context, BinaryOperator::And)?,
+        "xor" => parse_binary(ir_text, context, BinaryOperator::Xor)?,
+        "lsh" => parse_binary(ir_text, context, BinaryOperator::LSh)?,
+        "rsh" => parse_binary(ir_text, context, BinaryOperator::RSh)?,
         "call" => parse_call(ir_text, context)?,
         "read_prod" => parse_read_prod(ir_text, context)?,
         "write_prod" => parse_write_prod(ir_text, context)?,
@@ -298,6 +306,7 @@ fn parse_node<'a>(
         "write_array" => parse_write_array(ir_text, context)?,
         "match" => parse_match(ir_text, context)?,
         "build_sum" => parse_build_sum(ir_text, context)?,
+        "extract_sum" => parse_extract_sum(ir_text, context)?,
         _ => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
@@ -581,6 +590,16 @@ fn parse_build_sum<'a>(
     ))
 }
 
+fn parse_extract_sum<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (data, variant)) =
+        parse_tuple2(parse_identifier, |x| parse_prim::<usize>(x, "1234567890"))(ir_text)?;
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((ir_text, Node::ExtractSum { data, variant }))
+}
+
 fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Type> {
     // Parser combinators are very convenient, if a bit hard to read.
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -611,6 +630,7 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             Type::Control(Box::new([]))
         }),
         // Primitive types are written in Rust style.
+        nom::combinator::map(nom::bytes::complete::tag("bool"), |_| Type::Boolean),
         nom::combinator::map(nom::bytes::complete::tag("i8"), |_| Type::Integer8),
         nom::combinator::map(nom::bytes::complete::tag("i16"), |_| Type::Integer16),
         nom::combinator::map(nom::bytes::complete::tag("i32"), |_| Type::Integer32),
@@ -750,6 +770,7 @@ fn parse_constant<'a>(
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
         }))?,
+        Type::Boolean => parse_boolean(ir_text)?,
         Type::Integer8 => parse_integer8(ir_text)?,
         Type::Integer16 => parse_integer16(ir_text)?,
         Type::Integer32 => parse_integer32(ir_text)?,
@@ -795,6 +816,14 @@ fn parse_prim<'a, T: FromStr>(ir_text: &'a str, chars: &'static str) -> nom::IRe
         })
     })?;
     Ok((ir_text, x))
+}
+
+fn parse_boolean<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
+    let (ir_text, val) = nom::branch::alt((
+        nom::combinator::map(nom::bytes::complete::tag("false"), |_| false),
+        nom::combinator::map(nom::bytes::complete::tag("true"), |_| true),
+    ))(ir_text)?;
+    Ok((ir_text, Constant::Boolean(val)))
 }
 
 fn parse_integer8<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
@@ -1060,6 +1089,7 @@ fn add<1>(x: i32, y: i32) -> i32
   w = add(z, c)
   z = add(x, y)
 ",
-        );
+        )
+        .unwrap();
     }
 }
