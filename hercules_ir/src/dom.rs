@@ -1,3 +1,7 @@
+extern crate bitvec;
+
+use dom::bitvec::prelude::*;
+
 use crate::*;
 
 use std::collections::HashMap;
@@ -39,12 +43,17 @@ impl DomTree {
 }
 
 /*
- * Top level function for calculating dominator trees.
+ * Top level function for calculating dominator trees. Uses the semi-NCA
+ * algorithm, as described in "Finding Dominators in Practice".
  */
 pub fn dominator(function: &Function) -> DomTree {
     // Step 1: compute the sub-CFG for the function. This is the graph the
     // dominator tree will be built for.
-    let sub_cfg = control_nodes(function);
+    let backward_sub_cfg = control_nodes(function);
+    let forward_sub_cfg = reorient_sub_cfg(&backward_sub_cfg);
+
+    // Step 2: compute pre-order DFS of CFG.
+    let preorder = preorder(&forward_sub_cfg);
 
     todo!()
 }
@@ -70,37 +79,37 @@ impl<'a> AsRef<[NodeID]> for ControlUses<'a> {
     }
 }
 
-pub type SubCFG<'a> = Vec<(NodeID, ControlUses<'a>)>;
+pub type BackwardSubCFG<'a> = HashMap<NodeID, ControlUses<'a>>;
 
 /*
  * Top level function for getting all the control nodes in a function. Also
  * returns the control uses of each control node, in effect returning the
  * control subset of the IR graph.
  */
-pub fn control_nodes(function: &Function) -> SubCFG {
+pub fn control_nodes(function: &Function) -> BackwardSubCFG {
     use Node::*;
 
-    let mut control_nodes = vec![];
+    let mut control_nodes = HashMap::new();
     for (idx, node) in function.nodes.iter().enumerate() {
         match node {
             Start => {
-                control_nodes.push((NodeID::new(idx), ControlUses::Zero));
+                control_nodes.insert(NodeID::new(idx), ControlUses::Zero);
             }
             Region { preds } => {
-                control_nodes.push((NodeID::new(idx), ControlUses::Variable(&preds)));
+                control_nodes.insert(NodeID::new(idx), ControlUses::Variable(&preds));
             }
             If { control, cond: _ }
             | Fork { control, factor: _ }
             | Join { control, data: _ }
             | Return { control, value: _ }
             | Match { control, sum: _ } => {
-                control_nodes.push((NodeID::new(idx), ControlUses::One([*control])));
+                control_nodes.insert(NodeID::new(idx), ControlUses::One([*control]));
             }
             ReadProd { prod, index } => match function.nodes[prod.idx()] {
                 // ReadProd nodes are control nodes if their predecessor is a
                 // legal control node, and if it's the right index.
                 Match { control: _, sum: _ } => {
-                    control_nodes.push((NodeID::new(idx), ControlUses::One([*prod])));
+                    control_nodes.insert(NodeID::new(idx), ControlUses::One([*prod]));
                 }
                 If {
                     control: _,
@@ -115,7 +124,7 @@ pub fn control_nodes(function: &Function) -> SubCFG {
                     data: _,
                 } => {
                     if *index == 0 {
-                        control_nodes.push((NodeID::new(idx), ControlUses::One([*prod])))
+                        control_nodes.insert(NodeID::new(idx), ControlUses::One([*prod]));
                     }
                 }
                 _ => {}
@@ -124,4 +133,66 @@ pub fn control_nodes(function: &Function) -> SubCFG {
         }
     }
     control_nodes
+}
+
+pub type ForwardSubCFG = HashMap<NodeID, Vec<NodeID>>;
+
+/*
+ * Utility for getting def-use edges of sub CFG.
+ */
+pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
+    let mut forward = HashMap::new();
+
+    // HashMap doesn't have a get_mut_or_insert like API, so explicitly insert
+    // all possible keys (all control nodes).
+    for key in backward.keys() {
+        forward.insert(*key, vec![]);
+    }
+
+    // Then, insert def-use edges. Unwrap since all keys are initialized above
+    // with empty vectors.
+    for (user, defs) in backward.iter() {
+        for def in defs.as_ref() {
+            forward.get_mut(def).unwrap().push(*user);
+        }
+    }
+
+    forward
+}
+
+fn preorder(forward_sub_cfg: &ForwardSubCFG) -> Vec<NodeID> {
+    // Initialize order vector and bitset for tracking which nodes have been
+    // visited.
+    let order = Vec::with_capacity(forward_sub_cfg.len());
+    let visited = bitvec![u8, Lsb0; 0; forward_sub_cfg.len()];
+
+    // Order and visited are threaded through arguments / return pair of
+    // reverse_postorder_helper for ownership reasons.
+    let (order, _) = preorder_helper(NodeID::new(0), forward_sub_cfg, order, visited);
+    order
+}
+
+fn preorder_helper(
+    node: NodeID,
+    forward_sub_cfg: &ForwardSubCFG,
+    mut order: Vec<NodeID>,
+    mut visited: BitVec<u8, Lsb0>,
+) -> (Vec<NodeID>, BitVec<u8, Lsb0>) {
+    if visited[node.idx()] {
+        // If already visited, return early.
+        (order, visited)
+    } else {
+        // Set visited to true.
+        visited.set(node.idx(), true);
+
+        // Iterate over users.
+        for user in forward_sub_cfg.get(&node).unwrap() {
+            (order, visited) = preorder_helper(*user, forward_sub_cfg, order, visited);
+        }
+
+        // Before iterating users, push this node.
+        order.push(node);
+
+        (order, visited)
+    }
 }
