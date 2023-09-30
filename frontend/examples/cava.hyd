@@ -45,7 +45,7 @@ fn descale<row : usize, col : usize>(input : f32[CHAN, row, col]) : u8[CHAN, row
   return res;
 }
 
-fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : float[CHAN, row, col] {
+fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, row, col] {
   let res : f32[CHAN, row, col];
   for (r : u64 = 1 to row-1) {
     for (c : u64 = 1 to col-1) {
@@ -154,7 +154,9 @@ fn gamut<row : usize, col : usize>(input    : f32[CHAN, row, col],
   return result;
 }
 
-fn tone_map<row : u64, col:u64>(input : f32[CHAN, row, col], tone_map[255, CHAN]) : f32[CHAN, row, col] {
+fn tone_map<row : usize, col:usize>
+  (input : f32[CHAN, row, col], tone_map : f32[255, CHAN])
+  : f32[CHAN, row, col] {
   let result : f32[CHAN, row, col];
   for (chan : u64 = 0 to CHAN)
     for (r : u64 = 0 to row)

@@ -8,7 +8,7 @@
 <comment>[\n\r] ;
 <comment>.      ;
 
-//.*   ;
+//[^\n\r]*   ;
 
 [\t ]+ ;
 [\n\r] ;
@@ -117,7 +117,7 @@ _       "_"
 \]      "]"
 
 \.[0-9]+                  "DOT_NUM"
-[a-zA-Z][a-zA-Z0-9_\-]*   "ID"
+[a-zA-Z][a-zA-Z0-9_]*     "ID"
 [0-9]+                    "INT"
 0x[0-9a-fA-F]+            "HEX_INT"
 0b[0-1]+                  "BIN_INT"

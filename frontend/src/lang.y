@@ -35,8 +35,8 @@ Top -> Result<Top, ()>
   ;
 
 PubOption -> Result<bool, ()>
-  :       { Ok(true) }
-  | 'pub' { Ok(false) }
+  :       { Ok(false) }
+  | 'pub' { Ok(true) }
   ;
 
 Module -> Result<Top, ()>
@@ -512,13 +512,13 @@ pub enum BinaryOp { Add, Sub, Mul, Div, Mod, BitAnd, LogAnd, BitOr, LogOr, Xor,
                     Lt, Le, Gt, Ge, Eq, Neq, LShift, RShift }
 
 #[derive(Debug)]
-pub struct ObjField { span : Span, public : bool, name : Id, typ : Option<Type> }
+pub struct ObjField { pub span : Span, pub public : bool, pub name : Id, pub typ : Option<Type> }
 #[derive(Debug)]
-pub struct TypeVar { span : Span, name : Id, kind : Kind }
+pub struct TypeVar { pub span : Span, pub name : Id, pub kind : Kind }
 #[derive(Debug)]
-pub struct VarBind { span : Span, pattern : SPattern, typ : Option<Type> }
+pub struct VarBind { pub span : Span, pub pattern : SPattern, pub typ : Option<Type> }
 #[derive(Debug)]
-pub struct Case { span : Span, pat : Vec<Pattern>, body : Stmt }
+pub struct Case { pub span : Span, pub pat : Vec<Pattern>, pub body : Stmt }
 
 #[derive(Debug)]
 pub enum Top {
