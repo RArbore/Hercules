@@ -185,13 +185,13 @@ fn preorder_helper(
         // Set visited to true.
         visited.set(node.idx(), true);
 
+        // Before iterating users, push this node.
+        order.push(node);
+
         // Iterate over users.
         for user in forward_sub_cfg.get(&node).unwrap() {
             (order, visited) = preorder_helper(*user, forward_sub_cfg, order, visited);
         }
-
-        // Before iterating users, push this node.
-        order.push(node);
 
         (order, visited)
     }
