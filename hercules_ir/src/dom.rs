@@ -1,7 +1,5 @@
 extern crate bitvec;
 
-use dom::bitvec::prelude::*;
-
 use crate::*;
 
 use std::collections::HashMap;
@@ -162,17 +160,16 @@ pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
 }
 
 fn preorder(forward_sub_cfg: &ForwardSubCFG) -> Vec<NodeID> {
-    // Initialize order vector and bitset for tracking which nodes have been
-    // visited.
+    // Initialize order vector and visited hashmap for tracking which nodes have
+    // been visited.
     let order = Vec::with_capacity(forward_sub_cfg.len());
 
-    // Visited is indexed by node ID, so find the largest possible node ID
-    // visited during the traversal.
-    let visited = bitvec![u8, Lsb0; 0; forward_sub_cfg.keys().map(|x| x.idx()).fold(std::usize::MIN, |a,b| a.max(b)) + 1];
+    // Explicitly keep track of parents in DFS tree. Doubles as a visited set.
+    let parents = HashMap::new();
 
-    // Order and visited are threaded through arguments / return pair of
+    // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
-    let (order, _) = preorder_helper(NodeID::new(0), forward_sub_cfg, order, visited);
+    let (order, _) = preorder_helper(NodeID::new(0), forward_sub_cfg, order, parents);
     order
 }
 
@@ -180,24 +177,29 @@ fn preorder_helper(
     node: NodeID,
     forward_sub_cfg: &ForwardSubCFG,
     mut order: Vec<NodeID>,
-    mut visited: BitVec<u8, Lsb0>,
-) -> (Vec<NodeID>, BitVec<u8, Lsb0>) {
+    mut parents: HashMap<NodeID, NodeID>,
+) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
     assert!(forward_sub_cfg.contains_key(&node));
-    if visited[node.idx()] {
+    if parents.contains_key(&node) {
         // If already visited, return early.
-        (order, visited)
+        (order, parents)
     } else {
-        // Set visited to true.
-        visited.set(node.idx(), true);
+        // Keep track of DFS parent for region nodes.
+        if let Some(parent) = order.last() {
+            // Only node where the above isn't true is the start node, which
+            // has no incoming edge. Thus, there's no need to insert the start
+            // node into the parents map for tracking visitation.
+            parents.insert(node, *parent);
+        }
 
         // Before iterating users, push this node.
         order.push(node);
 
         // Iterate over users.
         for user in forward_sub_cfg.get(&node).unwrap() {
-            (order, visited) = preorder_helper(*user, forward_sub_cfg, order, visited);
+            (order, parents) = preorder_helper(*user, forward_sub_cfg, order, parents);
         }
 
-        (order, visited)
+        (order, parents)
     }
 }
