@@ -31,6 +31,12 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     {
         verify_structure(function, def_use, typing, &module.types)?;
     }
+
+    // Check SSA, fork, and join dominance relations.
+    for function in module.functions.iter() {
+        let dom = dominator(&function);
+    }
+
     Ok(typing)
 }
 

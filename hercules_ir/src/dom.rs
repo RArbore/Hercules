@@ -108,14 +108,14 @@ pub fn control_nodes(function: &Function) -> BackwardSubCFG {
             ReadProd { prod, index } => match function.nodes[prod.idx()] {
                 // ReadProd nodes are control nodes if their predecessor is a
                 // legal control node, and if it's the right index.
-                Match { control: _, sum: _ } => {
-                    control_nodes.insert(NodeID::new(idx), ControlUses::One([*prod]));
-                }
-                If {
+                Match { control: _, sum: _ }
+                | If {
                     control: _,
                     cond: _,
+                } => {
+                    control_nodes.insert(NodeID::new(idx), ControlUses::One([*prod]));
                 }
-                | Fork {
+                Fork {
                     control: _,
                     factor: _,
                 }
@@ -143,8 +143,9 @@ pub type ForwardSubCFG = HashMap<NodeID, Vec<NodeID>>;
 pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
     let mut forward = HashMap::new();
 
-    // HashMap doesn't have a get_mut_or_insert like API, so explicitly insert
-    // all possible keys (all control nodes).
+    // Every control node needs to be a key in forward, even if it has no
+    // def-use edges originating from it (the return node), so explicitly add
+    // them all here.
     for key in backward.keys() {
         forward.insert(*key, vec![]);
     }
@@ -164,7 +165,10 @@ fn preorder(forward_sub_cfg: &ForwardSubCFG) -> Vec<NodeID> {
     // Initialize order vector and bitset for tracking which nodes have been
     // visited.
     let order = Vec::with_capacity(forward_sub_cfg.len());
-    let visited = bitvec![u8, Lsb0; 0; forward_sub_cfg.len()];
+
+    // Visited is indexed by node ID, so find the largest possible node ID
+    // visited during the traversal.
+    let visited = bitvec![u8, Lsb0; 0; forward_sub_cfg.keys().map(|x| x.idx()).fold(std::usize::MIN, |a,b| a.max(b)) + 1];
 
     // Order and visited are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
@@ -178,6 +182,7 @@ fn preorder_helper(
     mut order: Vec<NodeID>,
     mut visited: BitVec<u8, Lsb0>,
 ) -> (Vec<NodeID>, BitVec<u8, Lsb0>) {
+    assert!(forward_sub_cfg.contains_key(&node));
     if visited[node.idx()] {
         // If already visited, return early.
         (order, visited)
