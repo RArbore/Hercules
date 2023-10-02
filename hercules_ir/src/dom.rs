@@ -96,14 +96,7 @@ pub fn dominator(function: &Function) -> DomTree {
         return (labels[node_numbers[&iter]], parents, semi);
     };
 
-    // Step 4: initialize idom.
-    let mut idom = HashMap::new();
-    for w in preorder[1..].iter() {
-        // Each idom starts as the parent node.
-        idom.insert(w, parents[w]);
-    }
-
-    // Step 5: compute semi-dominators. This implementation is based off of
+    // Step 4: compute semi-dominators. This implementation is based off of
     // LLVM's dominator implementation.
     let mut semi = vec![NodeID::new(0); preorder.len()];
     for w_n in (2..preorder.len()).rev() {
@@ -120,7 +113,25 @@ pub fn dominator(function: &Function) -> DomTree {
         }
     }
 
-    todo!()
+    // Step 5: compute idom.
+    let mut idom = HashMap::new();
+    for w in preorder[1..].iter() {
+        // Each idom starts as the parent node.
+        idom.insert(*w, parents[w]);
+    }
+    for w_n in 2..preorder.len() {
+        let w = preorder[w_n];
+        let semi_num = node_numbers[&semi[w_n]];
+        let mut w_idom_candidate = idom[&w];
+        while node_numbers[&w_idom_candidate] > semi_num {
+            w_idom_candidate = idom[&w_idom_candidate];
+        }
+        *idom.get_mut(&w).unwrap() = w_idom_candidate;
+    }
+
+    println!("{:?}", idom);
+
+    DomTree { idom }
 }
 
 /*
