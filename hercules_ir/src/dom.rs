@@ -118,6 +118,13 @@ pub fn dominator(function: &Function) -> DomTree {
         }
     }
 
+    println!(
+        "{:?}",
+        (0..preorder.len())
+            .map(|idx| (preorder[idx], semi[idx]))
+            .collect::<HashMap<_, _>>()
+    );
+
     // Step 5: compute idom.
     for w_n in 2..preorder.len() {
         let w = preorder[w_n];
@@ -247,11 +254,12 @@ fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, HashMap<NodeID, No
 
     // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
-    preorder_helper(NodeID::new(0), forward_sub_cfg, order, parents)
+    preorder_helper(NodeID::new(0), None, forward_sub_cfg, order, parents)
 }
 
 fn preorder_helper(
     node: NodeID,
+    parent: Option<NodeID>,
     forward_sub_cfg: &ForwardSubCFG,
     mut order: Vec<NodeID>,
     mut parents: HashMap<NodeID, NodeID>,
@@ -262,11 +270,11 @@ fn preorder_helper(
         (order, parents)
     } else {
         // Keep track of DFS parent for region nodes.
-        if let Some(parent) = order.last() {
+        if let Some(parent) = parent {
             // Only node where the above isn't true is the start node, which
             // has no incoming edge. Thus, there's no need to insert the start
             // node into the parents map for tracking visitation.
-            parents.insert(node, *parent);
+            parents.insert(node, parent);
         }
 
         // Before iterating users, push this node.
@@ -274,7 +282,7 @@ fn preorder_helper(
 
         // Iterate over users.
         for user in forward_sub_cfg.get(&node).unwrap() {
-            (order, parents) = preorder_helper(*user, forward_sub_cfg, order, parents);
+            (order, parents) = preorder_helper(*user, Some(node), forward_sub_cfg, order, parents);
         }
 
         (order, parents)
