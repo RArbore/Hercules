@@ -56,6 +56,11 @@ pub fn dominator(function: &Function) -> DomTree {
     for (number, node) in preorder.iter().enumerate() {
         node_numbers.insert(node, number);
     }
+    let mut idom = HashMap::new();
+    for w in preorder[1..].iter() {
+        // Each idom starts as the parent node.
+        idom.insert(*w, parents[w]);
+    }
 
     // Step 3: define eval, which will be used to compute semi-dominators.
     let mut eval_stack = vec![];
@@ -114,11 +119,6 @@ pub fn dominator(function: &Function) -> DomTree {
     }
 
     // Step 5: compute idom.
-    let mut idom = HashMap::new();
-    for w in preorder[1..].iter() {
-        // Each idom starts as the parent node.
-        idom.insert(*w, parents[w]);
-    }
     for w_n in 2..preorder.len() {
         let w = preorder[w_n];
         let semi_num = node_numbers[&semi[w_n]];
