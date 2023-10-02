@@ -10,12 +10,12 @@ use std::collections::HashMap;
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
-    imm_doms: HashMap<NodeID, NodeID>,
+    idom: HashMap<NodeID, NodeID>,
 }
 
 impl DomTree {
     pub fn imm_dom(&self, x: NodeID) -> Option<NodeID> {
-        self.imm_doms.get(&x).map(|x| x.clone())
+        self.idom.get(&x).map(|x| x.clone())
     }
 
     pub fn does_imm_dom(&self, a: NodeID, b: NodeID) -> bool {
@@ -51,9 +51,92 @@ pub fn dominator(function: &Function) -> DomTree {
     let forward_sub_cfg = reorient_sub_cfg(&backward_sub_cfg);
 
     // Step 2: compute pre-order DFS of CFG.
-    let preorder = preorder(&forward_sub_cfg);
+    let (preorder, mut parents) = preorder(&forward_sub_cfg);
+    let mut node_numbers = HashMap::new();
+    for (number, node) in preorder.iter().enumerate() {
+        node_numbers.insert(node, number);
+    }
 
-    todo!()
+    // Step 3: define eval, which will be used to compute semi-dominators.
+    let mut eval_stack = vec![];
+    let mut labels: Vec<_> = (0..preorder.len()).collect();
+    let mut eval = |v, last_linked, mut parents: HashMap<NodeID, NodeID>, semi: Vec<NodeID>| {
+        let p_v = &parents[v];
+        let p_v_n = node_numbers[p_v];
+        if p_v_n < last_linked {
+            return (labels[p_v_n], parents, semi);
+        }
+
+        // Get ancestors of v, except for the virtual root.
+        assert!(eval_stack.is_empty());
+        let mut iter = *v;
+        let mut p_iter = parents[v];
+        loop {
+            eval_stack.push(iter);
+            iter = p_iter;
+            p_iter = parents[&iter];
+            if node_numbers[&p_iter] < last_linked {
+                break;
+            }
+        }
+
+        let old_parents = parents.clone();
+        // Perform path compression.
+        let mut iter_label_number = labels[node_numbers[&iter]];
+        for node in eval_stack.drain(..).rev() {
+            *parents.get_mut(&node).unwrap() = parents[&iter];
+            let node_label_number = labels[node_numbers[&node]];
+            if node_numbers[&semi[iter_label_number]] < node_numbers[&semi[node_label_number]] {
+                labels[node_numbers[&node]] = labels[node_numbers[&iter]]
+            } else {
+                iter_label_number = node_label_number;
+            }
+            iter = node;
+        }
+        println!("{:?}", parents);
+        println!("{:?}", old_parents);
+        println!("");
+
+        return (labels[node_numbers[&iter]], parents, semi);
+    };
+
+    // Step 4: initialize idom.
+    let mut idom = HashMap::new();
+    for w in preorder[1..].iter() {
+        // Each idom starts as the parent node.
+        idom.insert(w, parents[w]);
+    }
+
+    // Step 5: compute semi-dominators. This implementation is based off of
+    // LLVM's dominator implementation.
+    let mut semi = vec![NodeID::new(0); preorder.len()];
+    for w_n in (2..preorder.len()).rev() {
+        let w = preorder[w_n];
+        semi[w_n] = parents[&w];
+        for v in backward_sub_cfg[&w].as_ref() {
+            println!("Hello!");
+            let (new_semi_index, new_parents, new_semi) = eval(v, w_n + 1, parents, semi);
+            parents = new_parents;
+            semi = new_semi;
+            let new_semi_node = semi[new_semi_index];
+            if node_numbers[&new_semi_node] < node_numbers[&semi[w_n]] {
+                semi[w_n] = new_semi_node;
+            }
+        }
+    }
+
+    println!("{:?}", semi);
+    println!("{:?}", preorder);
+    println!(
+        "{:?}",
+        preorder
+            .iter()
+            .map(|id| function.nodes[id.idx()].upper_case_name())
+            .collect::<Vec<_>>()
+    );
+    DomTree {
+        idom: HashMap::new(),
+    }
 }
 
 /*
@@ -159,7 +242,7 @@ pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
     forward
 }
 
-fn preorder(forward_sub_cfg: &ForwardSubCFG) -> Vec<NodeID> {
+fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
     // Initialize order vector and visited hashmap for tracking which nodes have
     // been visited.
     let order = Vec::with_capacity(forward_sub_cfg.len());
@@ -169,8 +252,7 @@ fn preorder(forward_sub_cfg: &ForwardSubCFG) -> Vec<NodeID> {
 
     // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
-    let (order, _) = preorder_helper(NodeID::new(0), forward_sub_cfg, order, parents);
-    order
+    preorder_helper(NodeID::new(0), forward_sub_cfg, order, parents)
 }
 
 fn preorder_helper(

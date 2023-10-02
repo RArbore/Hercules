@@ -1,11 +1,3 @@
 fn myfunc(x: i32) -> i32
-  y = call<5>(add, x, x)
-  r = return(start, y)
-
-fn add<1>(x: i32, y: i32) -> i32
-  c = constant(i8, 5)
-  dc = dynamic_constant(#0)
-  r = return(start, s)
-  w = add(z, c)
-  s = add(w, dc)
-  z = add(x, y)
+  a = region(start)
+  b = return(a, x)
