@@ -80,7 +80,6 @@ pub fn dominator(function: &Function) -> DomTree {
             }
         }
 
-        let old_parents = parents.clone();
         // Perform path compression.
         let mut iter_label_number = labels[node_numbers[&iter]];
         for node in eval_stack.drain(..).rev() {
@@ -93,9 +92,6 @@ pub fn dominator(function: &Function) -> DomTree {
             }
             iter = node;
         }
-        println!("{:?}", parents);
-        println!("{:?}", old_parents);
-        println!("");
 
         return (labels[node_numbers[&iter]], parents, semi);
     };
@@ -113,9 +109,8 @@ pub fn dominator(function: &Function) -> DomTree {
     for w_n in (2..preorder.len()).rev() {
         let w = preorder[w_n];
         semi[w_n] = parents[&w];
-        for v in backward_sub_cfg[&w].as_ref() {
-            println!("Hello!");
-            let (new_semi_index, new_parents, new_semi) = eval(v, w_n + 1, parents, semi);
+        for v in forward_sub_cfg[&w].iter() {
+            let (new_semi_index, new_parents, new_semi) = eval(&v, w_n + 1, parents, semi);
             parents = new_parents;
             semi = new_semi;
             let new_semi_node = semi[new_semi_index];
@@ -125,18 +120,7 @@ pub fn dominator(function: &Function) -> DomTree {
         }
     }
 
-    println!("{:?}", semi);
-    println!("{:?}", preorder);
-    println!(
-        "{:?}",
-        preorder
-            .iter()
-            .map(|id| function.nodes[id.idx()].upper_case_name())
-            .collect::<Vec<_>>()
-    );
-    DomTree {
-        idom: HashMap::new(),
-    }
+    todo!()
 }
 
 /*
