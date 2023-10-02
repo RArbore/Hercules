@@ -56,6 +56,12 @@ pub fn dominator(function: &Function) -> DomTree {
     for (number, node) in preorder.iter().enumerate() {
         node_numbers.insert(node, number);
     }
+    parents.insert(NodeID::new(0), NodeID::new(0));
+    println!("Backward: {:?}", backward_sub_cfg);
+    println!("Forward: {:?}", forward_sub_cfg);
+    println!("Preorder: {:?}", preorder);
+    println!("Parents: {:?}", parents);
+    println!("Node Numbers: {:?}", node_numbers);
     let mut idom = HashMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
@@ -75,30 +81,29 @@ pub fn dominator(function: &Function) -> DomTree {
         // Get ancestors of v, except for the virtual root.
         assert!(eval_stack.is_empty());
         let mut iter = *v;
-        let mut p_iter = parents[v];
         loop {
-            eval_stack.push(iter);
-            iter = p_iter;
-            p_iter = parents[&iter];
-            if node_numbers[&p_iter] < last_linked {
+            eval_stack.push(node_numbers[&iter]);
+            iter = parents[&iter];
+            if node_numbers[&parents[&iter]] < last_linked {
                 break;
             }
         }
 
         // Perform path compression.
-        let mut iter_label_number = labels[node_numbers[&iter]];
-        for node in eval_stack.drain(..).rev() {
-            *parents.get_mut(&node).unwrap() = parents[&iter];
-            let node_label_number = labels[node_numbers[&node]];
-            if node_numbers[&semi[iter_label_number]] < node_numbers[&semi[node_label_number]] {
-                labels[node_numbers[&node]] = labels[node_numbers[&iter]]
+        let mut p_number = node_numbers[&iter];
+        let mut p_label_number = labels[node_numbers[&iter]];
+        for number in eval_stack.drain(..).rev() {
+            *parents.get_mut(&preorder[number]).unwrap() = parents[&preorder[p_number]];
+            let label_number = labels[number];
+            if node_numbers[&semi[p_label_number]] < node_numbers[&semi[label_number]] {
+                labels[number] = labels[p_number]
             } else {
-                iter_label_number = node_label_number;
+                p_label_number = label_number;
             }
-            iter = node;
+            p_number = number;
         }
 
-        return (labels[node_numbers[&iter]], parents, semi);
+        return (labels[p_number], parents, semi);
     };
 
     // Step 4: compute semi-dominators. This implementation is based off of
@@ -107,7 +112,7 @@ pub fn dominator(function: &Function) -> DomTree {
     for w_n in (2..preorder.len()).rev() {
         let w = preorder[w_n];
         semi[w_n] = parents[&w];
-        for v in forward_sub_cfg[&w].iter() {
+        for v in backward_sub_cfg[&w].as_ref() {
             let (new_semi_index, new_parents, new_semi) = eval(&v, w_n + 1, parents, semi);
             parents = new_parents;
             semi = new_semi;
@@ -119,7 +124,7 @@ pub fn dominator(function: &Function) -> DomTree {
     }
 
     println!(
-        "{:?}",
+        "Semi-dominators: {:?}",
         (0..preorder.len())
             .map(|idx| (preorder[idx], semi[idx]))
             .collect::<HashMap<_, _>>()
@@ -136,7 +141,7 @@ pub fn dominator(function: &Function) -> DomTree {
         *idom.get_mut(&w).unwrap() = w_idom_candidate;
     }
 
-    println!("{:?}", idom);
+    println!("Immediate Dominators: {:?}", idom);
 
     DomTree { idom }
 }
