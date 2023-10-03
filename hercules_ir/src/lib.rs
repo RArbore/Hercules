@@ -4,6 +4,7 @@ pub mod dom;
 pub mod dot;
 pub mod ir;
 pub mod parse;
+pub mod subgraph;
 pub mod typecheck;
 pub mod verify;
 
@@ -13,5 +14,6 @@ pub use crate::dom::*;
 pub use crate::dot::*;
 pub use crate::ir::*;
 pub use crate::parse::*;
+pub use crate::subgraph::*;
 pub use crate::typecheck::*;
 pub use crate::verify::*;
