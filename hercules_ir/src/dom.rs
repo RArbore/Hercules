@@ -57,11 +57,6 @@ pub fn dominator(function: &Function) -> DomTree {
         node_numbers.insert(node, number);
     }
     parents.insert(NodeID::new(0), NodeID::new(0));
-    println!("Backward: {:?}", backward_sub_cfg);
-    println!("Forward: {:?}", forward_sub_cfg);
-    println!("Preorder: {:?}", preorder);
-    println!("Parents: {:?}", parents);
-    println!("Node Numbers: {:?}", node_numbers);
     let mut idom = BTreeMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
@@ -93,14 +88,6 @@ pub fn dominator(function: &Function) -> DomTree {
 
     // Step 4: compute semi-dominators.
     for w_n in (1..preorder.len()).rev() {
-        println!("w: {:?}   w_n: {:?}", preorder[w_n], w_n);
-        println!(
-            "Semis: {:?}",
-            (0..preorder.len())
-                .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
-                .collect::<BTreeMap<_, _>>()
-        );
-
         semi[w_n] = w_n;
         for v in backward_sub_cfg[&preorder[w_n]].as_ref() {
             let v_n = node_numbers[&v];
@@ -109,22 +96,7 @@ pub fn dominator(function: &Function) -> DomTree {
         }
         labels[w_n] = semi[w_n];
         ancestors[w_n] = node_numbers[&parents[&preorder[w_n]]];
-
-        println!(
-            "Semis: {:?}",
-            (0..preorder.len())
-                .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
-                .collect::<BTreeMap<_, _>>()
-        );
-        println!("");
     }
-
-    println!(
-        "Semis: {:?}",
-        (0..preorder.len())
-            .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
-            .collect::<BTreeMap<_, _>>()
-    );
 
     // Step 5: compute idom.
     for v_n in 1..preorder.len() {
@@ -133,8 +105,6 @@ pub fn dominator(function: &Function) -> DomTree {
             *idom.get_mut(&v).unwrap() = idom[&idom[&v]];
         }
     }
-
-    println!("Immediate Dominators: {:?}", idom);
 
     DomTree { idom }
 }
