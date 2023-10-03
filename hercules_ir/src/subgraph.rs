@@ -17,6 +17,68 @@ pub struct Subgraph {
     backward_edges: Vec<u32>,
 }
 
+pub struct SubgraphIterator<'a> {
+    nodes: &'a Vec<NodeID>,
+    edges: &'a [u32],
+}
+
+impl<'a> Iterator for SubgraphIterator<'a> {
+    type Item = NodeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.edges.len() == 0 {
+            None
+        } else {
+            let id = self.edges[0];
+            self.edges = &self.edges[1..];
+            Some(self.nodes[id as usize])
+        }
+    }
+}
+
+impl Subgraph {
+    pub fn num_nodes(&self) -> u32 {
+        self.nodes.len() as u32
+    }
+
+    pub fn contains_node(&self, id: NodeID) -> bool {
+        self.node_numbers.contains_key(&id)
+    }
+
+    pub fn preds(&self, id: NodeID) -> SubgraphIterator {
+        let number = self.node_numbers[&id];
+        if ((number + 1) as usize) < self.first_backward_edges.len() {
+            SubgraphIterator {
+                nodes: &self.nodes,
+                edges: &self.backward_edges[(self.first_backward_edges[number as usize] as usize)
+                    ..(self.first_backward_edges[number as usize + 1] as usize)],
+            }
+        } else {
+            SubgraphIterator {
+                nodes: &self.nodes,
+                edges: &self.backward_edges
+                    [(self.first_backward_edges[number as usize] as usize)..],
+            }
+        }
+    }
+
+    pub fn succs(&self, id: NodeID) -> SubgraphIterator {
+        let number = self.node_numbers[&id];
+        if ((number + 1) as usize) < self.first_forward_edges.len() {
+            SubgraphIterator {
+                nodes: &self.nodes,
+                edges: &self.forward_edges[(self.first_forward_edges[number as usize] as usize)
+                    ..(self.first_forward_edges[number as usize + 1] as usize)],
+            }
+        } else {
+            SubgraphIterator {
+                nodes: &self.nodes,
+                edges: &self.forward_edges[(self.first_forward_edges[number as usize] as usize)..],
+            }
+        }
+    }
+}
+
 /*
  * Top level subgraph construction routine. Takes a function reference and a
  * predicate - the predicate selects which nodes from the function will be

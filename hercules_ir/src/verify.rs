@@ -33,8 +33,9 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     }
 
     // Check SSA, fork, and join dominance relations.
-    for function in module.functions.iter() {
-        let dom = dominator(&function);
+    for (function, def_use) in zip(module.functions.iter(), def_uses) {
+        let subgraph = control_subgraph(function, &def_use);
+        let dom = dominator(&function, &subgraph);
     }
 
     Ok(typing)
