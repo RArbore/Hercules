@@ -485,7 +485,7 @@ impl BinaryOperator {
 /*
  * Rust things to make newtyped IDs usable.
  */
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionID(u32);
 
 impl FunctionID {
@@ -498,7 +498,7 @@ impl FunctionID {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeID(u32);
 
 impl NodeID {
@@ -511,7 +511,7 @@ impl NodeID {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConstantID(u32);
 
 impl ConstantID {
@@ -524,7 +524,7 @@ impl ConstantID {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeID(u32);
 
 impl TypeID {
@@ -537,7 +537,7 @@ impl TypeID {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DynamicConstantID(u32);
 
 impl DynamicConstantID {

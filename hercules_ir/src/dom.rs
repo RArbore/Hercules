@@ -2,7 +2,7 @@ extern crate bitvec;
 
 use crate::*;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /*
  * Custom type for storing a dominator tree. For each control node, store its
@@ -10,7 +10,7 @@ use std::collections::HashMap;
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
-    idom: HashMap<NodeID, NodeID>,
+    idom: BTreeMap<NodeID, NodeID>,
 }
 
 impl DomTree {
@@ -52,7 +52,7 @@ pub fn dominator(function: &Function) -> DomTree {
 
     // Step 2: compute pre-order DFS of CFG.
     let (preorder, mut parents) = preorder(&forward_sub_cfg);
-    let mut node_numbers = HashMap::new();
+    let mut node_numbers = BTreeMap::new();
     for (number, node) in preorder.iter().enumerate() {
         node_numbers.insert(node, number);
     }
@@ -62,7 +62,7 @@ pub fn dominator(function: &Function) -> DomTree {
     println!("Preorder: {:?}", preorder);
     println!("Parents: {:?}", parents);
     println!("Node Numbers: {:?}", node_numbers);
-    let mut idom = HashMap::new();
+    let mut idom = BTreeMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
         idom.insert(*w, parents[w]);
@@ -71,7 +71,8 @@ pub fn dominator(function: &Function) -> DomTree {
     // Step 3: define eval, which will be used to compute semi-dominators.
     let mut eval_stack = vec![];
     let mut labels: Vec<_> = (0..preorder.len()).collect();
-    let mut eval = |v, last_linked, mut parents: HashMap<NodeID, NodeID>, semi: Vec<NodeID>| {
+    let mut eval = |v, last_linked, mut parents: BTreeMap<NodeID, NodeID>, semi: Vec<NodeID>| {
+        println!("Labels: {:?}", labels);
         let p_v = &parents[v];
         let p_v_n = node_numbers[p_v];
         if p_v_n < last_linked {
@@ -109,25 +110,51 @@ pub fn dominator(function: &Function) -> DomTree {
     // Step 4: compute semi-dominators. This implementation is based off of
     // LLVM's dominator implementation.
     let mut semi = vec![NodeID::new(0); preorder.len()];
+    println!("");
     for w_n in (2..preorder.len()).rev() {
         let w = preorder[w_n];
         semi[w_n] = parents[&w];
+        println!("w: {:?}   w_n: {:?}", w, w_n);
+        println!(
+            "Semis: {:?}",
+            (0..preorder.len())
+                .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
+                .collect::<BTreeMap<_, _>>()
+        );
         for v in backward_sub_cfg[&w].as_ref() {
             let (new_semi_index, new_parents, new_semi) = eval(&v, w_n + 1, parents, semi);
             parents = new_parents;
             semi = new_semi;
             let new_semi_node = semi[new_semi_index];
+            let old_semi_node = semi[w_n];
             if node_numbers[&new_semi_node] < node_numbers[&semi[w_n]] {
                 semi[w_n] = new_semi_node;
             }
+            println!(
+                "Semis: {:?} Node: {:?} new_index: {:?} new_node: {:?} old_node: {:?}",
+                (0..preorder.len())
+                    .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
+                    .collect::<BTreeMap<_, _>>(),
+                v,
+                new_semi_index,
+                new_semi_node,
+                old_semi_node,
+            );
         }
+        println!(
+            "Semis: {:?}",
+            (0..preorder.len())
+                .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
+                .collect::<BTreeMap<_, _>>()
+        );
+        println!("");
     }
 
     println!(
-        "Semi-dominators: {:?}",
+        "Semis: {:?}",
         (0..preorder.len())
             .map(|idx| (preorder[idx], semi[idx]))
-            .collect::<HashMap<_, _>>()
+            .collect::<BTreeMap<_, _>>()
     );
 
     // Step 5: compute idom.
@@ -167,7 +194,7 @@ impl<'a> AsRef<[NodeID]> for ControlUses<'a> {
     }
 }
 
-pub type BackwardSubCFG<'a> = HashMap<NodeID, ControlUses<'a>>;
+pub type BackwardSubCFG<'a> = BTreeMap<NodeID, ControlUses<'a>>;
 
 /*
  * Top level function for getting all the control nodes in a function. Also
@@ -177,7 +204,7 @@ pub type BackwardSubCFG<'a> = HashMap<NodeID, ControlUses<'a>>;
 pub fn control_nodes(function: &Function) -> BackwardSubCFG {
     use Node::*;
 
-    let mut control_nodes = HashMap::new();
+    let mut control_nodes = BTreeMap::new();
     for (idx, node) in function.nodes.iter().enumerate() {
         match node {
             Start => {
@@ -223,13 +250,13 @@ pub fn control_nodes(function: &Function) -> BackwardSubCFG {
     control_nodes
 }
 
-pub type ForwardSubCFG = HashMap<NodeID, Vec<NodeID>>;
+pub type ForwardSubCFG = BTreeMap<NodeID, Vec<NodeID>>;
 
 /*
  * Utility for getting def-use edges of sub CFG.
  */
 pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
-    let mut forward = HashMap::new();
+    let mut forward = BTreeMap::new();
 
     // Every control node needs to be a key in forward, even if it has no
     // def-use edges originating from it (the return node), so explicitly add
@@ -249,13 +276,13 @@ pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
     forward
 }
 
-fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
+fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, BTreeMap<NodeID, NodeID>) {
     // Initialize order vector and visited hashmap for tracking which nodes have
     // been visited.
     let order = Vec::with_capacity(forward_sub_cfg.len());
 
     // Explicitly keep track of parents in DFS tree. Doubles as a visited set.
-    let parents = HashMap::new();
+    let parents = BTreeMap::new();
 
     // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
@@ -267,8 +294,8 @@ fn preorder_helper(
     parent: Option<NodeID>,
     forward_sub_cfg: &ForwardSubCFG,
     mut order: Vec<NodeID>,
-    mut parents: HashMap<NodeID, NodeID>,
-) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
+    mut parents: BTreeMap<NodeID, NodeID>,
+) -> (Vec<NodeID>, BTreeMap<NodeID, NodeID>) {
     assert!(forward_sub_cfg.contains_key(&node));
     if parents.contains_key(&node) {
         // If already visited, return early.
