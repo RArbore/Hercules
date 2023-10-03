@@ -68,83 +68,52 @@ pub fn dominator(function: &Function) -> DomTree {
         idom.insert(*w, parents[w]);
     }
 
-    // Step 3: define eval, which will be used to compute semi-dominators.
-    let mut eval_stack = vec![];
+    // Step 3: define snca_compress, which will be used to compute semi-
+    // dominators, and initialize various variables.
+    let mut semi = vec![0; preorder.len()];
     let mut labels: Vec<_> = (0..preorder.len()).collect();
-    let mut eval = |v, last_linked, mut parents: BTreeMap<NodeID, NodeID>, semi: Vec<NodeID>| {
-        println!("Labels: {:?}", labels);
-        let p_v = &parents[v];
-        let p_v_n = node_numbers[p_v];
-        if p_v_n < last_linked {
-            return (labels[p_v_n], parents, semi);
-        }
+    let mut ancestors = vec![0; preorder.len()];
+    fn snca_compress(
+        v_n: usize,
+        mut ancestors: Vec<usize>,
+        mut labels: Vec<usize>,
+    ) -> (Vec<usize>, Vec<usize>) {
+        let u_n = ancestors[v_n];
 
-        // Get ancestors of v, except for the virtual root.
-        assert!(eval_stack.is_empty());
-        let mut iter = *v;
-        loop {
-            eval_stack.push(node_numbers[&iter]);
-            iter = parents[&iter];
-            if node_numbers[&parents[&iter]] < last_linked {
-                break;
+        if u_n != 0 {
+            (ancestors, labels) = snca_compress(u_n, ancestors, labels);
+            if labels[u_n] < labels[v_n] {
+                labels[v_n] = labels[u_n];
             }
+            ancestors[v_n] = ancestors[u_n];
         }
 
-        // Perform path compression.
-        let mut p_number = node_numbers[&iter];
-        let mut p_label_number = labels[node_numbers[&iter]];
-        for number in eval_stack.drain(..).rev() {
-            *parents.get_mut(&preorder[number]).unwrap() = parents[&preorder[p_number]];
-            let label_number = labels[number];
-            if node_numbers[&semi[p_label_number]] < node_numbers[&semi[label_number]] {
-                labels[number] = labels[p_number]
-            } else {
-                p_label_number = label_number;
-            }
-            p_number = number;
-        }
+        (ancestors, labels)
+    }
 
-        return (labels[p_number], parents, semi);
-    };
-
-    // Step 4: compute semi-dominators. This implementation is based off of
-    // LLVM's dominator implementation.
-    let mut semi = vec![NodeID::new(0); preorder.len()];
-    println!("");
-    for w_n in (2..preorder.len()).rev() {
-        let w = preorder[w_n];
-        semi[w_n] = parents[&w];
-        println!("w: {:?}   w_n: {:?}", w, w_n);
+    // Step 4: compute semi-dominators.
+    for w_n in (1..preorder.len()).rev() {
+        println!("w: {:?}   w_n: {:?}", preorder[w_n], w_n);
         println!(
             "Semis: {:?}",
             (0..preorder.len())
-                .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
+                .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
                 .collect::<BTreeMap<_, _>>()
         );
-        for v in backward_sub_cfg[&w].as_ref() {
-            let (new_semi_index, new_parents, new_semi) = eval(&v, w_n + 1, parents, semi);
-            parents = new_parents;
-            semi = new_semi;
-            let new_semi_node = semi[new_semi_index];
-            let old_semi_node = semi[w_n];
-            if node_numbers[&new_semi_node] < node_numbers[&semi[w_n]] {
-                semi[w_n] = new_semi_node;
-            }
-            println!(
-                "Semis: {:?} Node: {:?} new_index: {:?} new_node: {:?} old_node: {:?}",
-                (0..preorder.len())
-                    .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
-                    .collect::<BTreeMap<_, _>>(),
-                v,
-                new_semi_index,
-                new_semi_node,
-                old_semi_node,
-            );
+
+        semi[w_n] = w_n;
+        for v in backward_sub_cfg[&preorder[w_n]].as_ref() {
+            let v_n = node_numbers[&v];
+            (ancestors, labels) = snca_compress(v_n, ancestors, labels);
+            semi[w_n] = std::cmp::min(semi[w_n], labels[v_n]);
         }
+        labels[w_n] = semi[w_n];
+        ancestors[w_n] = node_numbers[&parents[&preorder[w_n]]];
+
         println!(
             "Semis: {:?}",
             (0..preorder.len())
-                .map(|idx| (preorder[idx].idx(), semi[idx].idx()))
+                .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
                 .collect::<BTreeMap<_, _>>()
         );
         println!("");
@@ -153,19 +122,16 @@ pub fn dominator(function: &Function) -> DomTree {
     println!(
         "Semis: {:?}",
         (0..preorder.len())
-            .map(|idx| (preorder[idx], semi[idx]))
+            .map(|idx| (preorder[idx].idx(), preorder[semi[idx]].idx()))
             .collect::<BTreeMap<_, _>>()
     );
 
     // Step 5: compute idom.
-    for w_n in 2..preorder.len() {
-        let w = preorder[w_n];
-        let semi_num = node_numbers[&semi[w_n]];
-        let mut w_idom_candidate = idom[&w];
-        while node_numbers[&w_idom_candidate] > semi_num {
-            w_idom_candidate = idom[&w_idom_candidate];
+    for v_n in 1..preorder.len() {
+        let v = preorder[v_n];
+        while node_numbers[&idom[&v]] > semi[v_n] {
+            *idom.get_mut(&v).unwrap() = idom[&idom[&v]];
         }
-        *idom.get_mut(&w).unwrap() = w_idom_candidate;
     }
 
     println!("Immediate Dominators: {:?}", idom);
