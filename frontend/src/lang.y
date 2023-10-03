@@ -83,7 +83,7 @@ Kind -> Result<Kind, ()>
 
 TypeDecl -> Result<Top, ()>
   : PubOption 'type' 'ID' TypeVars '=' TypeDef ';'
-    { Ok(Top::TypeDecl{ span : $span, public : $1?, name : span_of_tok($3)?, tyVars : $4?,
+    { Ok(Top::TypeDecl{ span : $span, public : $1?, name : span_of_tok($3)?, ty_vars : $4?,
                         body : $6? } )};
 
 TypeDef -> Result<TyDef, ()>
@@ -155,17 +155,17 @@ ConstDecl -> Result<Top, ()>
 FuncDecl -> Result<Top, ()>
   : PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmt
       { Ok(Top::FuncDecl{ span : $span, public : $1?, attr : None, name : span_of_tok($3)?,
-                          tyVars : $4?, args : $6?, ty : None, body : $8? }) }
+                          ty_vars : $4?, args : $6?, ty : None, body : $8? }) }
   | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmt
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
-                          name : span_of_tok($4)?, tyVars : $5?, args : $7?, ty : None,
+                          name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : None,
                           body : $9? }) }
   | PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmt
       { Ok(Top::FuncDecl{ span : $span, public : $1?, attr : None, name : span_of_tok($3)?,
-                          tyVars : $4?, args : $6?, ty : Some($9?), body : $10? }) }
+                          ty_vars : $4?, args : $6?, ty : Some($9?), body : $10? }) }
   | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmt
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
-                          name : span_of_tok($4)?, tyVars : $5?, args : $7?, ty : Some($10?),
+                          name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : Some($10?),
                           body : $11? }) }
   ;
 Arguments -> Result<Vec<(Option<Span>, VarBind)>, ()>
@@ -227,43 +227,43 @@ Stmt -> Result<Stmt, ()>
       { Ok(Stmt::ConstStmt{ span : $span, var : $2?, init : $4? }) }
   | LExpr   '=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::None,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '+=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Add,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '-=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Sub,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '*=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Mul,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '/=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Div,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '%=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Mod,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '&=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::BitAnd,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '|=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::BitOr,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr  '^=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::Xor,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr '&&=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::LogAnd,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr '||=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::LogOr,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr '<<=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::LShift,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | LExpr '>>=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::RShift,
-                             assignSpan : span_of_tok($2)?, rhs : $3? }) }
+                             assign_span : span_of_tok($2)?, rhs : $3? }) }
   | 'if' '(' Expr ')' Stmt
       { Ok(Stmt::IfStmt{ span : $span, cond : $3?, thn : Box::new($5?), els : None }) }
   | 'if' '(' Expr ')' Stmt 'else' Stmt
@@ -284,9 +284,9 @@ Stmt -> Result<Stmt, ()>
   | '{' Stmts '}'
       { Ok(Stmt::BlockStmt{ span : $span, body : $2? }) }
   | PackageName '(' Params ')' ';'
-      { Ok(Stmt::CallStmt{ span : $span, name : $1?, tyArgs : vec![], args : $3? }) }
+      { Ok(Stmt::CallStmt{ span : $span, name : $1?, ty_args : vec![], args : $3? }) }
   | PackageName '::' '<' TypeExprs '>' '(' Params ')' ';'
-      { Ok(Stmt::CallStmt{ span : $span, name : $1?, tyArgs : $4?, args : $7? }) }
+      { Ok(Stmt::CallStmt{ span : $span, name : $1?, ty_args : $4?, args : $7? }) }
   ;
 Stmts -> Result<Vec<Stmt>, ()>
   :             { Ok(vec![]) }
@@ -408,9 +408,9 @@ Expr -> Result<Expr, ()>
   | 'if' Expr 'then' Expr 'else' Expr
       { Ok(Expr::CondExpr{ span: $span, cond : Box::new($2?), thn : Box::new($4?), els : Box::new($6?) })}
   | PackageName '(' Params ')'
-      { Ok(Expr::CallExpr{ span : $span, name : $1?, tyArgs : vec![], args: $3? }) }
+      { Ok(Expr::CallExpr{ span : $span, name : $1?, ty_args : vec![], args: $3? }) }
   | PackageName '::' '<' TypeExprs '>' '(' Params ')'
-      { Ok(Expr::CallExpr{ span : $span, name : $1?, tyArgs : $4?, args: $7? }) }
+      { Ok(Expr::CallExpr{ span : $span, name : $1?, ty_args : $4?, args: $7? }) }
   ;
 IdExprs -> Result<Vec<(Id, Expr)>, ()>
   : 'ID' '=' Expr               { Ok(vec![(span_of_tok($1)?, $3?)]) }
@@ -523,9 +523,9 @@ pub struct Case { pub span : Span, pub pat : Vec<Pattern>, pub body : Stmt }
 #[derive(Debug)]
 pub enum Top {
   Import    { span : Span, name : ImportName },
-  TypeDecl  { span : Span, public : bool, name : Id, tyVars : Vec<TypeVar>, body : TyDef },
+  TypeDecl  { span : Span, public : bool, name : Id, ty_vars : Vec<TypeVar>, body : TyDef },
   ConstDecl { span : Span, public : bool, name : Id, ty : Option<Type>, body : Expr },
-  FuncDecl  { span : Span, public : bool, attr : Option<Span>, name : Id, tyVars : Vec<TypeVar>,
+  FuncDecl  { span : Span, public : bool, attr : Option<Span>, name : Id, ty_vars : Vec<TypeVar>,
               args : Vec<(Option<Span>, VarBind)>, // option is for inout
               ty : Option<Type>, body : Stmt },
   ModDecl   { span : Span, public : bool, name : Id, body : Vec<Top> },
@@ -550,7 +550,7 @@ pub enum Type {
 pub enum Stmt {
   LetStmt    { span : Span, var : VarBind, init : Option<Expr> },
   ConstStmt  { span : Span, var : VarBind, init : Expr },
-  AssignStmt { span : Span, lhs : LExpr, assign : AssignOp, assignSpan : Span, rhs : Expr },
+  AssignStmt { span : Span, lhs : LExpr, assign : AssignOp, assign_span : Span, rhs : Expr },
   IfStmt     { span : Span, cond : Expr, thn : Box<Stmt>, els : Option<Box<Stmt>> },
   MatchStmt  { span : Span, expr : Expr, body : Vec<Case> },
   ForStmt    { span : Span, var : VarBind, init : Expr, bound : Expr, step : Option<Expr>,
@@ -558,7 +558,7 @@ pub enum Stmt {
   WhileStmt  { span : Span, cond : Expr, body : Box<Stmt> },
   ReturnStmt { span : Span, expr : Expr },
   BlockStmt  { span : Span, body : Vec<Stmt> },
-  CallStmt   { span : Span, name : PackageName, tyArgs : Vec<TypeExpr>,
+  CallStmt   { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
                args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
 }
 
@@ -603,7 +603,7 @@ pub enum Expr {
   CastExpr      { span : Span, expr : Box<Expr>, typ : Type },
   SizeExpr      { span : Span, expr : Box<Expr> },
   CondExpr      { span : Span, cond : Box<Expr>, thn : Box<Expr>, els : Box<Expr> },
-  CallExpr      { span : Span, name : PackageName, tyArgs : Vec<TypeExpr>,
+  CallExpr      { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
                   args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
 }
 
