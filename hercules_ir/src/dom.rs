@@ -2,7 +2,7 @@ extern crate bitvec;
 
 use crate::*;
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 /*
  * Custom type for storing a dominator tree. For each control node, store its
@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
-    idom: BTreeMap<NodeID, NodeID>,
+    idom: HashMap<NodeID, NodeID>,
 }
 
 impl DomTree {
@@ -52,12 +52,12 @@ pub fn dominator(function: &Function) -> DomTree {
 
     // Step 2: compute pre-order DFS of CFG.
     let (preorder, mut parents) = preorder(&forward_sub_cfg);
-    let mut node_numbers = BTreeMap::new();
+    let mut node_numbers = HashMap::new();
     for (number, node) in preorder.iter().enumerate() {
         node_numbers.insert(node, number);
     }
     parents.insert(NodeID::new(0), NodeID::new(0));
-    let mut idom = BTreeMap::new();
+    let mut idom = HashMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
         idom.insert(*w, parents[w]);
@@ -130,7 +130,7 @@ impl<'a> AsRef<[NodeID]> for ControlUses<'a> {
     }
 }
 
-pub type BackwardSubCFG<'a> = BTreeMap<NodeID, ControlUses<'a>>;
+pub type BackwardSubCFG<'a> = HashMap<NodeID, ControlUses<'a>>;
 
 /*
  * Top level function for getting all the control nodes in a function. Also
@@ -140,7 +140,7 @@ pub type BackwardSubCFG<'a> = BTreeMap<NodeID, ControlUses<'a>>;
 pub fn control_nodes(function: &Function) -> BackwardSubCFG {
     use Node::*;
 
-    let mut control_nodes = BTreeMap::new();
+    let mut control_nodes = HashMap::new();
     for (idx, node) in function.nodes.iter().enumerate() {
         match node {
             Start => {
@@ -186,13 +186,13 @@ pub fn control_nodes(function: &Function) -> BackwardSubCFG {
     control_nodes
 }
 
-pub type ForwardSubCFG = BTreeMap<NodeID, Vec<NodeID>>;
+pub type ForwardSubCFG = HashMap<NodeID, Vec<NodeID>>;
 
 /*
  * Utility for getting def-use edges of sub CFG.
  */
 pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
-    let mut forward = BTreeMap::new();
+    let mut forward = HashMap::new();
 
     // Every control node needs to be a key in forward, even if it has no
     // def-use edges originating from it (the return node), so explicitly add
@@ -212,13 +212,13 @@ pub fn reorient_sub_cfg(backward: &BackwardSubCFG) -> ForwardSubCFG {
     forward
 }
 
-fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, BTreeMap<NodeID, NodeID>) {
+fn preorder(forward_sub_cfg: &ForwardSubCFG) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
     // Initialize order vector and visited hashmap for tracking which nodes have
     // been visited.
     let order = Vec::with_capacity(forward_sub_cfg.len());
 
     // Explicitly keep track of parents in DFS tree. Doubles as a visited set.
-    let parents = BTreeMap::new();
+    let parents = HashMap::new();
 
     // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
@@ -230,8 +230,8 @@ fn preorder_helper(
     parent: Option<NodeID>,
     forward_sub_cfg: &ForwardSubCFG,
     mut order: Vec<NodeID>,
-    mut parents: BTreeMap<NodeID, NodeID>,
-) -> (Vec<NodeID>, BTreeMap<NodeID, NodeID>) {
+    mut parents: HashMap<NodeID, NodeID>,
+) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
     assert!(forward_sub_cfg.contains_key(&node));
     if parents.contains_key(&node) {
         // If already visited, return early.
