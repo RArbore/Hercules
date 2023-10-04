@@ -108,13 +108,15 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::Region { preds } => NodeUses::Variable(preds),
         Node::If { control, cond } => NodeUses::Two([*control, *cond]),
         Node::Fork { control, factor: _ } => NodeUses::One([*control]),
-        Node::Join { control, data } => NodeUses::Two([*control, *data]),
+        Node::Join { control } => NodeUses::One([*control]),
         Node::Phi { control, data } => {
             let mut uses: Vec<NodeID> = Vec::from(&data[..]);
             uses.push(*control);
             NodeUses::Phi(uses.into_boxed_slice())
         }
-        Node::Return { control, value } => NodeUses::Two([*control, *value]),
+        Node::ThreadID { control } => NodeUses::One([*control]),
+        Node::Collect { control, data } => NodeUses::Two([*control, *data]),
+        Node::Return { control, data } => NodeUses::Two([*control, *data]),
         Node::Parameter { index: _ } => NodeUses::Zero,
         Node::Constant { id: _ } => NodeUses::Zero,
         Node::DynamicConstant { id: _ } => NodeUses::Zero,

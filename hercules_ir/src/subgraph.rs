@@ -227,13 +227,10 @@ pub fn control_subgraph(function: &Function, def_use: &ImmutableDefUseMap) -> Su
             control: _,
             factor: _,
         }
-        | Join {
-            control: _,
-            data: _,
-        }
+        | Join { control: _ }
         | Return {
             control: _,
-            value: _,
+            data: _,
         }
         | Match { control: _, sum: _ } => true,
         ReadProd { prod, index } => match function.nodes[prod.idx()] {
@@ -244,14 +241,6 @@ pub fn control_subgraph(function: &Function, def_use: &ImmutableDefUseMap) -> Su
                 control: _,
                 cond: _,
             } => true,
-            Fork {
-                control: _,
-                factor: _,
-            }
-            | Join {
-                control: _,
-                data: _,
-            } => *index == 0,
             _ => false,
         },
         _ => false,

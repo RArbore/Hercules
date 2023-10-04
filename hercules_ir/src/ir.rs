@@ -145,13 +145,13 @@ pub enum Constant {
 
 /*
  * Dynamic constants are unsigned 64-bit integers passed to a Hercules function
- * at runtime using the Hercules runtime API. They cannot be the result of
+ * at runtime using the Hercules conductor API. They cannot be the result of
  * computations in Hercules IR. For a single execution of a Hercules function,
  * dynamic constants are constant throughout execution. This provides a
  * mechanism by which Hercules functions can operate on arrays with variable
  * length, while not needing Hercules functions to perform dynamic memory
- * allocation - by providing dynamic constants to the runtime API, the runtime
- * can allocate memory as necessary.
+ * allocation - by providing dynamic constants to the conductor API, the
+ * conductor can allocate memory as necessary.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicConstant {
@@ -161,15 +161,14 @@ pub enum DynamicConstant {
 
 /*
  * Hercules IR is a combination of a possibly cylic control flow graph, and
- * many acyclic data flow graphs. Each node represents some operation on input
- * values (including control), and produces some output value. Operations that
- * conceptually produce multiple outputs (such as an if node) produce a product
- * type instead. For example, the if node produces prod(control(N),
+ * many possibly cyclic data flow graphs. Each node represents some operation on
+ * input values (including control), and produces some output value. Operations
+ * that conceptually produce multiple outputs (such as an if node) produce a
+ * product type instead. For example, the if node produces prod(control(N),
  * control(N)), where the first control token represents the false branch, and
- * the second control token represents the true branch. Another example is the
- * fork node, which produces prod(control(N, K), u64), where the u64 is the
- * thread ID. Functions are devoid of side effects, so call nodes don't take as
- * input or output control tokens. There is also no global memory - use arrays.
+ * the second control token represents the true branch. Functions are devoid of
+ * side effects, so call nodes don't take as input or output control tokens.
+ * There is also no global memory - use arrays.
  */
 #[derive(Debug, Clone)]
 pub enum Node {
@@ -187,15 +186,21 @@ pub enum Node {
     },
     Join {
         control: NodeID,
-        data: NodeID,
     },
     Phi {
         control: NodeID,
         data: Box<[NodeID]>,
     },
+    ThreadID {
+        control: NodeID,
+    },
+    Collect {
+        control: NodeID,
+        data: NodeID,
+    },
     Return {
         control: NodeID,
-        value: NodeID,
+        data: NodeID,
     },
     Parameter {
         index: usize,
@@ -284,7 +289,7 @@ impl Node {
     pub fn is_return(&self) -> bool {
         if let Node::Return {
             control: _,
-            value: _,
+            data: _,
         } = self
         {
             true
@@ -305,17 +310,19 @@ impl Node {
                 control: _,
                 factor: _,
             } => "Fork",
-            Node::Join {
-                control: _,
-                data: _,
-            } => "Join",
+            Node::Join { control: _ } => "Join",
             Node::Phi {
                 control: _,
                 data: _,
             } => "Phi",
+            Node::ThreadID { control: _ } => "ThreadID",
+            Node::Collect {
+                control: _,
+                data: _,
+            } => "Collect",
             Node::Return {
                 control: _,
-                value: _,
+                data: _,
             } => "Return",
             Node::Parameter { index: _ } => "Parameter",
             Node::DynamicConstant { id: _ } => "DynamicConstant",
@@ -368,17 +375,19 @@ impl Node {
                 control: _,
                 factor: _,
             } => "fork",
-            Node::Join {
-                control: _,
-                data: _,
-            } => "join",
+            Node::Join { control: _ } => "join",
             Node::Phi {
                 control: _,
                 data: _,
             } => "phi",
+            Node::ThreadID { control: _ } => "thread_id",
+            Node::Collect {
+                control: _,
+                data: _,
+            } => "collect",
             Node::Return {
                 control: _,
-                value: _,
+                data: _,
             } => "return",
             Node::Parameter { index: _ } => "parameter",
             Node::DynamicConstant { id: _ } => "dynamic_constant",

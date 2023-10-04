@@ -94,16 +94,14 @@ fn write_node<W: std::fmt::Write>(
                 )?;
                 visited
             }
-            Node::Join { control, data } => {
+            Node::Join { control } => {
                 write!(w, "{} [xlabel={}, label=\"join\"];\n", name, j)?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
-                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
                 write!(
                     w,
                     "{} -> {} [label=\"control\", style=\"dashed\"];\n",
                     control_name, name
                 )?;
-                write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
                 visited
             }
             Node::Phi { control, data } => {
@@ -121,16 +119,38 @@ fn write_node<W: std::fmt::Write>(
                 }
                 visited
             }
-            Node::Return { control, value } => {
+            Node::ThreadID { control } => {
+                write!(w, "{} [xlabel={}, label=\"thread_id\"];\n", name, j)?;
                 let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
-                let (value_name, visited) = write_node(i, value.idx(), module, visited, w)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
+                visited
+            }
+            Node::Collect { control, data } => {
+                let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
+                write!(w, "{} [xlabel={}, label=\"collect\"];\n", name, j)?;
+                write!(
+                    w,
+                    "{} -> {} [label=\"control\", style=\"dashed\"];\n",
+                    control_name, name
+                )?;
+                write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
+                visited
+            }
+            Node::Return { control, data } => {
+                let (control_name, visited) = write_node(i, control.idx(), module, visited, w)?;
+                let (data_name, visited) = write_node(i, data.idx(), module, visited, w)?;
                 write!(w, "{} [xlabel={}, label=\"return\"];\n", name, j)?;
                 write!(
                     w,
                     "{} -> {} [label=\"control\", style=\"dashed\"];\n",
                     control_name, name
                 )?;
-                write!(w, "{} -> {} [label=\"value\"];\n", value_name, name)?;
+                write!(w, "{} -> {} [label=\"data\"];\n", data_name, name)?;
                 visited
             }
             Node::Parameter { index } => {
