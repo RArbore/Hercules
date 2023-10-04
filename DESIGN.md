@@ -8,6 +8,8 @@ Hercules' is a compiler targeting heterogenous devices. The key goals of Hercule
 - Design an intermediate representation that allows for fine-grained control of what code is executed on what device in a system.
 - Develop a runtime system capable of dynamically scheduling generated code fragments on a heterogenous machine.
 
+The following sections contain information on how Hercules is designed to meet these goals.
+
 ## Front-end Language Design
 
 TODO: @aaronjc4
@@ -37,6 +39,14 @@ In addition to not having a generalized memory, Hercules IR has no functionality
 The key idea behind the sea of nodes IR is that control flow and data flow are represented in the same graph. The entire program thus can be represented by one large flow graph. This has several nice properties, the primary of which being that instructions are unordered except by true dependencies. This alleviates most code motion concerns, and also makes peephole optimizations more practical. Additionally, loop invariant code is neither "inside" nor "outside" a loop in the sea of nodes. Thus, any optimizations benefitting from a particular assumption about the position of loop invariant code works without needing to do code motion. Deciding whether code lives inside a loop or not becomes a scheduling concern.
 
 We chose to use a sea of nodes based IR because we believe it will be easier to partition than a CFG + basic block style IR. A CFG + basic block IR is inherently two-level - there is the control flow level in the CFG, and the data flow in the basic blocks. Partitioning a function across these two levels is a challenging task. As shown by previous work (HPVM), introducing more graph levels into the IR makes partitioning harder, not easier. We want Hercules to have fine-grained control over which code executes where. This requires Hercules' compiler IR to have as few graph levels as reasonable.
+
+Hercules IR is structured as following:
+- One entire program lives in one "Module".
+- Each module contains a set of functions, as well as interned types, constants, and dynamic constants. The most important element of a module is its resident functions.
+- Each function consists of a name, a set of types for its parameters, a return type, a list of nodes, and the number of dynamic constants it takes as argument. Types are not needed for dynamic constants, since all dynamic constants have type u64. The most important element of a function is its node list.
+- There are control and data types. The control type is parameterized by a list of thread replication factors. The primitive data types are boolean, signed integers, unsigned integers, and floating point numbers. The integer types can hold 8, 16, 32, or 64 bits. The floating point types can hold 32 or 64 bits. The compound types are product, summation, and arrays. A product type is a tuple, containing some number of children data types. A summation type is a union, containing exactly one of some number of children data types at runtime. An array is a dynamically indexable collection of elements, where each element is the same type. The size of the array is part of the type, and is represented with a dynamic constant.
+- Dynamic constants are constants provided to the conductor when a Hercules IR program is started. Through this mechanism, Hercules IR can represent programs operating on a variable number of array elements, while forbidding runtime dynamic memory allocation (all dynamic memory allocation happens in the conductor).
+- The nodes in a function are structured as a flow graph, which an explicit start node. Although control and data flow from definitions to uses, def-use edges are stored implicitly in the IR. Each node stores its predecessor nodes, so use-def edges are stored explicitly. To query the def-use edges in an IR graph, use the `def_use` function.
 
 ### Optimizations
 
