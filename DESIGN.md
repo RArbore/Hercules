@@ -48,6 +48,28 @@ Hercules IR is structured as following:
 - Dynamic constants are constants provided to the conductor when a Hercules IR program is started. Through this mechanism, Hercules IR can represent programs operating on a variable number of array elements, while forbidding runtime dynamic memory allocation (all dynamic memory allocation happens in the conductor).
 - The nodes in a function are structured as a flow graph, which an explicit start node. Although control and data flow from definitions to uses, def-use edges are stored implicitly in the IR. Each node stores its predecessor nodes, so use-def edges are stored explicitly. To query the def-use edges in an IR graph, use the `def_use` function.
 
+Below, all of the nodes in Hercules IR are described.
+
+#### Start
+
+The start node of the IR flow graph. This node is implicitly defined in the text format. It takes no inputs. Its output type is the empty control type (control with no thread replication factors).
+
+#### Region
+
+Region nodes are the mechanism for merging multiple branches inside Hercules IR. A region node takes at least one input - each input must have a control type, and all of the inputs must have the same control type. The output type of the region node is the same control type as all of its inputs. The main purpose of a region node is to drive a [phi](#phi) node.
+
+#### If
+
+The branch mechanism in Hercules IR. An if node takes two inputs - a control predecessor, and a condition. The control predecessor must have control type, and the condition must have boolean type. The output type is a product of two control types, which are the same as the control input's type. Every if node must be followed directly by two [read_prod](#readprod) nodes, each of which reads differing elements of the if node's output product. This is the mechanism by which the output edges from the if node (and also the [match](#match) node) are labelled, even though nodes only explicitly store their input edges.
+
+#### Fork
+
+Fork (and [join](#join)) nodes are the mechanism for representing data-parallelism inside Hercules IR. A fork node takes one input - a control predecessor. A fork node also stores a thread replication factor (TRF), represented as a dynamic constant. The output type of a fork node is a control type, which is the same as the type of the control predecessor, with the TRF pushed to the end of the control type's factor list. Conceptually, for every thread that comes in to a fork node, TRF threads come out. A fork node can drive any number of children [thread_id](#threadid) nodes. Each fork must have a single corresponding [join](#join) node - the fork must dominate the join node, and the join node must post-dominate the fork node (in the control flow subgraph).
+
+#### Join
+
+Join (and [fork](#fork)) nodes are the mechanism for synchronizing data-parallel threads inside Hercules IR. A join nodes takes one input - a control predecessor. The output type of a join node is a control type, which is the same as the type of the control predecessor, with the last factor in the control type's list removed. Conceptually, after all threads created by the corresponding fork reach the join, then and only then does the join output a single thread. A join node can drive any number of children [collect](#collect) nodes. Each join must have a single corresponding [fork](#fork) node - the join must post-dominate the fork node, and the fork node must dominate the join node (in the control flow subgraph).
+
 ### Optimizations
 
 Hercules relies on other compiler infrastructures, such as LLVM, to do code generation for specific devices. Thus, Hercules itself doesn't perform particularly sophisticated optimizations. In general, the optimizations Hercules do are done to make partitioning easier. This includes things like GVN and peephole optimizations, which in general, make the IR "simpler".
