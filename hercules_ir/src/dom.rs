@@ -44,14 +44,14 @@ impl DomTree {
  * Top level function for calculating dominator trees. Uses the semi-NCA
  * algorithm, as described in "Finding Dominators in Practice".
  */
-pub fn dominator(function: &Function, subgraph: &Subgraph) -> DomTree {
+pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
     // Step 1: compute pre-order DFS of subgraph.
-    let (preorder, mut parents) = preorder(&subgraph);
+    let (preorder, mut parents) = preorder(&subgraph, root);
     let mut node_numbers = HashMap::new();
     for (number, node) in preorder.iter().enumerate() {
         node_numbers.insert(node, number);
     }
-    parents.insert(NodeID::new(0), NodeID::new(0));
+    parents.insert(root, root);
     let mut idom = HashMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
@@ -104,7 +104,7 @@ pub fn dominator(function: &Function, subgraph: &Subgraph) -> DomTree {
     DomTree { idom }
 }
 
-fn preorder(subgraph: &Subgraph) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
+fn preorder(subgraph: &Subgraph, root: NodeID) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
     // Initialize order vector and visited hashmap for tracking which nodes have
     // been visited.
     let order = Vec::with_capacity(subgraph.num_nodes() as usize);
@@ -114,7 +114,7 @@ fn preorder(subgraph: &Subgraph) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
 
     // Order and parents are threaded through arguments / return pair of
     // reverse_postorder_helper for ownership reasons.
-    preorder_helper(NodeID::new(0), None, subgraph, order, parents)
+    preorder_helper(root, None, subgraph, order, parents)
 }
 
 fn preorder_helper(
@@ -147,4 +147,20 @@ fn preorder_helper(
 
         (order, parents)
     }
+}
+
+/*
+ * Top level function for calculating post-dominator trees. Reverses the edges
+ * in the subgraph, and then runs normal dominator analysis. Takes an owned
+ * subgraph, since we need to reverse it. Also take a fake root node ID to
+ * insert in the reversed subgraph. This will be the root of the resulting
+ * dominator tree.
+ */
+pub fn postdominator(subgraph: Subgraph, fake_root: NodeID) -> DomTree {
+    // Step 1: reverse the subgraph.
+    let reversed_subgraph = subgraph.reverse(fake_root);
+
+    // Step 2: run dominator analysis on the reversed subgraph. Use the fake
+    // root as the root of the dominator analysis.
+    dominator(&reversed_subgraph, fake_root)
 }

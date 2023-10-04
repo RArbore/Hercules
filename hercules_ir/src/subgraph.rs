@@ -77,6 +77,69 @@ impl Subgraph {
             }
         }
     }
+
+    pub fn reverse(self, new_root: NodeID) -> Self {
+        let Subgraph {
+            mut nodes,
+            mut node_numbers,
+            first_forward_edges,
+            forward_edges,
+            mut first_backward_edges,
+            mut backward_edges,
+        } = self;
+
+        // Since we need to add a "new" root to the subgraph, we first need to
+        // identify all the nodes with no forward edges. We're going to
+        // simultaneously add the new backward edges from the old leaves to the
+        // new root.
+        let mut leaf_numbers = vec![];
+        let mut new_first_forward_edges = vec![];
+        let mut new_forward_edges = vec![];
+        let mut old_forward_edges_idx = 0;
+        for number in 0..nodes.len() as u32 {
+            new_first_forward_edges.push(new_forward_edges.len() as u32);
+            let num_edges = if ((number + 1) as usize) < first_forward_edges.len() {
+                first_forward_edges[number as usize + 1] - first_forward_edges[number as usize]
+            } else {
+                forward_edges.len() as u32 - first_forward_edges[number as usize]
+            };
+            if num_edges == 0 {
+                // Node number of new root will be largest in subgraph.
+                new_forward_edges.push(nodes.len() as u32);
+                leaf_numbers.push(number);
+            } else {
+                for _ in 0..num_edges {
+                    new_forward_edges.push(forward_edges[old_forward_edges_idx]);
+                    old_forward_edges_idx += 1;
+                }
+            }
+        }
+
+        // There are no backward edges from the root node.
+        new_first_forward_edges.push(new_forward_edges.len() as u32);
+
+        // To reverse the edges in the graph, just swap the forward and backward
+        // edge vectors. Thus, we add the forward edges from the new root to
+        // the old leaves in the backward edge arrays.
+        node_numbers.insert(new_root, nodes.len() as u32);
+        nodes.push(new_root);
+        first_backward_edges.push(backward_edges.len() as u32);
+        for leaf in leaf_numbers.iter() {
+            backward_edges.push(*leaf);
+        }
+
+        // Swap forward and backward edges.
+        assert!(nodes.len() == first_backward_edges.len());
+        assert!(nodes.len() == new_first_forward_edges.len());
+        Subgraph {
+            nodes,
+            node_numbers,
+            first_forward_edges: first_backward_edges,
+            forward_edges: backward_edges,
+            first_backward_edges: new_first_forward_edges,
+            backward_edges: new_forward_edges,
+        }
+    }
 }
 
 /*

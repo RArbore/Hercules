@@ -35,7 +35,10 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     // Check SSA, fork, and join dominance relations.
     for (function, def_use) in zip(module.functions.iter(), def_uses) {
         let subgraph = control_subgraph(function, &def_use);
-        let dom = dominator(&function, &subgraph);
+        let dom = dominator(&subgraph, NodeID::new(0));
+        let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
+        println!("{:?}", dom);
+        println!("{:?}", postdom);
     }
 
     Ok(typing)
