@@ -56,19 +56,47 @@ The start node of the IR flow graph. This node is implicitly defined in the text
 
 #### Region
 
-Region nodes are the mechanism for merging multiple branches inside Hercules IR. A region node takes at least one input - each input must have a control type, and all of the inputs must have the same control type. The output type of the region node is the same control type as all of its inputs. The main purpose of a region node is to drive a [phi](#phi) node.
+Region nodes are the mechanism for merging multiple branches inside Hercules IR. A region node takes at least one input - each input must have a control type, and all of the inputs must have the same control type. The output type of the region node is the same control type as all of its inputs. The main purpose of a region node is to drive some number of [phi](#phi) nodes.
 
 #### If
 
-The branch mechanism in Hercules IR. An if node takes two inputs - a control predecessor, and a condition. The control predecessor must have control type, and the condition must have boolean type. The output type is a product of two control types, which are the same as the control input's type. Every if node must be followed directly by two [read_prod](#readprod) nodes, each of which reads differing elements of the if node's output product. This is the mechanism by which the output edges from the if node (and also the [match](#match) node) are labelled, even though nodes only explicitly store their input edges.
+The branch mechanism in Hercules IR. An if node takes two inputs - a control predecessor, and a condition. The control predecessor must have control type, and the condition must have boolean type. The output type is a product of two control types, which are the same as the control input's type. Every if node must be followed directly by two [read\_prod](#readprod) nodes, each of which reads differing elements of the if node's output product. This is the mechanism by which the output edges from the if node (and also the [match](#match) node) are labelled, even though nodes only explicitly store their input edges.
 
 #### Fork
 
-Fork (and [join](#join)) nodes are the mechanism for representing data-parallelism inside Hercules IR. A fork node takes one input - a control predecessor. A fork node also stores a thread replication factor (TRF), represented as a dynamic constant. The output type of a fork node is a control type, which is the same as the type of the control predecessor, with the TRF pushed to the end of the control type's factor list. Conceptually, for every thread that comes in to a fork node, TRF threads come out. A fork node can drive any number of children [thread_id](#threadid) nodes. Each fork must have a single corresponding [join](#join) node - the fork must dominate the join node, and the join node must post-dominate the fork node (in the control flow subgraph).
+Fork (and [join](#join)) nodes are the mechanism for representing data-parallelism inside Hercules IR. A fork node takes one input - a control predecessor. A fork node also stores a thread replication factor (TRF), represented as a dynamic constant. The output type of a fork node is a control type, which is the same as the type of the control predecessor, with the TRF pushed to the end of the control type's factor list. Conceptually, for every thread that comes in to a fork node, TRF threads come out. A fork node can drive any number of children [thread\_id](#threadid) nodes. Each fork must have a single corresponding [join](#join) node - the fork must dominate the join node, and the join node must post-dominate the fork node (in the control flow subgraph).
 
 #### Join
 
 Join (and [fork](#fork)) nodes are the mechanism for synchronizing data-parallel threads inside Hercules IR. A join nodes takes one input - a control predecessor. The output type of a join node is a control type, which is the same as the type of the control predecessor, with the last factor in the control type's list removed. Conceptually, after all threads created by the corresponding fork reach the join, then and only then does the join output a single thread. A join node can drive any number of children [collect](#collect) nodes. Each join must have a single corresponding [fork](#fork) node - the join must post-dominate the fork node, and the fork node must dominate the join node (in the control flow subgraph).
+
+#### Phi
+
+Phi nodes merge potentially many data sources into one data output, driven by a corresponding region node. Phi nodes in Hercules IR perform the same function as phi nodes in other SSA-based IRs. Phi nodes take at least one input - a control predecessor, and some number of data inputs. The control predecessor of a phi node must be a region node. The data inputs must all have the same type. The output of the phi node has that data type. In the sea of nodes execution model, a phi node can be thought of as "latching" when its corresponding region node is reached. The phi node will latch to output the value of the input corresponding to the input that control traversed to reach the region node. After latching, the phi node's output won't change until the region node is reached again.
+
+#### ThreadID
+
+The thread\_id node provides the thread ID as a datum to children nodes after a [fork](#fork) has been performed. A thread\_id node takes one input - a control predecessor. The control predecessor must be a [fork](#fork) node. The output type is a 64-bit unsigned integer. The output thread IDs generated by a thread\_id node range from 0 to TRF - 1, inclusive, where TRF is the thread replication factor of the input [fork](#fork) node.
+
+#### Collect
+
+The collect node collects data from multiple executing threads, and puts them all into an array. A collect node takes two inputs - a control predecessor, and a data input. The control predecessor must be a [join](#join) node. The data input must have a non-control type. The output type will be an array, where the element type will be the type of the data input. The extent of the array will be equal to the thread replication factor of the [fork](#fork) node corresponding to the input [join](#join) node. For each datum input, the thread ID corresponding to that datum will be the index the datum is inserted into the array.
+
+#### Return
+
+The return node returns some data from the current function. A return node has two inputs - a control predecessor, and a data input. The control predecessor must have a control type with an empty factor list - just as only one thread starts the execution of a function, only one thread can return from a function. The data input must have the same type as the function's return type. No node should use a return node as input (technically, the output type of a return node is an empty product type).
+
+#### Parameter
+
+The parameter node represents a parameter of the function. A parameter node takes no inputs. A parameter node stores the parameter index of the function it corresponds to. Its value at runtime is the index-th argument to the function. Its output type is the type of the index-th parameter of the function.
+
+#### Constant
+
+The constant node represents a constant value. A constant node takes no inputs. A constant node stores the constant ID of the constant it corresponds to. Its value at runtime is the constant it references. Its output type is the type of the constant it references.
+
+#### DynamicConstant
+
+The dynamic\_constant node represents a dynamic constant, used as a runtime value. A dynamic\_constant node takes no inputs. A dynamic\_constant node stores the dynamic constant ID of the dynamic constant it corresponds to. Its value at runtime is the value of the dynamic constant it references, which is calculated at conductor time. Its output type is a 64-bit unsigned integer.
 
 ### Optimizations
 
