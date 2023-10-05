@@ -65,3 +65,23 @@ The unary node represents a basic unary operation. A unary node takes one input 
 ## Binary
 
 The binary node represents a basic binary operation. A binary node takes two inputs - a left data input, and a right data input. The left and right data inputs must be the same non-control type. A binary node additionally stores the binary operation it performs. The output type of the binary node is the same as its input type. The acceptable input data type depends on the binary operation.
+
+## Call
+
+The call node passes its inputs to a function, and outputs the result of the function call. A call node takes some number of data inputs. A call node also stores a reference to the function it calls. The number and types of the data inputs must match the referenced function. A call node also stores references to dynamic constants it uses as inputs to the function. The number of dynamic constants references must match the number of dynamic constant inputs of the referenced function. The output type of a call node is the return type of the referenced function. A call node notably does not take as input or output a control type. This is because all operations in Hercules IR are pure, including arbitrary function calls. Thus, the only things affecting a function call are the data inputs, and (conceptually) the function may be called an arbitrary amount of times.
+
+## ReadProd
+
+The read\_prod node reads an element from an product typed value. A read\_prod node takes one data input. A read\_prod node also stores the index into the product it reads. The type of the data input must be a product type. The index must be a valid index into the product type. The output type of a read\_prod node is the type of the index-th element in the product (0-indexed).
+
+## WriteProd
+
+The write\_prod node modifies an input product with an input datum, and outputs the new product. A write\_prod node takes two inputs - one product input, and one data input. A write\_prod node also stores the index into the product it writes. The type of the product input must be a product type. The type of the data input must be the same as the index-th element in the product (0-indexed). The output type of a write\_prod node is the same as the product input type.
+
+## ReadArray
+
+The read\_array node reads an element from an array typed value. A read\_array node takes two inputs - one array input, and one index input. The type of the array input must be an array type. The type of the index input must be an integer type. The output type of a read\_array node is the element type of the array input's array type. At runtime, if an out-of-bounds array access occurs, the conductor will eventually notify the host.
+
+## WriteArray
+
+The write\_array node modifies an input array with an input datum. A write\_array node takes three inputs - one array input, one data input, and one index input. The type of the array input must be an array type. The type of the data input must be the same as the element type of the array input's array type. The type of the index input must be an integer type. The output type of a write\_array node is the same as the array input's array type. At runtime, if an out-of-bounds array access occurs, the conductor will eventually notify the host.
