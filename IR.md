@@ -85,3 +85,15 @@ The read\_array node reads an element from an array typed value. A read\_array n
 ## WriteArray
 
 The write\_array node modifies an input array with an input datum. A write\_array node takes three inputs - one array input, one data input, and one index input. The type of the array input must be an array type. The type of the data input must be the same as the element type of the array input's array type. The type of the index input must be an integer type. The output type of a write\_array node is the same as the array input's array type. At runtime, if an out-of-bounds array access occurs, the conductor will eventually notify the host.
+
+## Match
+
+The match node branches based on the variant of a sum typed value. A match node takes two inputs - a control predecessor, and a sum input. The control predecessor must have control type, and the sum input must have a sum type. The output type is a product of N control types, where N is the number of possible variants in the sum input's sum type. The control types in the product are the same as the control input's type. Every match node must be followed directly by N [read\_prod](#readprod) nodes, each of which reads differing elements of the match node's output product. This is the mechanism by which the output edges from the match node (and also the [if](#if) node) are labelled, even though nodes only explicitly store their input edges.
+
+## BuildSum
+
+The build\_sum node creates a sum typed value from a datum. A build\_sum node takes one input - a data input. A build\_sum node additionally stores the sum type it builds, as well as which variant of the aforementioned sum type it builds. The stored variant must be a valid variant inside the stored sum type. The type of the data input must match the type of the variant of the sum type. The output type of a build\_sum node is the aforementioned sum type.
+
+## ExtractSum
+
+The extract\_sum node extracts the concrete value inside a sum value, given a particular variant to extract. An extract\_sum node takes one input - a data input. The data input must have a sum type. An extract\_sum node also stored the variant it extracts. The stored variant must be a valid variant of the data input's sum type. The output type of an extract\_sum node is the type of the specified variant of the data input's sum type. At runtime, if the input sum value holds the stored variant, the output of an extract\_sum node is the value inside that variant in the sum value. If the input sum value holds a different variant, the output of an extract\_sum node is defined as the bit-pattern of all zeros for the output type of the extract\_sum node.
