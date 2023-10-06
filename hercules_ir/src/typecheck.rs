@@ -98,6 +98,10 @@ pub fn typecheck(
         .map(|(idx, ty)| (ty.clone(), TypeID::new(idx)))
         .collect();
 
+    // Also create a join replication factor map. This is needed to typecheck
+    // collect node.
+    let mut join_factor_map: HashMap<NodeID, DynamicConstantID> = HashMap::new();
+
     // Step 2: run dataflow. This is an occurrence of dataflow where the flow
     // function performs a non-associative operation on the predecessor "out"
     // values.
@@ -113,6 +117,7 @@ pub fn typecheck(
                     constants,
                     dynamic_constants,
                     &mut reverse_type_map,
+                    &mut join_factor_map,
                 )
             })
         })
@@ -143,13 +148,14 @@ pub fn typecheck(
  */
 fn typeflow(
     inputs: &[&TypeSemilattice],
-    node: &Node,
+    node_id: NodeID,
     function: &Function,
     functions: &Vec<Function>,
     types: &mut Vec<Type>,
     constants: &Vec<Constant>,
     dynamic_constants: &Vec<DynamicConstant>,
     reverse_type_map: &mut HashMap<Type, TypeID>,
+    join_factor_map: &mut HashMap<NodeID, DynamicConstantID>,
 ) -> TypeSemilattice {
     // Whenever we want to reference a specific type (for example, for the
     // start node), we need to get its type ID. This helper function gets the
@@ -170,7 +176,7 @@ fn typeflow(
     // Each node requires different type logic. This unfortunately results in a
     // large match statement. Oh well. Each arm returns the lattice value for
     // the "out" type of the node.
-    match node {
+    match &function.nodes[node_id.idx()] {
         Node::Start => {
             if inputs.len() != 0 {
                 return Error(String::from("Start node must have zero inputs."));
@@ -253,18 +259,14 @@ fn typeflow(
                     let mut new_factors = factors.clone().into_vec();
                     new_factors.push(*factor);
 
-                    // Out type is a pair - first element is the control type,
-                    // second is the index type (u64). Each thread gets a
-                    // different thread ID at runtime.
+                    // Out type is control type, with the new thread spawn
+                    // factor.
                     let control_out_id = get_type_id(
                         Type::Control(new_factors.into_boxed_slice()),
                         types,
                         reverse_type_map,
                     );
-                    let index_out_id =
-                        get_type_id(Type::UnsignedInteger64, types, reverse_type_map);
-                    let out_ty = Type::Product(Box::new([control_out_id, index_out_id]));
-                    return Concrete(get_type_id(out_ty, types, reverse_type_map));
+                    return Concrete(control_out_id);
                 } else {
                     return Error(String::from(
                         "Fork node's input cannot have non-control type.",
@@ -274,59 +276,38 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        Node::Join {
-            control: _,
-            data: _,
-        } => {
-            if inputs.len() != 2 {
+        Node::Join { control: _ } => {
+            if inputs.len() != 1 {
                 return Error(String::from("Join node must have exactly two inputs."));
             }
 
-            // If the data input isn't concrete, we can't assemble a concrete
-            // output type yet, so just return data input's type (either
-            // unconstrained or error) instead.
-            if let Concrete(data_id) = inputs[1] {
-                if types[data_id.idx()].is_control() {
-                    return Error(String::from(
-                        "Join node's second input must not have a control type.",
-                    ));
-                }
-
-                // Similarly, if the control input isn't concrete yet, we can't
-                // assemble a concrete output type, so just return the control
-                // input non-concrete type.
-                if let Concrete(control_id) = inputs[0] {
-                    if let Type::Control(factors) = &types[control_id.idx()] {
-                        // Join removes a factor from the factor list.
-                        if factors.len() == 0 {
-                            return Error(String::from("Join node's first input must have a control type with at least one thread replication factor."));
-                        }
-                        let mut new_factors = factors.clone().into_vec();
-                        let dc_id = new_factors.pop().unwrap();
-
-                        // Out type is a pair - first element is the control
-                        // type, second is the result array from the parallel
-                        // computation.
-                        let control_out_id = get_type_id(
-                            Type::Control(new_factors.into_boxed_slice()),
-                            types,
-                            reverse_type_map,
-                        );
-                        let array_out_id =
-                            get_type_id(Type::Array(*data_id, dc_id), types, reverse_type_map);
-                        let out_ty = Type::Product(Box::new([control_out_id, array_out_id]));
-                        return Concrete(get_type_id(out_ty, types, reverse_type_map));
-                    } else {
-                        return Error(String::from(
-                            "Join node's first input cannot have non-control type.",
-                        ));
+            // If the control input isn't concrete yet, we can't assemble a
+            // concrete output type, so just return the control input non-
+            // concrete type.
+            if let Concrete(control_id) = inputs[0] {
+                if let Type::Control(factors) = &types[control_id.idx()] {
+                    // Join removes a factor from the factor list.
+                    if factors.len() == 0 {
+                        return Error(String::from("Join node's first input must have a control type with at least one thread replication factor."));
                     }
+                    let mut new_factors = factors.clone().into_vec();
+                    join_factor_map.insert(node_id, new_factors.pop().unwrap());
+
+                    // Out type is the new control type.
+                    let control_out_id = get_type_id(
+                        Type::Control(new_factors.into_boxed_slice()),
+                        types,
+                        reverse_type_map,
+                    );
+                    return Concrete(control_out_id);
                 } else {
-                    return inputs[0].clone();
+                    return Error(String::from(
+                        "Join node's first input cannot have non-control type.",
+                    ));
                 }
             }
 
-            inputs[1].clone()
+            inputs[0].clone()
         }
         Node::Phi {
             control: _,
@@ -365,9 +346,67 @@ fn typeflow(
 
             meet
         }
+        Node::ThreadID { control: _ } => {
+            if inputs.len() != 1 {
+                return Error(String::from("ThreadID node must have exactly one input."));
+            }
+
+            // If type of control input is an error, we must propagate it.
+            if inputs[0].is_error() {
+                return inputs[0].clone();
+            }
+
+            // Type of thread ID is always u64.
+            Concrete(get_type_id(
+                Type::UnsignedInteger64,
+                types,
+                reverse_type_map,
+            ))
+        }
+        Node::Collect { control, data: _ } => {
+            if inputs.len() != 2 {
+                return Error(String::from("Collect node must have exactly two inputs."));
+            }
+
+            if let (Concrete(control_id), Concrete(data_id)) = (inputs[0], inputs[1]) {
+                // Check control input is control.
+                if let Type::Control(_) = types[control_id.idx()] {
+                } else {
+                    return Error(String::from(
+                        "Collect node's control input must have control type.",
+                    ));
+                }
+
+                // Check data input isn't control.
+                if let Type::Control(_) = types[data_id.idx()] {
+                    return Error(String::from(
+                        "Collect node's data input must not have control type.",
+                    ));
+                }
+
+                // Unfortunately, the type of the control input doesn't contain
+                // the thread replication factor this collect node is operating
+                // with. We use the join replication factor map side data
+                // structure to store the replication factor each join reduces
+                // over to make this easier.
+                if let Some(factor) = join_factor_map.get(control) {
+                    let array_out_id =
+                        get_type_id(Type::Array(*data_id, *factor), types, reverse_type_map);
+                    Concrete(array_out_id)
+                } else {
+                    // If the join factor map doesn't contain the control
+                    // input, stay optimistic.
+                    Unconstrained
+                }
+            } else if inputs[0].is_error() {
+                inputs[0].clone()
+            } else {
+                inputs[1].clone()
+            }
+        }
         Node::Return {
             control: _,
-            value: _,
+            data: _,
         } => {
             if inputs.len() != 2 {
                 return Error(String::from("Return node must have exactly two inputs."));
@@ -702,6 +741,10 @@ fn typeflow(
                     } else if let Concrete(data_id) = inputs[1] {
                         if elem_tys[*index] != *data_id {
                             return Error(format!("WriteProd node's data input doesn't match the type of the element at index {} inside the product type.", index));
+                        } else if let Type::Control(_) = &types[data_id.idx()] {
+                            return Error(String::from(
+                                "WriteProd node's data input cannot have a control type.",
+                            ));
                         }
                     } else if inputs[1].is_error() {
                         // If an input lattice value is an error, we must
@@ -773,6 +816,10 @@ fn typeflow(
                     if let Concrete(data_id) = inputs[1] {
                         if elem_id != *data_id {
                             return Error(String::from("WriteArray node's array and data inputs must have compatible types (type of data input must be the same as the array input's element type)."));
+                        } else if let Type::Control(_) = &types[data_id.idx()] {
+                            return Error(String::from(
+                                "WriteArray node's data input cannot have a control type.",
+                            ));
                         }
                     }
                 } else {
@@ -831,6 +878,12 @@ fn typeflow(
             }
 
             if let Concrete(id) = inputs[0] {
+                if let Type::Control(_) = &types[id.idx()] {
+                    return Error(String::from(
+                        "BuildSum node's data input cannot have a control type.",
+                    ));
+                }
+
                 // BuildSum node stores its own result type.
                 if let Type::Summation(variants) = &types[sum_ty.idx()] {
                     // Must reference an existing variant.

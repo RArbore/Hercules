@@ -31,6 +31,16 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     {
         verify_structure(function, def_use, typing, &module.types)?;
     }
+
+    // Check SSA, fork, and join dominance relations.
+    for (function, def_use) in zip(module.functions.iter(), def_uses) {
+        let subgraph = control_subgraph(function, &def_use);
+        let dom = dominator(&subgraph, NodeID::new(0));
+        let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
+        println!("{:?}", dom);
+        println!("{:?}", postdom);
+    }
+
     Ok(typing)
 }
 
@@ -48,20 +58,11 @@ fn verify_structure(
     for (idx, node) in function.nodes.iter().enumerate() {
         let users = def_use.get_users(NodeID::new(idx));
         match node {
-            // If, fork, and join nodes all have the same structural
-            // constraints - each must have exactly two ReadProd users, which
+            // Each if node must have exactly two ReadProd users, which
             // reference differing elements of the node's output product.
             Node::If {
                 control: _,
                 cond: _,
-            }
-            | Node::Fork {
-                control: _,
-                factor: _,
-            }
-            | Node::Join {
-                control: _,
-                data: _,
             } => {
                 if users.len() != 2 {
                     Err(format!(
@@ -100,10 +101,28 @@ fn verify_structure(
                     Err("Phi node's control input must be a region node.")?;
                 }
             }
+            // ThreadID nodes must depend on a fork node.
+            Node::ThreadID { control } => {
+                if let Node::Fork {
+                    control: _,
+                    factor: _,
+                } = function.nodes[control.idx()]
+                {
+                } else {
+                    Err("ThreadID node's control input must be a fork node.")?;
+                }
+            }
+            // Collect nodes must depend on a join node.
+            Node::Collect { control, data: _ } => {
+                if let Node::Join { control: _ } = function.nodes[control.idx()] {
+                } else {
+                    Err("Collect node's control input must be a join node.")?;
+                }
+            }
             // Return nodes must have no users.
             Node::Return {
                 control: _,
-                value: _,
+                data: _,
             } => {
                 if users.len() != 0 {
                     Err(format!(

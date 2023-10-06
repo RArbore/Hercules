@@ -8,6 +8,8 @@ Hercules' is a compiler targeting heterogenous devices. The key goals of Hercule
 - Design an intermediate representation that allows for fine-grained control of what code is executed on what device in a system.
 - Develop a runtime system capable of dynamically scheduling generated code fragments on a heterogenous machine.
 
+The following sections contain information on how Hercules is designed to meet these goals.
+
 ## Front-end Language Design
 
 TODO: @aaronjc4
@@ -24,15 +26,21 @@ The Hercules' compiler is split into the following components:
 
 The IR of the Hercules compiler is similar to the sea of nodes IR presented in "A Simple Graph-Based Intermediate Representation", with a few differences.
 
-- There are dynamic constants, which are constants provided dynamically to the runtime system - these can be used to specify array type sizes, unlike normal runtime values.
+- There are dynamic constants, which are constants provided dynamically to the conductor (this is the runtime system, [see the section describing the conductor](#the-conductor)) - these can be used to specify array type sizes, unlike normal runtime values.
 - There is no single global store. The closest analog are individual values with an array type, which support dynamically indexed read and write operations.
 - There is no I/O, or other side effects.
 - There is no recursion.
-- The implementation of Hercules IR does not follow the original object oriented design.
+- The implementation of Hercules IR does not follow the original object oriented design of sea-of-nodes.
 
 A key design consideration of Hercules IR is the absence of a concept of memory. A downside of this approach is that any language targetting Hecules IR must also be very restrictive regarding memory - in practice, this means tightly controlling or eliminating first-class references. The upside is that the compiler has complete freedom to layout data however it likes in memory when performing code generation. This includes deciding which data resides in which address spaces, which is a necessary ability for a compiler striving to have fine-grained control over what operations are computed on what devices.
 
-In addition to not having a generalized memory, Hercules IR has no functionality for calling functions with side-effects, or doing IO. In other words, Hercules is a pure IR (it's not functional, as functions aren't first class values). This may be changed in the future - we could support effectful programs by giving call operators a control input and output edge. However, at least for now, we need to work with the simplest IR possible, so the IR is pure.
+In addition to not having a generalized memory, Hercules IR has no functionality for calling functions with side-effects, or doing IO. In other words, Hercules is a pure IR (it's not functional, as functions aren't first class values). This may be changed in the future - we could support effectful programs by giving call operators a control input and output edge. However, at least for now, we'd like to work with the simplest IR possible, so the IR is pure.
+
+The key idea behind the sea of nodes IR is that control flow and data flow are represented in the same graph. The entire program thus can be represented by one large flow graph. This has several nice properties, the primary of which being that instructions are unordered except by true dependencies. This alleviates most code motion concerns, and also makes peephole optimizations more practical. Additionally, loop invariant code is neither "inside" nor "outside" a loop in the sea of nodes. Thus, any optimizations benefitting from a particular assumption about the position of loop invariant code works without needing to do code motion. Deciding whether code lives inside a loop or not becomes a scheduling concern.
+
+We chose to use a sea of nodes based IR because we believe it will be easier to partition than a CFG + basic block style IR. A CFG + basic block IR is inherently two-level - there is the control flow level in the CFG, and the data flow in the basic blocks. Partitioning a function across these two levels is a challenging task. As shown by previous work (HPVM), introducing more graph levels into the IR makes partitioning harder, not easier. We want Hercules to have fine-grained control over which code executes where. This requires Hercules' compiler IR to have as few graph levels as reasonable.
+
+See [IR.md](IR.md) for a more specific description of Hercules IR.
 
 ### Optimizations
 
@@ -42,7 +50,7 @@ TODO: @rarbore2
 
 ### Partitioning
 
-Partitioning is responsible for deciding which operations in the IR graph are executed on which devices. Additionally, operations are broken up into shards - every node in a shard executes on the same device, and the runtime system schedules execution at the shard level. Partitioning is conceptually very similar to instruction selection. Each shard can be thought of as a single instruction, and the device the shard is executed on can be thought of as the particular instruction being selected. In instruction selection, there is not only the choice of which instructions to use, but also how to partition the potentially many operations in the IR into a smaller number of target instructions. Similarly, partitioning Hercules IR must decide which operations are grouped together into the same shard, and for each shard, which device it should execute on. The set of operations each potential target device is capable of executing is crucial information when forming the shard boundaries, so this cannot be performed optimally as a sequential two step process.
+Partitioning is responsible for deciding which operations in the IR graph are executed on which devices. Additionally, operations are broken up into shards - every node in a shard executes on the same device, and the runtime system schedules execution at the shard level. Partitioning is conceptually very similar to instruction selection. Each shard can be thought of as a single instruction, and the device the shard is executed on can be thought of as the particular instruction being selected. In instruction selection, there is not only the choice of which instructions to use, but also how to partition the potentially many operations in the IR into a smaller number of target instructions. Similarly, the Hercules IR partitioning process must decide which operations are grouped together into the same shard, and for each shard, which device it should execute on. The set of operations each potential target device is capable of executing is crucial information when forming the shard boundaries, so this cannot be performed optimally as a sequential two step process.
 
 TODO: @rarbore2
 
@@ -52,8 +60,8 @@ Hercules uses LLVM for generating CPU and GPU code. Memory is "introduced" into 
 
 TODO: @rarbore2
 
-## Runtime System
+## The Conductor
 
-The runtime system is responsible for dynamically executing code generated by Hercules. It exposes a Rust API for executing Hercules code. It takes care of memory allocation, synchronization, and scheduling.
+The conductor is responsible for dynamically executing code generated by Hercules. It exposes a Rust API for executing Hercules code. It takes care of memory allocation, synchronization, and scheduling. It is what is called the "runtime" in other systems - we chose a different name as there are events that happen distinctly as "conductor time" (such as providing dynamic constants), rather than at "runtime" (where the generated code is actually executed).
 
 TODO: @rarbore2
