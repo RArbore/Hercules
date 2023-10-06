@@ -31,7 +31,7 @@ pub fn forward_dataflow<L, F>(
 ) -> Vec<L>
 where
     L: Semilattice,
-    F: FnMut(&[&L], &Node) -> L,
+    F: FnMut(&[&L], NodeID) -> L,
 {
     // Step 1: compute NodeUses for each node in function.
     let uses: Vec<NodeUses> = function.nodes.iter().map(|n| get_uses(n)).collect();
@@ -41,7 +41,7 @@ where
         .map(|id| {
             flow_function(
                 &vec![&(if id == 0 { L::bottom() } else { L::top() }); uses[id].as_ref().len()],
-                &function.nodes[id],
+                NodeID::new(id),
             )
         })
         .collect();
@@ -63,7 +63,7 @@ where
             }
 
             // Compute new "out" value from predecessor "out" values.
-            let new_out = flow_function(&pred_outs[..], &function.nodes[node_id.idx()]);
+            let new_out = flow_function(&pred_outs[..], *node_id);
             if outs[node_id.idx()] != new_out {
                 change = true;
             }

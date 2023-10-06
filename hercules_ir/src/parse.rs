@@ -275,6 +275,8 @@ fn parse_node<'a>(
         "fork" => parse_fork(ir_text, context)?,
         "join" => parse_join(ir_text, context)?,
         "phi" => parse_phi(ir_text, context)?,
+        "thread_id" => parse_thread_id(ir_text, context)?,
+        "collect" => parse_collect(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "dynamic_constant" => parse_dynamic_constant_node(ir_text, context)?,
@@ -365,15 +367,14 @@ fn parse_fork<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
 }
 
 fn parse_join<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let (ir_text, (control,)) = parse_tuple1(parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
-    let data = context.borrow_mut().get_node_id(data);
 
     // A join node doesn't need to explicitly store a join factor. The join
     // factor is implicitly stored at the tail of the control token's type
     // level list of thread spawn factors. Intuitively, fork pushes to the end
     // of this list, while join just pops from the end of this list.
-    Ok((ir_text, Node::Join { control, data }))
+    Ok((ir_text, Node::Join { control }))
 }
 
 fn parse_phi<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
@@ -396,14 +397,33 @@ fn parse_phi<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResu
     Ok((ir_text, Node::Phi { control, data }))
 }
 
+fn parse_thread_id<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control,)) = parse_tuple1(parse_identifier)(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    Ok((ir_text, Node::ThreadID { control }))
+}
+
+fn parse_collect<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let control = context.borrow_mut().get_node_id(control);
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((ir_text, Node::Collect { control, data }))
+}
+
 fn parse_return<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (control, value)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
-    let value = context.borrow_mut().get_node_id(value);
-    Ok((ir_text, Node::Return { control, value }))
+    let data = context.borrow_mut().get_node_id(data);
+    Ok((ir_text, Node::Return { control, data }))
 }
 
 fn parse_constant_node<'a>(
