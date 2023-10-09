@@ -46,7 +46,7 @@ pub struct Function {
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    Control(Box<[DynamicConstantID]>),
+    Control(Box<[NodeID]>),
     Boolean,
     Integer8,
     Integer16,
