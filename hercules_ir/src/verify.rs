@@ -12,7 +12,7 @@ use crate::*;
  * useful results (typing, dominator trees, etc.), so if verification succeeds,
  * return those useful results. Otherwise, return the first error string found.
  */
-pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
+pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<DomTree>), String> {
     let def_uses: Vec<_> = module
         .functions
         .iter()
@@ -33,7 +33,9 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
         verify_structure(function, def_use, typing, &module.types)?;
     }
 
-    // Check SSA, fork, and join dominance relations.
+    // Check SSA, fork, and join dominance relations. Collect domtrees.
+    let mut doms = vec![];
+    let mut postdoms = vec![];
     for ((function, typing), (def_use, reverse_postorder)) in zip(
         zip(module.functions.iter(), typing.iter()),
         zip(def_uses.iter(), reverse_postorders.iter()),
@@ -53,9 +55,11 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
             &dom,
             &postdom,
         )?;
+        doms.push(dom);
+        postdoms.push(postdom);
     }
 
-    Ok(typing)
+    Ok((typing, doms, postdoms))
 }
 
 /*
