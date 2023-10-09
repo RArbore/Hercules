@@ -202,7 +202,12 @@ fn verify_dominance_relationships(
                         // If the current node is a phi or collect node whose
                         // corresponding region or join node isn't dominated by
                         // the other phi node, then the other phi doesn't
-                        // dominate its use.
+                        // dominate its use. We don't need to do something
+                        // similar for thread ID nodes, since they have no data
+                        // input. In fact, it's impossible to reach this point
+                        // in control as a thread ID node, since it can't
+                        // possibly depend on a phi, thread ID, or collect node
+                        // in the first place.
                         if let Node::Phi {
                             control: dominated_control,
                             data: _,
