@@ -186,7 +186,7 @@ fn verify_dominance_relationships(
         for other_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(other_idx)) {
                 match function.nodes[other_idx] {
-                    Node::Phi { control, data: _ } => {
+                    Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
                         // If the current node is a control node and the phi's
                         // region doesn't dominate it, then the phi doesn't
                         // dominate its use.
@@ -194,8 +194,10 @@ fn verify_dominance_relationships(
                             && !dom.does_dom(control, NodeID::new(idx))
                         {
                             Err(format!(
-                                "Phi node (ID {}) doesn't dominate its use (ID {}).",
-                                other_idx, idx
+                                "{} node (ID {}) doesn't dominate its use (ID {}).",
+                                function.nodes[other_idx].upper_case_name(),
+                                other_idx,
+                                idx
                             ))?;
                         }
 
@@ -211,23 +213,18 @@ fn verify_dominance_relationships(
                         if let Node::Phi {
                             control: dominated_control,
                             data: _,
-                        } = function.nodes[idx]
-                        {
-                            if !dom.does_dom(control, dominated_control) {
-                                Err(format!(
-                                    "Phi node (ID {}) doesn't dominate its use (ID {}).",
-                                    other_idx, idx
-                                ))?;
-                            }
-                        } else if let Node::Collect {
+                        }
+                        | Node::Collect {
                             control: dominated_control,
                             data: _,
                         } = function.nodes[idx]
                         {
                             if !dom.does_dom(control, dominated_control) {
                                 Err(format!(
-                                    "Phi node (ID {}) doesn't dominate its use (ID {}).",
-                                    other_idx, idx
+                                    "{} node (ID {}) doesn't dominate its use (ID {}).",
+                                    function.nodes[other_idx].upper_case_name(),
+                                    other_idx,
+                                    idx
                                 ))?;
                             }
                         }
