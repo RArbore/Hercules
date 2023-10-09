@@ -638,7 +638,10 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
                         nom::character::complete::char(','),
                         nom::character::complete::multispace0,
                     )),
-                    |x| parse_dynamic_constant_id(x, context),
+                    |x| {
+                        let (ir_text, node) = parse_identifier(x)?;
+                        Ok((ir_text, context.borrow_mut().get_node_id(node)))
+                    },
                 ),
                 nom::character::complete::multispace0,
                 nom::character::complete::char(')'),
