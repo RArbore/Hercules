@@ -33,19 +33,25 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     }
 
     // Check SSA, fork, and join dominance relations.
-    for (function, def_use) in zip(module.functions.iter(), def_uses) {
-        let subgraph = control_subgraph(function, &def_use);
+    for (function, (def_use, reverse_postorder)) in zip(
+        module.functions.iter(),
+        zip(def_uses.iter(), reverse_postorders.iter()),
+    ) {
+        let control_output_dependencies =
+            forward_dataflow(function, reverse_postorder, |inputs, id| {
+                control_output_flow(inputs, id, function)
+            });
+        let subgraph = control_subgraph(function, def_use);
         let dom = dominator(&subgraph, NodeID::new(0));
         let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
-        println!("{:?}", dom);
-        println!("{:?}", postdom);
+        verify_dominance_relationships(function, &control_output_dependencies, &dom, &postdom)?;
     }
 
     Ok(typing)
 }
 
 /*
- * There are structural constraints the IR must follow, such as all Phi nodes'
+ * There are structural constraints the IR must follow, such as all phi nodes'
  * control input must be a region node. This is where those properties are
  * verified.
  */
@@ -161,5 +167,71 @@ fn verify_structure(
             _ => {}
         };
     }
+
+    Ok(())
+}
+
+/*
+ * There are dominance relationships the IR must follow, such as all uses of a
+ * phi node must be dominated by the corresponding region node.
+ */
+fn verify_dominance_relationships(
+    function: &Function,
+    control_output_dependencies: &Vec<UnionNodeSet>,
+    dom: &DomTree,
+    postdom: &DomTree,
+) -> Result<(), String> {
+    for idx in 0..function.nodes.len() {
+        let dependencies = &control_output_dependencies[idx];
+        for other_idx in 0..function.nodes.len() {
+            if dependencies.is_set(NodeID::new(other_idx)) {
+                match function.nodes[other_idx] {
+                    Node::Phi { control, data: _ } => {
+                        // If the current node is a control node and the phi's
+                        // region doesn't dominate it, then the phi doesn't
+                        // dominate its use.
+                        if dom.is_non_root(NodeID::new(idx))
+                            && !dom.does_dom(control, NodeID::new(idx))
+                        {
+                            Err(format!(
+                                "Phi node (ID {}) doesn't dominate its use (ID {}).",
+                                other_idx, idx
+                            ))?;
+                        }
+
+                        // If the current node is a phi or collect node whose
+                        // corresponding region or join node isn't dominated by
+                        // the other phi node, then the other phi doesn't
+                        // dominate its use.
+                        if let Node::Phi {
+                            control: dominated_control,
+                            data: _,
+                        } = function.nodes[idx]
+                        {
+                            if !dom.does_dom(control, dominated_control) {
+                                Err(format!(
+                                    "Phi node (ID {}) doesn't dominate its use (ID {}).",
+                                    other_idx, idx
+                                ))?;
+                            }
+                        } else if let Node::Collect {
+                            control: dominated_control,
+                            data: _,
+                        } = function.nodes[idx]
+                        {
+                            if !dom.does_dom(control, dominated_control) {
+                                Err(format!(
+                                    "Phi node (ID {}) doesn't dominate its use (ID {}).",
+                                    other_idx, idx
+                                ))?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     Ok(())
 }

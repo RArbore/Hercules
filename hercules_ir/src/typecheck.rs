@@ -8,7 +8,7 @@ use self::TypeSemilattice::*;
 /*
  * Enum for type semilattice.
  */
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, Debug)]
 enum TypeSemilattice {
     Unconstrained,
     Concrete(TypeID),

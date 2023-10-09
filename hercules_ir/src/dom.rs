@@ -38,6 +38,14 @@ impl DomTree {
     pub fn does_prop_dom(&self, a: NodeID, b: NodeID) -> bool {
         a != b && self.does_dom(a, b)
     }
+
+    /*
+     * Check if a node is in the dom tree (if the node is the root of the tree,
+     * will still return true).
+     */
+    pub fn is_non_root(&self, x: NodeID) -> bool {
+        self.idom.contains_key(&x)
+    }
 }
 
 /*

@@ -137,11 +137,21 @@ fn reverse_postorder_helper(
  * A bit vector set is a very general kind of semilattice. This variant is for
  * "intersecting" flow functions.
  */
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum IntersectNodeSet {
     Empty,
     Bits(BitVec<u8, Lsb0>),
     Full,
+}
+
+impl IntersectNodeSet {
+    pub fn is_set(&self, id: NodeID) -> bool {
+        match self {
+            IntersectNodeSet::Empty => false,
+            IntersectNodeSet::Bits(bits) => bits[id.idx()],
+            IntersectNodeSet::Full => true,
+        }
+    }
 }
 
 impl Semilattice for IntersectNodeSet {
@@ -154,7 +164,7 @@ impl Semilattice for IntersectNodeSet {
                     a.len() == b.len(),
                     "IntersectNodeSets must have same length to meet."
                 );
-                IntersectNodeSet::Bits(a.clone() | b)
+                IntersectNodeSet::Bits(a.clone() & b)
             }
             (IntersectNodeSet::Empty, _) => IntersectNodeSet::Empty,
             (_, IntersectNodeSet::Empty) => IntersectNodeSet::Empty,
@@ -176,18 +186,28 @@ impl Semilattice for IntersectNodeSet {
  * A bit vector set is a very general kind of semilattice. This variant is for
  * "unioning" flow functions.
  */
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum UnionNodeSet {
     Empty,
     Bits(BitVec<u8, Lsb0>),
     Full,
 }
 
+impl UnionNodeSet {
+    pub fn is_set(&self, id: NodeID) -> bool {
+        match self {
+            UnionNodeSet::Empty => false,
+            UnionNodeSet::Bits(bits) => bits[id.idx()],
+            UnionNodeSet::Full => true,
+        }
+    }
+}
+
 impl Semilattice for UnionNodeSet {
     fn meet(a: &Self, b: &Self) -> Self {
         match (a, b) {
-            (UnionNodeSet::Full, b) => b.clone(),
-            (a, UnionNodeSet::Full) => a.clone(),
+            (UnionNodeSet::Empty, b) => b.clone(),
+            (a, UnionNodeSet::Empty) => a.clone(),
             (UnionNodeSet::Bits(a), UnionNodeSet::Bits(b)) => {
                 assert!(
                     a.len() == b.len(),
@@ -195,8 +215,8 @@ impl Semilattice for UnionNodeSet {
                 );
                 UnionNodeSet::Bits(a.clone() | b)
             }
-            (UnionNodeSet::Empty, _) => UnionNodeSet::Empty,
-            (_, UnionNodeSet::Empty) => UnionNodeSet::Empty,
+            (UnionNodeSet::Full, _) => UnionNodeSet::Full,
+            (_, UnionNodeSet::Full) => UnionNodeSet::Full,
         }
     }
 
