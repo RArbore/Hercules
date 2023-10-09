@@ -8,7 +8,7 @@ use self::TypeSemilattice::*;
 /*
  * Enum for type semilattice.
  */
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, Debug)]
 enum TypeSemilattice {
     Unconstrained,
     Concrete(TypeID),
@@ -25,6 +25,9 @@ impl TypeSemilattice {
     }
 }
 
+/* Define custom PartialEq, so that dataflow will terminate right away if there
+ * are errors.
+ */
 impl PartialEq for TypeSemilattice {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -39,7 +42,6 @@ impl PartialEq for TypeSemilattice {
 impl Semilattice for TypeSemilattice {
     fn meet(a: &Self, b: &Self) -> Self {
         match (a, b) {
-            (Unconstrained, Unconstrained) => Unconstrained,
             (Unconstrained, b) => b.clone(),
             (a, Unconstrained) => a.clone(),
             (Concrete(id1), Concrete(id2)) => {
@@ -248,7 +250,10 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        Node::Fork { control: _, factor } => {
+        Node::Fork {
+            control: _,
+            factor: _,
+        } => {
             if inputs.len() != 1 {
                 return Error(String::from("Fork node must have exactly one input."));
             }
@@ -257,7 +262,7 @@ fn typeflow(
                 if let Type::Control(factors) = &types[id.idx()] {
                     // Fork adds a new factor to the thread spawn factor list.
                     let mut new_factors = factors.clone().into_vec();
-                    new_factors.push(*factor);
+                    new_factors.push(node_id);
 
                     // Out type is control type, with the new thread spawn
                     // factor.
@@ -291,7 +296,14 @@ fn typeflow(
                         return Error(String::from("Join node's first input must have a control type with at least one thread replication factor."));
                     }
                     let mut new_factors = factors.clone().into_vec();
-                    join_factor_map.insert(node_id, new_factors.pop().unwrap());
+                    let factor = if let Node::Fork { control: _, factor } =
+                        function.nodes[new_factors.pop().unwrap().idx()]
+                    {
+                        factor
+                    } else {
+                        panic!("Node ID in factor list doesn't correspond with a fork node.");
+                    };
+                    join_factor_map.insert(node_id, factor);
 
                     // Out type is the new control type.
                     let control_out_id = get_type_id(
