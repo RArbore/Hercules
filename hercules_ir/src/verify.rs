@@ -33,8 +33,8 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
     }
 
     // Check SSA, fork, and join dominance relations.
-    for (function, (def_use, reverse_postorder)) in zip(
-        module.functions.iter(),
+    for ((function, typing), (def_use, reverse_postorder)) in zip(
+        zip(module.functions.iter(), typing.iter()),
         zip(def_uses.iter(), reverse_postorders.iter()),
     ) {
         let control_output_dependencies =
@@ -44,7 +44,14 @@ pub fn verify(module: &mut Module) -> Result<ModuleTyping, String> {
         let subgraph = control_subgraph(function, def_use);
         let dom = dominator(&subgraph, NodeID::new(0));
         let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
-        verify_dominance_relationships(function, &control_output_dependencies, &dom, &postdom)?;
+        verify_dominance_relationships(
+            function,
+            typing,
+            &module.types,
+            &control_output_dependencies,
+            &dom,
+            &postdom,
+        )?;
     }
 
     Ok(typing)
@@ -177,15 +184,41 @@ fn verify_structure(
  */
 fn verify_dominance_relationships(
     function: &Function,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
     control_output_dependencies: &Vec<UnionNodeSet>,
     dom: &DomTree,
     postdom: &DomTree,
 ) -> Result<(), String> {
     for idx in 0..function.nodes.len() {
+        match function.nodes[idx] {
+            // Verify that joins are dominated by their corresponding
+            // forks.
+            Node::Join { control } => {
+                // Check type of control predecessor. The last node ID
+                // in the factor list is the corresponding fork node ID.
+                if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
+                    let join_id = NodeID::new(idx);
+                    let fork_id = *factors.last().unwrap();
+                    if !dom.does_dom(fork_id, join_id) {
+                        Err(format!("Fork node (ID {}) doesn't dominate its corresponding join node (ID {}).", fork_id.idx(), join_id.idx()))?;
+                    }
+                    if !postdom.does_dom(join_id, fork_id) {
+                        Err(format!("Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).", join_id.idx(), fork_id.idx()))?;
+                    }
+                } else {
+                    panic!("Join node's control predecessor has a non-control type.");
+                }
+            }
+            _ => {}
+        }
+
         let dependencies = &control_output_dependencies[idx];
         for other_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(other_idx)) {
                 match function.nodes[other_idx] {
+                    // Verify that uses of phis / collect nodes are dominated
+                    // the corresponding region / join nodes, respectively.
                     Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
                         // If the current node is a control node and the phi's
                         // region doesn't dominate it, then the phi doesn't
@@ -206,10 +239,7 @@ fn verify_dominance_relationships(
                         // the other phi node, then the other phi doesn't
                         // dominate its use. We don't need to do something
                         // similar for thread ID nodes, since they have no data
-                        // input. In fact, it's impossible to reach this point
-                        // in control as a thread ID node, since it can't
-                        // possibly depend on a phi, thread ID, or collect node
-                        // in the first place.
+                        // input.
                         if let Node::Phi {
                             control: dominated_control,
                             data: _,
