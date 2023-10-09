@@ -241,12 +241,9 @@ impl Semilattice for UnionNodeSet {
 
 /*
  * Flow function for collecting all of a node's uses of "control outputs". What
- * this flow function does is collect all phi, thread ID, and collect nodes that
- * every other node depends on through data nodes. In other words, dependence
- * on these three kinds of nodes can flow through data, but not through control
- * nodes. Since forward_dataflow returns the out sets, to get the phi, thread
- * ID, and collect nodes that a particular control node depends on, one should
- * look at the out set of the data input that that control node depends on.
+ * this flow function does is collect all immediate phi, thread ID, and collect
+ * nodes that every other node depends on through data nodes. Flow is ended at
+ * a control node, or at a phi, thread ID, or collect node.
  */
 pub fn control_output_flow(
     inputs: &[&UnionNodeSet],
@@ -258,18 +255,18 @@ pub fn control_output_flow(
     for input in inputs {
         out = UnionNodeSet::meet(&out, input);
     }
-
-    // Step 2: set bit for current node, if applicable.
     let node = &function.nodes[node_id.idx()];
-    if node.is_phi() || node.is_thread_id() || node.is_collect() {
+
+    // Step 2: clear all bits, if applicable.
+    if node.is_strictly_control() || node.is_thread_id() || node.is_collect() || node.is_phi() {
+        out = UnionNodeSet::Empty;
+    }
+
+    // Step 3: set bit for current node, if applicable.
+    if node.is_thread_id() || node.is_collect() || node.is_phi() {
         let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
         singular.set(node_id.idx(), true);
         out = UnionNodeSet::meet(&out, &UnionNodeSet::Bits(singular));
-    }
-
-    // Step 3: clear all bits if control node.
-    if node.is_strictly_control() {
-        out = UnionNodeSet::Empty;
     }
 
     out

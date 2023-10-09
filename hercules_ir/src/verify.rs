@@ -1,5 +1,6 @@
 extern crate bitvec;
 
+use std::collections::HashMap;
 use std::iter::zip;
 
 use verify::bitvec::prelude::*;
@@ -190,10 +191,12 @@ fn verify_dominance_relationships(
     dom: &DomTree,
     postdom: &DomTree,
 ) -> Result<(), String> {
+    let mut fork_join_map = HashMap::new();
     for idx in 0..function.nodes.len() {
         match function.nodes[idx] {
-            // Verify that joins are dominated by their corresponding
-            // forks.
+            // Verify that joins are dominated by their corresponding forks. At
+            // the same time, assemble a map from forks to their corresponding
+            // joins.
             Node::Join { control } => {
                 // Check type of control predecessor. The last node ID
                 // in the factor list is the corresponding fork node ID.
@@ -206,57 +209,83 @@ fn verify_dominance_relationships(
                     if !postdom.does_dom(join_id, fork_id) {
                         Err(format!("Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).", join_id.idx(), fork_id.idx()))?;
                     }
+                    fork_join_map.insert(fork_id, join_id);
                 } else {
                     panic!("Join node's control predecessor has a non-control type.");
                 }
             }
             _ => {}
         }
+    }
 
-        let dependencies = &control_output_dependencies[idx];
-        for other_idx in 0..function.nodes.len() {
-            if dependencies.is_set(NodeID::new(other_idx)) {
-                match function.nodes[other_idx] {
+    // Loop over the nodes twice, since we need to completely assemble the
+    // fork_join_map in the first loop before using it in this second loop.
+    for idx in 0..function.nodes.len() {
+        // Having a control output dependency only matters if
+        // this node is a control node, or if this node is a
+        // control output of a control node. If this node is a
+        // control output, then we want to consider the control
+        // node itself.
+        let this_id = if let Node::Phi {
+            control: dominated_control,
+            data: _,
+        }
+        | Node::ThreadID {
+            control: dominated_control,
+        }
+        | Node::Collect {
+            control: dominated_control,
+            data: _,
+        } = function.nodes[idx]
+        {
+            dominated_control
+        } else {
+            NodeID::new(idx)
+        };
+
+        // control_output_dependencies contains the "out" values from the
+        // control output dataflow analysis, while we need the "in" values.
+        // This can be easily reconstructed.
+        let mut dependencies = UnionNodeSet::top();
+        for input in get_uses(&function.nodes[idx]).as_ref() {
+            dependencies =
+                UnionNodeSet::meet(&dependencies, &control_output_dependencies[input.idx()]);
+        }
+        for pred_idx in 0..function.nodes.len() {
+            if dependencies.is_set(NodeID::new(pred_idx)) {
+                match function.nodes[pred_idx] {
                     // Verify that uses of phis / collect nodes are dominated
-                    // the corresponding region / join nodes, respectively.
+                    // by the corresponding region / join nodes, respectively.
                     Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
-                        // If the current node is a control node and the phi's
-                        // region doesn't dominate it, then the phi doesn't
-                        // dominate its use.
-                        if dom.is_non_root(NodeID::new(idx))
-                            && !dom.does_dom(control, NodeID::new(idx))
-                        {
+                        if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",
-                                function.nodes[other_idx].upper_case_name(),
-                                other_idx,
+                                function.nodes[pred_idx].upper_case_name(),
+                                pred_idx,
                                 idx
                             ))?;
                         }
-
-                        // If the current node is a phi or collect node whose
-                        // corresponding region or join node isn't dominated by
-                        // the other phi node, then the other phi doesn't
-                        // dominate its use. We don't need to do something
-                        // similar for thread ID nodes, since they have no data
-                        // input.
-                        if let Node::Phi {
-                            control: dominated_control,
-                            data: _,
+                    }
+                    // Verify that uses of thread ID nodes are dominated by the
+                    // corresponding fork nodes.
+                    Node::ThreadID { control } => {
+                        if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
+                            Err(format!(
+                                "ThreadID node (ID {}) doesn't dominate its use (ID {}).",
+                                pred_idx, idx
+                            ))?;
                         }
-                        | Node::Collect {
-                            control: dominated_control,
-                            data: _,
-                        } = function.nodes[idx]
+
+                        // Every use of a thread ID must be postdominated by
+                        // the thread ID's fork's corresponding join node. We
+                        // don't need to check for the case where the thread ID
+                        // flows through the collect node out of the fork-join,
+                        // because after the collect, the thread ID is no longer
+                        // considered an immediate control output use.
+                        if postdom.is_non_root(this_id)
+                            && !postdom.does_dom(*fork_join_map.get(&control).unwrap(), this_id)
                         {
-                            if !dom.does_dom(control, dominated_control) {
-                                Err(format!(
-                                    "{} node (ID {}) doesn't dominate its use (ID {}).",
-                                    function.nodes[other_idx].upper_case_name(),
-                                    other_idx,
-                                    idx
-                                ))?;
-                            }
+                            Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, idx))?;
                         }
                     }
                     _ => {}
