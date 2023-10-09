@@ -285,17 +285,77 @@ pub enum BinaryOperator {
     RSh,
 }
 
+/*
+ * Simple predicate functions on nodes take a lot of space, so use a macro.
+ */
+
+macro_rules! define_pattern_predicate {
+    ($x: ident, $y: pat) => {
+        pub fn $x(&self) -> bool {
+            if let $y = self {
+                true
+            } else {
+                false
+            }
+        }
+    };
+}
+
 impl Node {
-    pub fn is_return(&self) -> bool {
-        if let Node::Return {
+    define_pattern_predicate!(is_start, Node::Start);
+    define_pattern_predicate!(is_region, Node::Region { preds: _ });
+    define_pattern_predicate!(
+        is_if,
+        Node::If {
+            control: _,
+            cond: _,
+        }
+    );
+    define_pattern_predicate!(
+        is_fork,
+        Node::Fork {
+            control: _,
+            factor: _,
+        }
+    );
+    define_pattern_predicate!(is_join, Node::Join { control: _ });
+    define_pattern_predicate!(
+        is_phi,
+        Node::Phi {
             control: _,
             data: _,
-        } = self
-        {
-            true
-        } else {
-            false
         }
+    );
+    define_pattern_predicate!(is_thread_id, Node::ThreadID { control: _ });
+    define_pattern_predicate!(
+        is_collect,
+        Node::Collect {
+            control: _,
+            data: _,
+        }
+    );
+    define_pattern_predicate!(
+        is_return,
+        Node::Return {
+            control: _,
+            data: _,
+        }
+    );
+    define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
+
+    /*
+     * ReadProd nodes can be considered control when following an if or match
+     * node. However, it is sometimes useful to exclude such nodes when
+     * considering control nodes.
+     */
+    pub fn is_strictly_control(&self) -> bool {
+        self.is_start()
+            || self.is_region()
+            || self.is_if()
+            || self.is_fork()
+            || self.is_join()
+            || self.is_return()
+            || self.is_return()
     }
 
     pub fn upper_case_name(&self) -> &'static str {

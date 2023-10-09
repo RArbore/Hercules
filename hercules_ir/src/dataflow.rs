@@ -8,7 +8,7 @@ use crate::*;
  * Trait for a type that is a semilattice. Semilattice types must also be Eq,
  * so that the dataflow analysis can determine when to terminate.
  */
-pub trait Semilattice: Eq {
+pub trait Semilattice: Eq + Clone {
     fn meet(a: &Self, b: &Self) -> Self;
     fn bottom() -> Self;
     fn top() -> Self;
@@ -37,10 +37,18 @@ where
     let uses: Vec<NodeUses> = function.nodes.iter().map(|n| get_uses(n)).collect();
 
     // Step 2: create initial set of "out" points.
+    let start_node_output = flow_function(&[&L::bottom()], NodeID::new(0));
     let mut outs: Vec<L> = (0..function.nodes.len())
         .map(|id| {
             flow_function(
-                &vec![&(if id == 0 { L::bottom() } else { L::top() }); uses[id].as_ref().len()],
+                &vec![
+                    &(if id == 0 {
+                        start_node_output.clone()
+                    } else {
+                        L::top()
+                    });
+                    uses[id].as_ref().len()
+                ],
                 NodeID::new(id),
             )
         })
@@ -123,4 +131,126 @@ fn reverse_postorder_helper(
         order.push(node);
         (order, visited)
     }
+}
+
+/*
+ * A bit vector set is a very general kind of semilattice. This variant is for
+ * "intersecting" flow functions.
+ */
+#[derive(PartialEq, Eq, Clone)]
+pub enum IntersectNodeSet {
+    Empty,
+    Bits(BitVec<u8, Lsb0>),
+    Full,
+}
+
+impl Semilattice for IntersectNodeSet {
+    fn meet(a: &Self, b: &Self) -> Self {
+        match (a, b) {
+            (IntersectNodeSet::Full, b) => b.clone(),
+            (a, IntersectNodeSet::Full) => a.clone(),
+            (IntersectNodeSet::Bits(a), IntersectNodeSet::Bits(b)) => {
+                assert!(
+                    a.len() == b.len(),
+                    "IntersectNodeSets must have same length to meet."
+                );
+                IntersectNodeSet::Bits(a.clone() | b)
+            }
+            (IntersectNodeSet::Empty, _) => IntersectNodeSet::Empty,
+            (_, IntersectNodeSet::Empty) => IntersectNodeSet::Empty,
+        }
+    }
+
+    fn bottom() -> Self {
+        // For intersecting flow functions, the bottom state is empty.
+        IntersectNodeSet::Empty
+    }
+
+    fn top() -> Self {
+        // For intersecting flow functions, the bottom state is full.
+        IntersectNodeSet::Full
+    }
+}
+
+/*
+ * A bit vector set is a very general kind of semilattice. This variant is for
+ * "unioning" flow functions.
+ */
+#[derive(PartialEq, Eq, Clone)]
+pub enum UnionNodeSet {
+    Empty,
+    Bits(BitVec<u8, Lsb0>),
+    Full,
+}
+
+impl Semilattice for UnionNodeSet {
+    fn meet(a: &Self, b: &Self) -> Self {
+        match (a, b) {
+            (UnionNodeSet::Full, b) => b.clone(),
+            (a, UnionNodeSet::Full) => a.clone(),
+            (UnionNodeSet::Bits(a), UnionNodeSet::Bits(b)) => {
+                assert!(
+                    a.len() == b.len(),
+                    "UnionNodeSets must have same length to meet."
+                );
+                UnionNodeSet::Bits(a.clone() | b)
+            }
+            (UnionNodeSet::Empty, _) => UnionNodeSet::Empty,
+            (_, UnionNodeSet::Empty) => UnionNodeSet::Empty,
+        }
+    }
+
+    fn bottom() -> Self {
+        // For unioning flow functions, the bottom state is full.
+        UnionNodeSet::Full
+    }
+
+    fn top() -> Self {
+        // For unioning flow functions, the bottom state is empty.
+        UnionNodeSet::Empty
+    }
+}
+
+/*
+ * Below are some common flow functions. They all take a slice of semilattice
+ * references as their first argument, and a node ID as their second. However,
+ * they may in addition take more arguments (meaning that these functions
+ * should be used inside closures at a callsite of a top level dataflow
+ * function).
+ */
+
+/*
+ * Flow function for collecting all of a node's uses of "control outputs". What
+ * this flow function does is collect all phi, thread ID, and collect nodes that
+ * every other node depends on through data nodes. In other words, dependence
+ * on these three kinds of nodes can flow through data, but not through control
+ * nodes. Since forward_dataflow returns the out sets, to get the phi, thread
+ * ID, and collect nodes that a particular control node depends on, one should
+ * look at the out set of the data input that that control node depends on.
+ */
+pub fn control_output_flow(
+    inputs: &[&UnionNodeSet],
+    node_id: NodeID,
+    function: &Function,
+) -> UnionNodeSet {
+    // Step 1: union inputs.
+    let mut out = UnionNodeSet::top();
+    for input in inputs {
+        out = UnionNodeSet::meet(&out, input);
+    }
+
+    // Step 2: set bit for current node, if applicable.
+    let node = &function.nodes[node_id.idx()];
+    if node.is_phi() || node.is_thread_id() || node.is_collect() {
+        let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
+        singular.set(node_id.idx(), true);
+        out = UnionNodeSet::meet(&out, &UnionNodeSet::Bits(singular));
+    }
+
+    // Step 3: clear all bits if control node.
+    if node.is_strictly_control() {
+        out = UnionNodeSet::Empty;
+    }
+
+    out
 }

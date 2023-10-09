@@ -25,6 +25,9 @@ impl TypeSemilattice {
     }
 }
 
+/* Define custom PartialEq, so that dataflow will terminate right away if there
+ * are errors.
+ */
 impl PartialEq for TypeSemilattice {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -39,7 +42,6 @@ impl PartialEq for TypeSemilattice {
 impl Semilattice for TypeSemilattice {
     fn meet(a: &Self, b: &Self) -> Self {
         match (a, b) {
-            (Unconstrained, Unconstrained) => Unconstrained,
             (Unconstrained, b) => b.clone(),
             (a, Unconstrained) => a.clone(),
             (Concrete(id1), Concrete(id2)) => {
