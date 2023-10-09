@@ -177,7 +177,7 @@ impl Semilattice for IntersectNodeSet {
     }
 
     fn top() -> Self {
-        // For intersecting flow functions, the bottom state is full.
+        // For intersecting flow functions, the top state is full.
         IntersectNodeSet::Full
     }
 }
@@ -226,7 +226,7 @@ impl Semilattice for UnionNodeSet {
     }
 
     fn top() -> Self {
-        // For unioning flow functions, the bottom state is empty.
+        // For unioning flow functions, the top state is empty.
         UnionNodeSet::Empty
     }
 }
