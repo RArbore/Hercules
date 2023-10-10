@@ -64,6 +64,8 @@ pub fn verify(
         let postdom = &postdoms[idx];
         let fork_join_map = &fork_join_maps[idx];
 
+        // Calculate control output dependencies here, since they are not
+        // returned by verify. Pretty much only useful for verification.
         let control_output_dependencies =
             forward_dataflow(function, reverse_postorder, |inputs, id| {
                 control_output_flow(inputs, id, function)
@@ -101,6 +103,113 @@ fn verify_structure(
     for (idx, node) in function.nodes.iter().enumerate() {
         let users = def_use.get_users(NodeID::new(idx));
         match node {
+            // A start node must have exactly one control user. Additionally, it
+            // may have many parameter, constant, or dynamic constant users.
+            Node::Start => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Parameter { index: _ }
+                        | Node::Constant { id: _ }
+                        | Node::DynamicConstant { id: _ } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A start node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All users of a start node must be control, Parameter, Constant, or DynamicConstant nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A start node must have exactly one control user.")?;
+                }
+            }
+            // A region node must have exactly one control user. Additionally,
+            // it may have many phi users.
+            Node::Region { preds: _ } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Phi {
+                            control: _,
+                            data: _,
+                        } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A region node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All region of a start node must be control or Phi nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A region node must have exactly one control user.")?;
+                }
+            }
+            // A fork node must have exactly one control user. Additionally,
+            // it may have many thread ID users.
+            Node::Fork {
+                control: _,
+                factor: _,
+            } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::ThreadID { control: _ } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A fork node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All fork of a start node must be control or ThreadID nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A fork node must have exactly one control user.")?;
+                }
+            }
+            // A join node must have exactly one control user. Additionally,
+            // it may have many collect users.
+            Node::Join { control: _ } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Collect {
+                            control: _,
+                            data: _,
+                        } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A join node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All join of a start node must be control or Collect nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A join node must have exactly one control user.")?;
+                }
+            }
             // Each if node must have exactly two ReadProd users, which
             // reference differing elements of the node's output product.
             Node::If {
@@ -108,11 +217,7 @@ fn verify_structure(
                 cond: _,
             } => {
                 if users.len() != 2 {
-                    Err(format!(
-                        "{} node must have 2 users, not {}.",
-                        node.upper_case_name(),
-                        users.len()
-                    ))?;
+                    Err(format!("If node must have 2 users, not {}.", users.len()))?;
                 }
                 if let (
                     Node::ReadProd {
@@ -128,13 +233,10 @@ fn verify_structure(
                     &function.nodes[users[1].idx()],
                 ) {
                     if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
-                        Err(format!("{} node's user ReadProd nodes must reference different elements of output product.", node.upper_case_name()))?;
+                        Err("If node's user ReadProd nodes must reference different elements of output product.")?;
                     }
                 } else {
-                    Err(format!(
-                        "{} node's users must both be ReadProd nodes.",
-                        node.upper_case_name()
-                    ))?;
+                    Err("If node's users must both be ReadProd nodes.")?;
                 }
             }
             // Phi nodes must depend on a region node.
