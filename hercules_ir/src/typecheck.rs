@@ -942,3 +942,32 @@ fn typeflow(
         }
     }
 }
+
+/*
+ * Top level function for creating a fork-join map. Map is from fork node ID to
+ * join node ID, since a join can easily determine the fork it corresponds to
+ * (that's the mechanism used to implement this analysis). This analysis depends
+ * on type information.
+ */
+pub fn fork_join_map(
+    function: &Function,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
+) -> HashMap<NodeID, NodeID> {
+    let mut fork_join_map = HashMap::new();
+    for idx in 0..function.nodes.len() {
+        // We only care about join nodes.
+        if let Node::Join { control } = function.nodes[idx] {
+            // A join's input type must be control. Since we have types, if this
+            // isn't the case, the typing is incorrect and we should panic.
+            if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
+                let join_id = NodeID::new(idx);
+                let fork_id = *factors.last().unwrap();
+                fork_join_map.insert(fork_id, join_id);
+            } else {
+                panic!("Join node's control predecessor has a non-control type.");
+            }
+        }
+    }
+    fork_join_map
+}

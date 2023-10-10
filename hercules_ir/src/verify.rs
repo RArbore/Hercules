@@ -13,18 +13,16 @@ use crate::*;
  * return those useful results. Otherwise, return the first error string found.
  */
 pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<DomTree>), String> {
-    let def_uses: Vec<_> = module
-        .functions
-        .iter()
-        .map(|function| def_use(function))
-        .collect();
-    let reverse_postorders: Vec<_> = def_uses
-        .iter()
-        .map(|def_use| reverse_postorder(def_use))
-        .collect();
+    let def_uses: Vec<_> = module.functions.iter().map(def_use).collect();
+    let reverse_postorders: Vec<_> = def_uses.iter().map(reverse_postorder).collect();
 
     // Typecheck the module.
     let typing = typecheck(module, &reverse_postorders)?;
+
+    // Assemble fork join maps for module.
+    let fork_join_maps: Vec<_> = zip(module.functions.iter(), typing.iter())
+        .map(|(function, typing)| fork_join_map(function, typing, &module.types))
+        .collect();
 
     // Check the structure of the functions in the module.
     for (function, (def_use, typing)) in
@@ -36,9 +34,12 @@ pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<Do
     // Check SSA, fork, and join dominance relations. Collect domtrees.
     let mut doms = vec![];
     let mut postdoms = vec![];
-    for ((function, typing), (def_use, reverse_postorder)) in zip(
-        zip(module.functions.iter(), typing.iter()),
-        zip(def_uses.iter(), reverse_postorders.iter()),
+    for (function, (def_use, (reverse_postorder, fork_join_map))) in zip(
+        module.functions.iter(),
+        zip(
+            def_uses.iter(),
+            zip(reverse_postorders.iter(), fork_join_maps.iter()),
+        ),
     ) {
         let control_output_dependencies =
             forward_dataflow(function, reverse_postorder, |inputs, id| {
@@ -49,11 +50,10 @@ pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<Do
         let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
         verify_dominance_relationships(
             function,
-            typing,
-            &module.types,
             &control_output_dependencies,
             &dom,
             &postdom,
+            fork_join_map,
         )?;
         doms.push(dom);
         postdoms.push(postdom);
@@ -189,41 +189,29 @@ fn verify_structure(
  */
 fn verify_dominance_relationships(
     function: &Function,
-    typing: &Vec<TypeID>,
-    types: &Vec<Type>,
     control_output_dependencies: &Vec<UnionNodeSet>,
     dom: &DomTree,
     postdom: &DomTree,
+    fork_join_map: &HashMap<NodeID, NodeID>,
 ) -> Result<(), String> {
-    let mut fork_join_map = HashMap::new();
-    for idx in 0..function.nodes.len() {
-        match function.nodes[idx] {
-            // Verify that joins are dominated by their corresponding forks. At
-            // the same time, assemble a map from forks to their corresponding
-            // joins.
-            Node::Join { control } => {
-                // Check type of control predecessor. The last node ID
-                // in the factor list is the corresponding fork node ID.
-                if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
-                    let join_id = NodeID::new(idx);
-                    let fork_id = *factors.last().unwrap();
-                    if !dom.does_dom(fork_id, join_id) {
-                        Err(format!("Fork node (ID {}) doesn't dominate its corresponding join node (ID {}).", fork_id.idx(), join_id.idx()))?;
-                    }
-                    if !postdom.does_dom(join_id, fork_id) {
-                        Err(format!("Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).", join_id.idx(), fork_id.idx()))?;
-                    }
-                    fork_join_map.insert(fork_id, join_id);
-                } else {
-                    panic!("Join node's control predecessor has a non-control type.");
-                }
-            }
-            _ => {}
+    // Step 1: check that forks dominate joins, and joins postdominate forks.
+    for (fork, join) in fork_join_map.iter() {
+        if !dom.does_dom(*fork, *join) {
+            Err(format!(
+                "Fork node (ID {}) doesn't dominate its corresponding join node (ID {}).",
+                fork.idx(),
+                join.idx()
+            ))?;
+        }
+        if !postdom.does_dom(*join, *fork) {
+            Err(format!(
+                "Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).",
+                join.idx(),
+                fork.idx()
+            ))?;
         }
     }
 
-    // Loop over the nodes twice, since we need to completely assemble the
-    // fork_join_map in the first loop before using it in this second loop.
     for idx in 0..function.nodes.len() {
         // Having a control output dependency only matters if
         // this node is a control node, or if this node is a
