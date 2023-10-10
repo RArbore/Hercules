@@ -1,5 +1,2 @@
 fn myfunc(x: i32) -> i32
-  a = region(start)
-  b = region(start)
-  c = region(a, b)
-  d = return(c, x)
+  r = return(start, x)

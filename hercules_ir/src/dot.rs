@@ -161,6 +161,11 @@ fn write_node<W: std::fmt::Write>(
                     j,
                     index + 1
                 )?;
+                write!(
+                    w,
+                    "start_{}_0 -> {} [label=\"start\", style=\"dashed\"];\n",
+                    i, name
+                )?;
                 visited
             }
             Node::Constant { id } => {
@@ -171,6 +176,11 @@ fn write_node<W: std::fmt::Write>(
                     j,
                     module.constants[id.idx()]
                 )?;
+                write!(
+                    w,
+                    "start_{}_0 -> {} [label=\"start\", style=\"dashed\"];\n",
+                    i, name
+                )?;
                 visited
             }
             Node::DynamicConstant { id } => {
@@ -180,6 +190,11 @@ fn write_node<W: std::fmt::Write>(
                     name,
                     j,
                     module.dynamic_constants[id.idx()]
+                )?;
+                write!(
+                    w,
+                    "start_{}_0 -> {} [label=\"start\", style=\"dashed\"];\n",
+                    i, name
                 )?;
                 visited
             }

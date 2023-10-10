@@ -459,8 +459,8 @@ fn typeflow(
             ))
         }
         Node::Parameter { index } => {
-            if inputs.len() != 0 {
-                return Error(String::from("Parameter node must have zero inputs."));
+            if inputs.len() != 1 {
+                return Error(String::from("Parameter node must have one input."));
             }
 
             if *index >= function.param_types.len() {
@@ -473,8 +473,8 @@ fn typeflow(
             Concrete(param_id)
         }
         Node::Constant { id } => {
-            if inputs.len() != 0 {
-                return Error(String::from("Constant node must have zero inputs."));
+            if inputs.len() != 1 {
+                return Error(String::from("Constant node must have one input."));
             }
 
             // Most constants' type are obvious.
@@ -560,8 +560,8 @@ fn typeflow(
             }
         }
         Node::DynamicConstant { id: _ } => {
-            if inputs.len() != 0 {
-                return Error(String::from("DynamicConstant node must have zero inputs."));
+            if inputs.len() != 1 {
+                return Error(String::from("DynamicConstant node must have one input."));
             }
 
             // Dynamic constants are always u64.
@@ -669,7 +669,7 @@ fn typeflow(
                 }
             }
 
-            inputs[0].clone()
+            input_ty.clone()
         }
         Node::Call {
             function: callee_id,

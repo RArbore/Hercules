@@ -48,15 +48,15 @@ The return node returns some data from the current function. A return node has t
 
 ## Parameter
 
-The parameter node represents a parameter of the function. A parameter node takes no inputs. A parameter node stores the parameter index of the function it corresponds to. Its value at runtime is the index-th argument to the function. Its output type is the type of the index-th parameter of the function.
+The parameter node represents a parameter of the function. A parameter node takes one input - the start node. A parameter node stores the parameter index of the function it corresponds to. Its value at runtime is the index-th argument to the function. Its output type is the type of the index-th parameter of the function.
 
 ## Constant
 
-The constant node represents a constant value. A constant node takes no inputs. A constant node stores the constant ID of the constant it corresponds to. Its value at runtime is the constant it references. Its output type is the type of the constant it references.
+The constant node represents a constant value. A constant node takes one input - the start node. A constant node stores the constant ID of the constant it corresponds to. Its value at runtime is the constant it references. Its output type is the type of the constant it references.
 
 ## DynamicConstant
 
-The dynamic\_constant node represents a dynamic constant, used as a runtime value. A dynamic\_constant node takes no inputs. A dynamic\_constant node stores the dynamic constant ID of the dynamic constant it corresponds to. Its value at runtime is the value of the dynamic constant it references, which is calculated at conductor time. Its output type is a 64-bit unsigned integer.
+The dynamic\_constant node represents a dynamic constant, used as a runtime value. A dynamic\_constant node takes one input - the start node. A dynamic\_constant node stores the dynamic constant ID of the dynamic constant it corresponds to. Its value at runtime is the value of the dynamic constant it references, which is calculated at conductor time. Its output type is a 64-bit unsigned integer.
 
 ## Unary
 

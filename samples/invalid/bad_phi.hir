@@ -1,0 +1,8 @@
+fn func(x: i32) -> i32
+   zero = constant(i32, 0)
+   cond = lt(x, zero)
+   if = if(start, cond)
+   a = read_prod(if, 0)
+   b = read_prod(if, 1)
+   reg = region(a, b)
+   r = return(reg, x)
