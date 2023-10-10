@@ -12,7 +12,17 @@ use crate::*;
  * useful results (typing, dominator trees, etc.), so if verification succeeds,
  * return those useful results. Otherwise, return the first error string found.
  */
-pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<DomTree>), String> {
+pub fn verify(
+    module: &mut Module,
+) -> Result<
+    (
+        ModuleTyping,
+        Vec<DomTree>,
+        Vec<DomTree>,
+        Vec<HashMap<NodeID, NodeID>>,
+    ),
+    String,
+> {
     let def_uses: Vec<_> = module.functions.iter().map(def_use).collect();
     let reverse_postorders: Vec<_> = def_uses.iter().map(reverse_postorder).collect();
 
@@ -59,7 +69,7 @@ pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<Do
         postdoms.push(postdom);
     }
 
-    Ok((typing, doms, postdoms))
+    Ok((typing, doms, postdoms, fork_join_maps))
 }
 
 /*
