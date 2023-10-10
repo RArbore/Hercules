@@ -212,37 +212,78 @@ fn verify_dominance_relationships(
         }
     }
 
+    // Step 2: collect nodes and corresponding control output dependencies that
+    // should be checked.
+    let mut to_check = vec![];
     for idx in 0..function.nodes.len() {
-        // Having a control output dependency only matters if
-        // this node is a control node, or if this node is a
-        // control output of a control node. If this node is a
-        // control output, then we want to consider the control
-        // node itself.
-        let this_id = if let Node::Phi {
-            control: dominated_control,
-            data: _,
-        }
-        | Node::ThreadID {
-            control: dominated_control,
-        }
-        | Node::Collect {
-            control: dominated_control,
-            data: _,
-        } = function.nodes[idx]
-        {
-            dominated_control
-        } else {
-            NodeID::new(idx)
-        };
+        // If this node is a phi node, we need to handle adding dominance checks
+        // completely differently.
+        if let Node::Phi { control, data } = &function.nodes[idx] {
+            // Get the control predecessors of a region. This weird lambda trick
+            // is to get around needing to add another nesting level just to
+            // unpack the predecessor node.
+            let region_preds = (|| {
+                if let Node::Region { preds } = &function.nodes[control.idx()] {
+                    preds
+                } else {
+                    panic!("A phi's control input must be a region node.")
+                }
+            })();
 
-        // control_output_dependencies contains the "out" values from the
-        // control output dataflow analysis, while we need the "in" values.
-        // This can be easily reconstructed.
-        let mut dependencies = UnionNodeSet::top();
-        for input in get_uses(&function.nodes[idx]).as_ref() {
-            dependencies =
-                UnionNodeSet::meet(&dependencies, &control_output_dependencies[input.idx()]);
+            // The inputs to a phi node don't need to dominate the phi node.
+            // However, the data inputs to a phi node do need to hold proper
+            // dominance relations with the corresponding control inputs to the
+            // phi node's region node.
+            for (control_pred, data_pred) in zip(region_preds.iter(), data.iter()) {
+                to_check.push((
+                    *control_pred,
+                    control_output_dependencies[data_pred.idx()].clone(),
+                ));
+            }
+        } else {
+            // Having a control output dependency only matters if this node is a
+            // control node, or if this node is a control output of a control node.
+            // If this node is a control output, then we want to consider the
+            // control node itself. We exclude the case of a phi node here, since
+            // phi nodes can explicitly have non-dominating inputs. We handle phis
+            // separately above.
+            let this_id = if let Node::ThreadID {
+                control: dominated_control,
+            }
+            | Node::Collect {
+                control: dominated_control,
+                data: _,
+            } = function.nodes[idx]
+            {
+                dominated_control
+            } else {
+                NodeID::new(idx)
+            };
+
+            // If the node to be added to the to_check vector isn't even in the
+            // dominator tree, don't bother. It doesn't need to be checked for
+            // dominance relations.
+            if !dom.is_non_root(this_id) {
+                continue;
+            }
+
+            // control_output_dependencies contains the "out" values from the
+            // control output dataflow analysis, while we need the "in" values.
+            // This can be easily reconstructed.
+            let mut dependencies = UnionNodeSet::top();
+            for input in get_uses(&function.nodes[idx]).as_ref() {
+                dependencies =
+                    UnionNodeSet::meet(&dependencies, &control_output_dependencies[input.idx()]);
+            }
+
+            // Add dependencies to check for this node.
+            to_check.push((this_id, dependencies));
         }
+    }
+
+    // Step 3: check that every node has proper dominance relations with
+    // corresponding control output nodes.
+    for (this_id, dependencies) in to_check {
         for pred_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(pred_idx)) {
                 match function.nodes[pred_idx] {
@@ -254,7 +295,7 @@ fn verify_dominance_relationships(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",
                                 function.nodes[pred_idx].upper_case_name(),
                                 pred_idx,
-                                idx
+                                this_id.idx()
                             ))?;
                         }
                     }
@@ -264,7 +305,8 @@ fn verify_dominance_relationships(
                         if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "ThreadID node (ID {}) doesn't dominate its use (ID {}).",
-                                pred_idx, idx
+                                pred_idx,
+                                this_id.idx()
                             ))?;
                         }
 
@@ -277,10 +319,14 @@ fn verify_dominance_relationships(
                         if postdom.is_non_root(this_id)
                             && !postdom.does_dom(*fork_join_map.get(&control).unwrap(), this_id)
                         {
-                            Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, idx))?;
+                            Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, this_id.idx()))?;
                         }
                     }
-                    _ => {}
+                    // If a dependency is set but depended node isn't a control
+                    // output, something is wrong.
+                    _ => panic!(
+                        "Control output dependency is set for a node that's not a control output."
+                    ),
                 }
             }
         }
