@@ -16,6 +16,8 @@ pub fn verify(
     module: &mut Module,
 ) -> Result<
     (
+        Vec<ImmutableDefUseMap>,
+        Vec<Vec<NodeID>>,
         ModuleTyping,
         Vec<DomTree>,
         Vec<DomTree>,
@@ -23,6 +25,7 @@ pub fn verify(
     ),
     String,
 > {
+    // Calculate def uses and reverse postorders.
     let def_uses: Vec<_> = module.functions.iter().map(def_use).collect();
     let reverse_postorders: Vec<_> = def_uses.iter().map(reverse_postorder).collect();
 
@@ -41,35 +44,47 @@ pub fn verify(
         verify_structure(function, def_use, typing, &module.types)?;
     }
 
-    // Check SSA, fork, and join dominance relations. Collect domtrees.
-    let mut doms = vec![];
-    let mut postdoms = vec![];
-    for (function, (def_use, (reverse_postorder, fork_join_map))) in zip(
-        module.functions.iter(),
-        zip(
-            def_uses.iter(),
-            zip(reverse_postorders.iter(), fork_join_maps.iter()),
-        ),
-    ) {
+    // Calculate dominator and postdominator trees.
+    let subgraphs: Vec<_> = zip(module.functions.iter(), def_uses.iter())
+        .map(|(function, def_use)| control_subgraph(function, def_use))
+        .collect();
+    let doms: Vec<_> = subgraphs
+        .iter()
+        .map(|subgraph| dominator(subgraph, NodeID::new(0)))
+        .collect();
+    let postdoms: Vec<_> = zip(subgraphs.into_iter(), module.functions.iter())
+        .map(|(subgraph, function)| postdominator(subgraph, NodeID::new(function.nodes.len())))
+        .collect();
+
+    // Check dominance relations.
+    for idx in 0..module.functions.len() {
+        let function = &module.functions[idx];
+        let reverse_postorder = &reverse_postorders[idx];
+        let dom = &doms[idx];
+        let postdom = &postdoms[idx];
+        let fork_join_map = &fork_join_maps[idx];
+
         let control_output_dependencies =
             forward_dataflow(function, reverse_postorder, |inputs, id| {
                 control_output_flow(inputs, id, function)
             });
-        let subgraph = control_subgraph(function, def_use);
-        let dom = dominator(&subgraph, NodeID::new(0));
-        let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
         verify_dominance_relationships(
             function,
             &control_output_dependencies,
-            &dom,
-            &postdom,
+            dom,
+            postdom,
             fork_join_map,
         )?;
-        doms.push(dom);
-        postdoms.push(postdom);
     }
 
-    Ok((typing, doms, postdoms, fork_join_maps))
+    Ok((
+        def_uses,
+        reverse_postorders,
+        typing,
+        doms,
+        postdoms,
+        fork_join_maps,
+    ))
 }
 
 /*
