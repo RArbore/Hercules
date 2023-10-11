@@ -101,11 +101,17 @@ fn verify_structure(
     types: &Vec<Type>,
 ) -> Result<(), String> {
     for (idx, node) in function.nodes.iter().enumerate() {
+        if !node.is_start() && idx == 0 {
+            Err("There must be a single start node, and its ID must be 0.")?;
+        }
         let users = def_use.get_users(NodeID::new(idx));
         match node {
             // A start node must have exactly one control user. Additionally, it
             // may have many parameter, constant, or dynamic constant users.
             Node::Start => {
+                if idx != 0 {
+                    Err("The start node must be node ID 0.")?;
+                }
                 let mut found_control = false;
                 for user in users {
                     match function.nodes[user.idx()] {
