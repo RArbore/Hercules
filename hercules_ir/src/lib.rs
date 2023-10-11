@@ -1,3 +1,4 @@
+pub mod build;
 pub mod dataflow;
 pub mod def_use;
 pub mod dom;
@@ -8,6 +9,7 @@ pub mod subgraph;
 pub mod typecheck;
 pub mod verify;
 
+pub use crate::build::*;
 pub use crate::dataflow::*;
 pub use crate::def_use::*;
 pub use crate::dom::*;

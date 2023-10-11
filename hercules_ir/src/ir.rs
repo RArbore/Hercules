@@ -6,7 +6,7 @@ extern crate ordered_float;
  * wants to run an intraprocedural pass in parallel, it is advised to first
  * destruct the module, then reconstruct it once finished.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Module {
     pub functions: Vec<Function>,
     pub types: Vec<Type>,
