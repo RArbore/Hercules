@@ -233,9 +233,9 @@ pub fn control_subgraph(function: &Function, def_use: &ImmutableDefUseMap) -> Su
             data: _,
         }
         | Match { control: _, sum: _ } => true,
-        ReadProd { prod, index } => match function.nodes[prod.idx()] {
+        ReadProd { prod, index: _ } => match function.nodes[prod.idx()] {
             // ReadProd nodes are control nodes if their predecessor is a
-            // legal control node, and if it's the right index.
+            // legal control node.
             Match { control: _, sum: _ }
             | If {
                 control: _,

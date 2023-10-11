@@ -117,9 +117,9 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::ThreadID { control } => NodeUses::One([*control]),
         Node::Collect { control, data } => NodeUses::Two([*control, *data]),
         Node::Return { control, data } => NodeUses::Two([*control, *data]),
-        Node::Parameter { index: _ } => NodeUses::Zero,
-        Node::Constant { id: _ } => NodeUses::Zero,
-        Node::DynamicConstant { id: _ } => NodeUses::Zero,
+        Node::Parameter { index: _ } => NodeUses::One([NodeID::new(0)]),
+        Node::Constant { id: _ } => NodeUses::One([NodeID::new(0)]),
+        Node::DynamicConstant { id: _ } => NodeUses::One([NodeID::new(0)]),
         Node::Unary { input, op: _ } => NodeUses::One([*input]),
         Node::Binary { left, right, op: _ } => NodeUses::Two([*left, *right]),
         Node::Call {
