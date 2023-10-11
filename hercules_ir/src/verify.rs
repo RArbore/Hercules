@@ -12,19 +12,30 @@ use crate::*;
  * useful results (typing, dominator trees, etc.), so if verification succeeds,
  * return those useful results. Otherwise, return the first error string found.
  */
-pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<DomTree>), String> {
-    let def_uses: Vec<_> = module
-        .functions
-        .iter()
-        .map(|function| def_use(function))
-        .collect();
-    let reverse_postorders: Vec<_> = def_uses
-        .iter()
-        .map(|def_use| reverse_postorder(def_use))
-        .collect();
+pub fn verify(
+    module: &mut Module,
+) -> Result<
+    (
+        Vec<ImmutableDefUseMap>,
+        Vec<Vec<NodeID>>,
+        ModuleTyping,
+        Vec<DomTree>,
+        Vec<DomTree>,
+        Vec<HashMap<NodeID, NodeID>>,
+    ),
+    String,
+> {
+    // Calculate def uses and reverse postorders.
+    let def_uses: Vec<_> = module.functions.iter().map(def_use).collect();
+    let reverse_postorders: Vec<_> = def_uses.iter().map(reverse_postorder).collect();
 
     // Typecheck the module.
     let typing = typecheck(module, &reverse_postorders)?;
+
+    // Assemble fork join maps for module.
+    let fork_join_maps: Vec<_> = zip(module.functions.iter(), typing.iter())
+        .map(|(function, typing)| fork_join_map(function, typing, &module.types))
+        .collect();
 
     // Check the structure of the functions in the module.
     for (function, (def_use, typing)) in
@@ -33,33 +44,49 @@ pub fn verify(module: &mut Module) -> Result<(ModuleTyping, Vec<DomTree>, Vec<Do
         verify_structure(function, def_use, typing, &module.types)?;
     }
 
-    // Check SSA, fork, and join dominance relations. Collect domtrees.
-    let mut doms = vec![];
-    let mut postdoms = vec![];
-    for ((function, typing), (def_use, reverse_postorder)) in zip(
-        zip(module.functions.iter(), typing.iter()),
-        zip(def_uses.iter(), reverse_postorders.iter()),
-    ) {
+    // Calculate dominator and postdominator trees.
+    let subgraphs: Vec<_> = zip(module.functions.iter(), def_uses.iter())
+        .map(|(function, def_use)| control_subgraph(function, def_use))
+        .collect();
+    let doms: Vec<_> = subgraphs
+        .iter()
+        .map(|subgraph| dominator(subgraph, NodeID::new(0)))
+        .collect();
+    let postdoms: Vec<_> = zip(subgraphs.into_iter(), module.functions.iter())
+        .map(|(subgraph, function)| postdominator(subgraph, NodeID::new(function.nodes.len())))
+        .collect();
+
+    // Check dominance relations.
+    for idx in 0..module.functions.len() {
+        let function = &module.functions[idx];
+        let reverse_postorder = &reverse_postorders[idx];
+        let dom = &doms[idx];
+        let postdom = &postdoms[idx];
+        let fork_join_map = &fork_join_maps[idx];
+
+        // Calculate control output dependencies here, since they are not
+        // returned by verify. Pretty much only useful for verification.
         let control_output_dependencies =
             forward_dataflow(function, reverse_postorder, |inputs, id| {
                 control_output_flow(inputs, id, function)
             });
-        let subgraph = control_subgraph(function, def_use);
-        let dom = dominator(&subgraph, NodeID::new(0));
-        let postdom = postdominator(subgraph, NodeID::new(function.nodes.len()));
         verify_dominance_relationships(
             function,
-            typing,
-            &module.types,
             &control_output_dependencies,
-            &dom,
-            &postdom,
+            dom,
+            postdom,
+            fork_join_map,
         )?;
-        doms.push(dom);
-        postdoms.push(postdom);
     }
 
-    Ok((typing, doms, postdoms))
+    Ok((
+        def_uses,
+        reverse_postorders,
+        typing,
+        doms,
+        postdoms,
+        fork_join_maps,
+    ))
 }
 
 /*
@@ -74,8 +101,121 @@ fn verify_structure(
     types: &Vec<Type>,
 ) -> Result<(), String> {
     for (idx, node) in function.nodes.iter().enumerate() {
+        if !node.is_start() && idx == 0 {
+            Err("There must be a single start node, and its ID must be 0.")?;
+        }
         let users = def_use.get_users(NodeID::new(idx));
         match node {
+            // A start node must have exactly one control user. Additionally, it
+            // may have many parameter, constant, or dynamic constant users.
+            Node::Start => {
+                if idx != 0 {
+                    Err("The start node must be node ID 0.")?;
+                }
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Parameter { index: _ }
+                        | Node::Constant { id: _ }
+                        | Node::DynamicConstant { id: _ } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A start node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All users of a start node must be control, Parameter, Constant, or DynamicConstant nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A start node must have exactly one control user.")?;
+                }
+            }
+            // A region node must have exactly one control user. Additionally,
+            // it may have many phi users.
+            Node::Region { preds: _ } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Phi {
+                            control: _,
+                            data: _,
+                        } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A region node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All region of a start node must be control or Phi nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A region node must have exactly one control user.")?;
+                }
+            }
+            // A fork node must have exactly one control user. Additionally,
+            // it may have many thread ID users.
+            Node::Fork {
+                control: _,
+                factor: _,
+            } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::ThreadID { control: _ } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A fork node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All fork of a start node must be control or ThreadID nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A fork node must have exactly one control user.")?;
+                }
+            }
+            // A join node must have exactly one control user. Additionally,
+            // it may have many collect users.
+            Node::Join { control: _ } => {
+                let mut found_control = false;
+                for user in users {
+                    match function.nodes[user.idx()] {
+                        Node::Collect {
+                            control: _,
+                            data: _,
+                        } => {}
+                        _ => {
+                            if function.nodes[user.idx()].is_strictly_control() {
+                                if found_control {
+                                    Err("A join node must have exactly one control user.")?;
+                                } else {
+                                    found_control = true;
+                                }
+                            } else {
+                                Err("All join of a start node must be control or Collect nodes.")?;
+                            }
+                        }
+                    }
+                }
+                if !found_control {
+                    Err("A join node must have exactly one control user.")?;
+                }
+            }
             // Each if node must have exactly two ReadProd users, which
             // reference differing elements of the node's output product.
             Node::If {
@@ -83,11 +223,7 @@ fn verify_structure(
                 cond: _,
             } => {
                 if users.len() != 2 {
-                    Err(format!(
-                        "{} node must have 2 users, not {}.",
-                        node.upper_case_name(),
-                        users.len()
-                    ))?;
+                    Err(format!("If node must have 2 users, not {}.", users.len()))?;
                 }
                 if let (
                     Node::ReadProd {
@@ -103,13 +239,10 @@ fn verify_structure(
                     &function.nodes[users[1].idx()],
                 ) {
                     if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
-                        Err(format!("{} node's user ReadProd nodes must reference different elements of output product.", node.upper_case_name()))?;
+                        Err("If node's user ReadProd nodes must reference different elements of output product.")?;
                     }
                 } else {
-                    Err(format!(
-                        "{} node's users must both be ReadProd nodes.",
-                        node.upper_case_name()
-                    ))?;
+                    Err("If node's users must both be ReadProd nodes.")?;
                 }
             }
             // Phi nodes must depend on a region node.
@@ -189,72 +322,101 @@ fn verify_structure(
  */
 fn verify_dominance_relationships(
     function: &Function,
-    typing: &Vec<TypeID>,
-    types: &Vec<Type>,
     control_output_dependencies: &Vec<UnionNodeSet>,
     dom: &DomTree,
     postdom: &DomTree,
+    fork_join_map: &HashMap<NodeID, NodeID>,
 ) -> Result<(), String> {
-    let mut fork_join_map = HashMap::new();
-    for idx in 0..function.nodes.len() {
-        match function.nodes[idx] {
-            // Verify that joins are dominated by their corresponding forks. At
-            // the same time, assemble a map from forks to their corresponding
-            // joins.
-            Node::Join { control } => {
-                // Check type of control predecessor. The last node ID
-                // in the factor list is the corresponding fork node ID.
-                if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
-                    let join_id = NodeID::new(idx);
-                    let fork_id = *factors.last().unwrap();
-                    if !dom.does_dom(fork_id, join_id) {
-                        Err(format!("Fork node (ID {}) doesn't dominate its corresponding join node (ID {}).", fork_id.idx(), join_id.idx()))?;
-                    }
-                    if !postdom.does_dom(join_id, fork_id) {
-                        Err(format!("Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).", join_id.idx(), fork_id.idx()))?;
-                    }
-                    fork_join_map.insert(fork_id, join_id);
-                } else {
-                    panic!("Join node's control predecessor has a non-control type.");
-                }
-            }
-            _ => {}
+    // Step 1: check that forks dominate joins, and joins postdominate forks.
+    for (fork, join) in fork_join_map.iter() {
+        if !dom.does_dom(*fork, *join) {
+            Err(format!(
+                "Fork node (ID {}) doesn't dominate its corresponding join node (ID {}).",
+                fork.idx(),
+                join.idx()
+            ))?;
+        }
+        if !postdom.does_dom(*join, *fork) {
+            Err(format!(
+                "Join node (ID {}) doesn't postdominate its corresponding fork node (ID {}).",
+                join.idx(),
+                fork.idx()
+            ))?;
         }
     }
 
-    // Loop over the nodes twice, since we need to completely assemble the
-    // fork_join_map in the first loop before using it in this second loop.
+    // Step 2: collect nodes and corresponding control output dependencies that
+    // should be checked.
+    let mut to_check = vec![];
     for idx in 0..function.nodes.len() {
-        // Having a control output dependency only matters if
-        // this node is a control node, or if this node is a
-        // control output of a control node. If this node is a
-        // control output, then we want to consider the control
-        // node itself.
-        let this_id = if let Node::Phi {
-            control: dominated_control,
-            data: _,
-        }
-        | Node::ThreadID {
-            control: dominated_control,
-        }
-        | Node::Collect {
-            control: dominated_control,
-            data: _,
-        } = function.nodes[idx]
-        {
-            dominated_control
-        } else {
-            NodeID::new(idx)
-        };
+        // If this node is a phi node, we need to handle adding dominance checks
+        // completely differently.
+        if let Node::Phi { control, data } = &function.nodes[idx] {
+            // Get the control predecessors of a region. This weird lambda trick
+            // is to get around needing to add another nesting level just to
+            // unpack the predecessor node.
+            let region_preds = (|| {
+                if let Node::Region { preds } = &function.nodes[control.idx()] {
+                    preds
+                } else {
+                    panic!("A phi's control input must be a region node.")
+                }
+            })();
 
-        // control_output_dependencies contains the "out" values from the
-        // control output dataflow analysis, while we need the "in" values.
-        // This can be easily reconstructed.
-        let mut dependencies = UnionNodeSet::top();
-        for input in get_uses(&function.nodes[idx]).as_ref() {
-            dependencies =
-                UnionNodeSet::meet(&dependencies, &control_output_dependencies[input.idx()]);
+            // The inputs to a phi node don't need to dominate the phi node.
+            // However, the data inputs to a phi node do need to hold proper
+            // dominance relations with the corresponding control inputs to the
+            // phi node's region node.
+            for (control_pred, data_pred) in zip(region_preds.iter(), data.iter()) {
+                to_check.push((
+                    *control_pred,
+                    control_output_dependencies[data_pred.idx()].clone(),
+                ));
+            }
+        } else {
+            // Having a control output dependency only matters if this node is a
+            // control node, or if this node is a control output of a control node.
+            // If this node is a control output, then we want to consider the
+            // control node itself. We exclude the case of a phi node here, since
+            // phi nodes can explicitly have non-dominating inputs. We handle phis
+            // separately above.
+            let this_id = if let Node::ThreadID {
+                control: dominated_control,
+            }
+            | Node::Collect {
+                control: dominated_control,
+                data: _,
+            } = function.nodes[idx]
+            {
+                dominated_control
+            } else {
+                NodeID::new(idx)
+            };
+
+            // If the node to be added to the to_check vector isn't even in the
+            // dominator tree, don't bother. It doesn't need to be checked for
+            // dominance relations.
+            if !dom.is_non_root(this_id) {
+                continue;
+            }
+
+            // control_output_dependencies contains the "out" values from the
+            // control output dataflow analysis, while we need the "in" values.
+            // This can be easily reconstructed.
+            let mut dependencies = UnionNodeSet::top();
+            for input in get_uses(&function.nodes[idx]).as_ref() {
+                dependencies =
+                    UnionNodeSet::meet(&dependencies, &control_output_dependencies[input.idx()]);
+            }
+
+            // Add dependencies to check for this node.
+            to_check.push((this_id, dependencies));
         }
+    }
+
+    // Step 3: check that every node has proper dominance relations with
+    // corresponding control output nodes.
+    for (this_id, dependencies) in to_check {
         for pred_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(pred_idx)) {
                 match function.nodes[pred_idx] {
@@ -266,7 +428,7 @@ fn verify_dominance_relationships(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",
                                 function.nodes[pred_idx].upper_case_name(),
                                 pred_idx,
-                                idx
+                                this_id.idx()
                             ))?;
                         }
                     }
@@ -276,7 +438,8 @@ fn verify_dominance_relationships(
                         if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "ThreadID node (ID {}) doesn't dominate its use (ID {}).",
-                                pred_idx, idx
+                                pred_idx,
+                                this_id.idx()
                             ))?;
                         }
 
@@ -289,10 +452,14 @@ fn verify_dominance_relationships(
                         if postdom.is_non_root(this_id)
                             && !postdom.does_dom(*fork_join_map.get(&control).unwrap(), this_id)
                         {
-                            Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, idx))?;
+                            Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, this_id.idx()))?;
                         }
                     }
-                    _ => {}
+                    // If a dependency is set but depended node isn't a control
+                    // output, something is wrong.
+                    _ => panic!(
+                        "Control output dependency is set for a node that's not a control output."
+                    ),
                 }
             }
         }
