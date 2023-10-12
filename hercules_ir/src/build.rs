@@ -336,7 +336,22 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn create_constant_array(&mut self) -> ConstantID {
-        todo!()
+    pub fn create_constant_array(
+        &mut self,
+        elem_ty: TypeID,
+        cons: Box<[ConstantID]>,
+    ) -> BuilderResult<ConstantID> {
+        for con in cons.iter() {
+            if self.constant_types[con.idx()] != elem_ty {
+                Err("Constant provided to create_constant_array has a different type than the provided element type.")?
+            }
+        }
+        let dc = self.create_dynamic_constant_constant(cons.len());
+        let ty = self.create_type_array(elem_ty, dc);
+        Ok(self.intern_constant(Constant::Array(ty, cons), ty))
+    }
+
+    pub fn create_dynamic_constant_constant(&mut self, val: usize) -> DynamicConstantID {
+        self.intern_dynamic_constant(DynamicConstant::Constant(val))
     }
 }
