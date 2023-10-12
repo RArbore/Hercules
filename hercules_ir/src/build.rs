@@ -354,4 +354,8 @@ impl<'a> Builder<'a> {
     pub fn create_dynamic_constant_constant(&mut self, val: usize) -> DynamicConstantID {
         self.intern_dynamic_constant(DynamicConstant::Constant(val))
     }
+
+    pub fn create_dynamic_constant_parameter(&mut self, val: usize) -> DynamicConstantID {
+        self.intern_dynamic_constant(DynamicConstant::Parameter(val))
+    }
 }
