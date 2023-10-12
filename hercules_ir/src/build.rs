@@ -8,11 +8,22 @@ use crate::*;
  */
 #[derive(Debug, Default)]
 pub struct Builder<'a> {
+    // Intern function names.
     function_ids: HashMap<&'a str, FunctionID>,
+
+    // Intern nodes on a per-function basis.
     interned_nodes: Vec<HashMap<Node, NodeID>>,
+
+    // Intern types, constants, and dynamic constants on a per-module basis.
     interned_types: HashMap<Type, TypeID>,
     interned_constants: HashMap<Constant, ConstantID>,
     interned_dynamic_constants: HashMap<DynamicConstant, DynamicConstantID>,
+
+    // For product, summation, and array constant creation, it's useful to know
+    // the type of each constant.
+    constant_types: Vec<TypeID>,
+
+    // The module being built.
     module: Module,
 }
 
@@ -33,13 +44,14 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn intern_constant(&mut self, cons: Constant) -> ConstantID {
+    fn intern_constant(&mut self, cons: Constant, ty: TypeID) -> ConstantID {
         if let Some(id) = self.interned_constants.get(&cons) {
             *id
         } else {
             let id = ConstantID::new(self.interned_constants.len());
             self.interned_constants.insert(cons.clone(), id);
             self.module.constants.push(cons);
+            self.constant_types.push(ty);
             id
         }
     }
@@ -240,46 +252,68 @@ impl<'a> Builder<'a> {
     }
 
     pub fn create_constant_bool(&mut self, val: bool) -> ConstantID {
-        self.intern_constant(Constant::Boolean(val))
+        let ty = self.intern_type(Type::Boolean);
+        self.intern_constant(Constant::Boolean(val), ty)
     }
 
     pub fn create_constant_i8(&mut self, val: i8) -> ConstantID {
-        self.intern_constant(Constant::Integer8(val))
+        let ty = self.intern_type(Type::Integer8);
+        self.intern_constant(Constant::Integer8(val), ty)
     }
 
     pub fn create_constant_i16(&mut self, val: i16) -> ConstantID {
-        self.intern_constant(Constant::Integer16(val))
+        let ty = self.intern_type(Type::Integer16);
+        self.intern_constant(Constant::Integer16(val), ty)
     }
 
     pub fn create_constant_i32(&mut self, val: i32) -> ConstantID {
-        self.intern_constant(Constant::Integer32(val))
+        let ty = self.intern_type(Type::Integer32);
+        self.intern_constant(Constant::Integer32(val), ty)
     }
 
     pub fn create_constant_i64(&mut self, val: i64) -> ConstantID {
-        self.intern_constant(Constant::Integer64(val))
+        let ty = self.intern_type(Type::Integer64);
+        self.intern_constant(Constant::Integer64(val), ty)
     }
 
     pub fn create_constant_u8(&mut self, val: u8) -> ConstantID {
-        self.intern_constant(Constant::UnsignedInteger8(val))
+        let ty = self.intern_type(Type::UnsignedInteger8);
+        self.intern_constant(Constant::UnsignedInteger8(val), ty)
     }
 
     pub fn create_constant_u16(&mut self, val: u16) -> ConstantID {
-        self.intern_constant(Constant::UnsignedInteger16(val))
+        let ty = self.intern_type(Type::UnsignedInteger16);
+        self.intern_constant(Constant::UnsignedInteger16(val), ty)
     }
 
     pub fn create_constant_u32(&mut self, val: u32) -> ConstantID {
-        self.intern_constant(Constant::UnsignedInteger32(val))
+        let ty = self.intern_type(Type::UnsignedInteger32);
+        self.intern_constant(Constant::UnsignedInteger32(val), ty)
     }
 
     pub fn create_constant_u64(&mut self, val: u64) -> ConstantID {
-        self.intern_constant(Constant::UnsignedInteger64(val))
+        let ty = self.intern_type(Type::UnsignedInteger64);
+        self.intern_constant(Constant::UnsignedInteger64(val), ty)
     }
 
     pub fn create_constant_f32(&mut self, val: f32) -> ConstantID {
-        self.intern_constant(Constant::Float32(ordered_float::OrderedFloat::<f32>(val)))
+        let ty = self.intern_type(Type::Float32);
+        self.intern_constant(
+            Constant::Float32(ordered_float::OrderedFloat::<f32>(val)),
+            ty,
+        )
     }
 
     pub fn create_constant_f64(&mut self, val: f64) -> ConstantID {
-        self.intern_constant(Constant::Float64(ordered_float::OrderedFloat::<f64>(val)))
+        let ty = self.intern_type(Type::Float64);
+        self.intern_constant(
+            Constant::Float64(ordered_float::OrderedFloat::<f64>(val)),
+            ty,
+        )
+    }
+
+    pub fn create_constant_prod(&mut self, cons: Box<[ConstantID]>) -> ConstantID {
+        let ty = self.create_type_prod(cons.iter().map(|x| self.constant_types[x.idx()]).collect());
+        self.intern_constant(Constant::Product(ty, cons), ty)
     }
 }
