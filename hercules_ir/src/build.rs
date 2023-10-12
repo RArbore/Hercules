@@ -316,4 +316,27 @@ impl<'a> Builder<'a> {
         let ty = self.create_type_prod(cons.iter().map(|x| self.constant_types[x.idx()]).collect());
         self.intern_constant(Constant::Product(ty, cons), ty)
     }
+
+    pub fn create_constant_sum(
+        &mut self,
+        ty: TypeID,
+        variant: u32,
+        cons: ConstantID,
+    ) -> BuilderResult<ConstantID> {
+        if let Type::Summation(variant_tys) = &self.module.types[ty.idx()] {
+            if variant as usize >= variant_tys.len() {
+                Err("Variant provided to create_constant_sum is too large for provided summation type.")?
+            }
+            if variant_tys[variant as usize] != self.constant_types[cons.idx()] {
+                Err("Constant provided to create_constant_sum doesn't match the summation type provided.")?
+            }
+            Ok(self.intern_constant(Constant::Summation(ty, variant, cons), ty))
+        } else {
+            Err("Type provided to create_constant_sum is not a summation type.".to_owned())
+        }
+    }
+
+    pub fn create_constant_array(&mut self) -> ConstantID {
+        todo!()
+    }
 }
