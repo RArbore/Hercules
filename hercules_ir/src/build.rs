@@ -28,6 +28,20 @@ pub struct Builder<'a> {
 }
 
 /*
+ * Since the builder doesn't provide string names for nodes, we need a different
+ * mechanism for allowing one to allocate node IDs before actually creating the
+ * node. This is required since there may be loops in the flow graph. We achieve
+ * this using NodeBuilders. Allocating a NodeBuilder allocates a Node ID, and
+ * the NodeBuilder can be later used to actually build an IR node.
+ */
+#[derive(Debug)]
+pub struct NodeBuilder {
+    id: NodeID,
+    function_id: FunctionID,
+    node: Node,
+}
+
+/*
  * The IR builder may return errors when used incorrectly.
  */
 type BuilderResult<T> = Result<T, String>;
@@ -357,5 +371,131 @@ impl<'a> Builder<'a> {
 
     pub fn create_dynamic_constant_parameter(&mut self, val: usize) -> DynamicConstantID {
         self.intern_dynamic_constant(DynamicConstant::Parameter(val))
+    }
+
+    pub fn create_function(
+        &mut self,
+        name: &'a str,
+        param_types: Vec<TypeID>,
+        return_type: TypeID,
+        num_dynamic_constants: u32,
+    ) -> BuilderResult<(FunctionID, NodeID)> {
+        if let Some(_) = self.function_ids.get(name) {
+            Err(format!("Can't create a function with name \"{}\", because a function with the same name has already been created.", name))?
+        }
+
+        let id = FunctionID::new(self.module.functions.len());
+        self.module.functions.push(Function {
+            name: name.to_owned(),
+            param_types,
+            return_type,
+            nodes: vec![Node::Start],
+            num_dynamic_constants,
+        });
+        Ok((id, NodeID::new(0)))
+    }
+
+    pub fn allocate_node(&mut self, function: FunctionID) -> NodeBuilder {
+        let id = NodeID::new(self.module.functions[function.idx()].nodes.len());
+        self.module.functions[function.idx()]
+            .nodes
+            .push(Node::Start);
+        NodeBuilder {
+            id,
+            function_id: function,
+            node: Node::Start,
+        }
+    }
+
+    pub fn add_node(&mut self, builder: NodeBuilder) -> BuilderResult<()> {
+        if let Node::Start = builder.node {
+            Err("Can't add node from a NodeBuilder before NodeBuilder has built a node.")?
+        }
+        self.module.functions[builder.function_id.idx()].nodes[builder.id.idx()] = builder.node;
+        Ok(())
+    }
+}
+
+impl NodeBuilder {
+    pub fn id(&self) -> NodeID {
+        self.id
+    }
+
+    pub fn build_region(&mut self, preds: Box<[NodeID]>) {
+        self.node = Node::Region { preds };
+    }
+
+    pub fn build_if(&mut self, control: NodeID, cond: NodeID) {
+        self.node = Node::If { control, cond };
+    }
+    pub fn build_fork(&mut self, control: NodeID, factor: DynamicConstantID) {
+        self.node = Node::Fork { control, factor };
+    }
+    pub fn build_join(&mut self, control: NodeID) {
+        self.node = Node::Join { control };
+    }
+    pub fn build_phi(&mut self, control: NodeID, data: Box<[NodeID]>) {
+        self.node = Node::Phi { control, data };
+    }
+    pub fn build_threadid(&mut self, control: NodeID) {
+        self.node = Node::ThreadID { control };
+    }
+    pub fn build_collect(&mut self, control: NodeID, data: NodeID) {
+        self.node = Node::Collect { control, data };
+    }
+    pub fn build_return(&mut self, control: NodeID, data: NodeID) {
+        self.node = Node::Return { control, data };
+    }
+    pub fn build_parameter(&mut self, index: usize) {
+        self.node = Node::Parameter { index };
+    }
+    pub fn build_constant(&mut self, id: ConstantID) {
+        self.node = Node::Constant { id };
+    }
+    pub fn build_dynamicconstant(&mut self, id: DynamicConstantID) {
+        self.node = Node::DynamicConstant { id };
+    }
+    pub fn build_unary(&mut self, input: NodeID, op: UnaryOperator) {
+        self.node = Node::Unary { input, op };
+    }
+    pub fn build_binary(&mut self, left: NodeID, right: NodeID, op: BinaryOperator) {
+        self.node = Node::Binary { left, right, op };
+    }
+    pub fn build_call(
+        &mut self,
+        function: FunctionID,
+        dynamic_constants: Box<[DynamicConstantID]>,
+        args: Box<[NodeID]>,
+    ) {
+        self.node = Node::Call {
+            function,
+            dynamic_constants,
+            args,
+        };
+    }
+    pub fn build_readprod(&mut self, prod: NodeID, index: usize) {
+        self.node = Node::ReadProd { prod, index };
+    }
+    pub fn build_writeprod(&mut self, prod: NodeID, data: NodeID, index: usize) {
+        self.node = Node::WriteProd { prod, data, index };
+    }
+    pub fn build_readarray(&mut self, array: NodeID, index: NodeID) {
+        self.node = Node::ReadArray { array, index };
+    }
+    pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: NodeID) {
+        self.node = Node::WriteArray { array, data, index };
+    }
+    pub fn build_match(&mut self, control: NodeID, sum: NodeID) {
+        self.node = Node::Match { control, sum };
+    }
+    pub fn build_buildsum(&mut self, data: NodeID, sum_ty: TypeID, variant: usize) {
+        self.node = Node::BuildSum {
+            data,
+            sum_ty,
+            variant,
+        };
+    }
+    pub fn build_extractsum(&mut self, data: NodeID, variant: usize) {
+        self.node = Node::ExtractSum { data, variant };
     }
 }
