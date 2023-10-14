@@ -11,9 +11,6 @@ pub struct Builder<'a> {
     // Intern function names.
     function_ids: HashMap<&'a str, FunctionID>,
 
-    // Intern nodes on a per-function basis.
-    interned_nodes: Vec<HashMap<Node, NodeID>>,
-
     // Intern types, constants, and dynamic constants on a per-module basis.
     interned_types: HashMap<Type, TypeID>,
     interned_constants: HashMap<Constant, ConstantID>,
@@ -83,6 +80,10 @@ impl<'a> Builder<'a> {
 
     pub fn create() -> Self {
         Self::default()
+    }
+
+    pub fn finish(self) -> Module {
+        self.module
     }
 
     pub fn create_type_bool(&mut self) -> TypeID {
