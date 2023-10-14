@@ -429,39 +429,51 @@ impl NodeBuilder {
     pub fn build_if(&mut self, control: NodeID, cond: NodeID) {
         self.node = Node::If { control, cond };
     }
+
     pub fn build_fork(&mut self, control: NodeID, factor: DynamicConstantID) {
         self.node = Node::Fork { control, factor };
     }
+
     pub fn build_join(&mut self, control: NodeID) {
         self.node = Node::Join { control };
     }
+
     pub fn build_phi(&mut self, control: NodeID, data: Box<[NodeID]>) {
         self.node = Node::Phi { control, data };
     }
+
     pub fn build_threadid(&mut self, control: NodeID) {
         self.node = Node::ThreadID { control };
     }
+
     pub fn build_collect(&mut self, control: NodeID, data: NodeID) {
         self.node = Node::Collect { control, data };
     }
+
     pub fn build_return(&mut self, control: NodeID, data: NodeID) {
         self.node = Node::Return { control, data };
     }
+
     pub fn build_parameter(&mut self, index: usize) {
         self.node = Node::Parameter { index };
     }
+
     pub fn build_constant(&mut self, id: ConstantID) {
         self.node = Node::Constant { id };
     }
+
     pub fn build_dynamicconstant(&mut self, id: DynamicConstantID) {
         self.node = Node::DynamicConstant { id };
     }
+
     pub fn build_unary(&mut self, input: NodeID, op: UnaryOperator) {
         self.node = Node::Unary { input, op };
     }
+
     pub fn build_binary(&mut self, left: NodeID, right: NodeID, op: BinaryOperator) {
         self.node = Node::Binary { left, right, op };
     }
+
     pub fn build_call(
         &mut self,
         function: FunctionID,
@@ -474,21 +486,27 @@ impl NodeBuilder {
             args,
         };
     }
+
     pub fn build_readprod(&mut self, prod: NodeID, index: usize) {
         self.node = Node::ReadProd { prod, index };
     }
+
     pub fn build_writeprod(&mut self, prod: NodeID, data: NodeID, index: usize) {
         self.node = Node::WriteProd { prod, data, index };
     }
+
     pub fn build_readarray(&mut self, array: NodeID, index: NodeID) {
         self.node = Node::ReadArray { array, index };
     }
+
     pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: NodeID) {
         self.node = Node::WriteArray { array, data, index };
     }
+
     pub fn build_match(&mut self, control: NodeID, sum: NodeID) {
         self.node = Node::Match { control, sum };
     }
+
     pub fn build_buildsum(&mut self, data: NodeID, sum_ty: TypeID, variant: usize) {
         self.node = Node::BuildSum {
             data,
@@ -496,6 +514,7 @@ impl NodeBuilder {
             variant,
         };
     }
+
     pub fn build_extractsum(&mut self, data: NodeID, variant: usize) {
         self.node = Node::ExtractSum { data, variant };
     }
