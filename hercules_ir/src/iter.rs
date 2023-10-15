@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::*;
 
 /*
@@ -26,7 +28,7 @@ pub enum ReachabilityLattice {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConstantLattice {
     Top,
-    Constant(ConstantID),
+    Constant(Constant),
     Bottom,
 }
 
@@ -77,9 +79,9 @@ impl Semilattice for ConstantLattice {
         match (a, b) {
             (ConstantLattice::Top, b) => b.clone(),
             (a, ConstantLattice::Top) => a.clone(),
-            (ConstantLattice::Constant(id1), ConstantLattice::Constant(id2)) => {
-                if id1 == id2 {
-                    ConstantLattice::Constant(*id1)
+            (ConstantLattice::Constant(cons1), ConstantLattice::Constant(cons2)) => {
+                if cons1 == cons2 {
+                    ConstantLattice::Constant(cons1.clone())
                 } else {
                     ConstantLattice::Bottom
                 }
@@ -100,8 +102,53 @@ impl Semilattice for ConstantLattice {
 /*
  * Top level function to run "iter" optimization. Named after the "iter"
  * optimization from the OpenJDK HotSpot compiler. Runs constant propgataion,
- * unreachable code elimination, and global value numbering, at once.
+ * unreachable code elimination, and global value numbering, at once. Needs to
+ * take ownership of constants vector from function's module (or at least a copy
+ * of it) since this pass may create new constants. Might make sense to Arc +
+ * Mutex the constants vector if multithreading is ever considered.
  */
-pub fn iter(function: Function) -> Function {
-    function
+pub fn iter(
+    function: Function,
+    constants: Vec<Constant>,
+    reverse_postorder: &Vec<NodeID>,
+) -> (Function, Vec<Constant>) {
+    // Step 1: collect constants into a map from constant values to IDs.
+    let reverse_constants = constants
+        .into_iter()
+        .enumerate()
+        .map(|(idx, cons)| (cons, ConstantID::new(idx)))
+        .collect();
+
+    // Step 2: run iter analysis to understand the function.
+    let (result, reverse_constants) =
+        iter_analysis(&function, reverse_constants, reverse_postorder);
+    println!("{:?}", result);
+
+    // Step 3: re-create constants vector for module.
+    let mut constants = vec![Constant::Boolean(false); reverse_constants.len()];
+    for (cons, id) in reverse_constants {
+        constants[id.idx()] = cons;
+    }
+
+    (function, constants)
+}
+
+fn iter_analysis(
+    function: &Function,
+    mut reverse_constants: HashMap<Constant, ConstantID>,
+    reverse_postorder: &Vec<NodeID>,
+) -> (Vec<IterLattice>, HashMap<Constant, ConstantID>) {
+    let result = forward_dataflow(function, reverse_postorder, |inputs, node_id| {
+        iter_flow_function(inputs, node_id, function, &mut reverse_constants)
+    });
+    (result, reverse_constants)
+}
+
+fn iter_flow_function(
+    inputs: &[&IterLattice],
+    node_id: NodeID,
+    function: &Function,
+    reverse_constants: &mut HashMap<Constant, ConstantID>,
+) -> IterLattice {
+    todo!()
 }
