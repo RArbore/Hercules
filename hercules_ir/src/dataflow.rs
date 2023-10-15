@@ -166,8 +166,7 @@ impl Semilattice for IntersectNodeSet {
                 );
                 IntersectNodeSet::Bits(a.clone() & b)
             }
-            (IntersectNodeSet::Empty, _) => IntersectNodeSet::Empty,
-            (_, IntersectNodeSet::Empty) => IntersectNodeSet::Empty,
+            _ => IntersectNodeSet::Empty,
         }
     }
 
@@ -215,8 +214,7 @@ impl Semilattice for UnionNodeSet {
                 );
                 UnionNodeSet::Bits(a.clone() | b)
             }
-            (UnionNodeSet::Full, _) => UnionNodeSet::Full,
-            (_, UnionNodeSet::Full) => UnionNodeSet::Full,
+            _ => UnionNodeSet::Full,
         }
     }
 
