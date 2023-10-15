@@ -396,7 +396,7 @@ fn verify_dominance_relationships(
             // If the node to be added to the to_check vector isn't even in the
             // dominator tree, don't bother. It doesn't need to be checked for
             // dominance relations.
-            if !dom.is_non_root(this_id) {
+            if !dom.contains_conventional(this_id) {
                 continue;
             }
 
@@ -423,7 +423,7 @@ fn verify_dominance_relationships(
                     // Verify that uses of phis / collect nodes are dominated
                     // by the corresponding region / join nodes, respectively.
                     Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
-                        if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
+                        if dom.contains_conventional(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",
                                 function.nodes[pred_idx].upper_case_name(),
@@ -435,7 +435,7 @@ fn verify_dominance_relationships(
                     // Verify that uses of thread ID nodes are dominated by the
                     // corresponding fork nodes.
                     Node::ThreadID { control } => {
-                        if dom.is_non_root(this_id) && !dom.does_dom(control, this_id) {
+                        if dom.contains_conventional(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "ThreadID node (ID {}) doesn't dominate its use (ID {}).",
                                 pred_idx,
@@ -449,7 +449,7 @@ fn verify_dominance_relationships(
                         // flows through the collect node out of the fork-join,
                         // because after the collect, the thread ID is no longer
                         // considered an immediate control output use.
-                        if postdom.is_non_root(this_id)
+                        if postdom.contains_conventional(this_id)
                             && !postdom.does_dom(*fork_join_map.get(&control).unwrap(), this_id)
                         {
                             Err(format!("ThreadID node's (ID {}) fork's join doesn't postdominate its use (ID {}).", pred_idx, this_id.idx()))?;

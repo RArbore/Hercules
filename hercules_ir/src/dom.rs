@@ -46,6 +46,14 @@ impl DomTree {
     pub fn is_non_root(&self, x: NodeID) -> bool {
         self.idom.contains_key(&x)
     }
+
+    /*
+     * Typically, node ID 0 is the root of the dom tree. Under this assumption,
+     * this function checks if a node is in the dom tree.
+     */
+    pub fn contains_conventional(&self, x: NodeID) -> bool {
+        x == NodeID::new(0) || self.idom.contains_key(&x)
+    }
 }
 
 /*
