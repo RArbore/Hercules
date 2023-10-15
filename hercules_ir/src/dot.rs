@@ -2,6 +2,10 @@ use crate::*;
 
 use std::collections::HashMap;
 
+/*
+ * TODO: Completely rewrite this code. Right now, it's horrible.
+ */
+
 pub fn write_dot<W: std::fmt::Write>(module: &Module, w: &mut W) -> std::fmt::Result {
     write!(w, "digraph \"Module\" {{\n")?;
     write!(w, "compound=true\n")?;
