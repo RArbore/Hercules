@@ -138,14 +138,14 @@ fn iter_analysis(
     mut reverse_constants: HashMap<Constant, ConstantID>,
     reverse_postorder: &Vec<NodeID>,
 ) -> (Vec<IterLattice>, HashMap<Constant, ConstantID>) {
-    let result = forward_dataflow(function, reverse_postorder, |inputs, node_id| {
+    let result = forward_dataflow_global(function, reverse_postorder, |inputs, node_id| {
         iter_flow_function(inputs, node_id, function, &mut reverse_constants)
     });
     (result, reverse_constants)
 }
 
 fn iter_flow_function(
-    inputs: &[&IterLattice],
+    inputs: &[IterLattice],
     node_id: NodeID,
     function: &Function,
     reverse_constants: &mut HashMap<Constant, ConstantID>,
@@ -153,6 +153,9 @@ fn iter_flow_function(
     let node = &function.nodes[node_id.idx()];
     match node {
         Node::Start => IterLattice::bottom(),
+        Node::Region { preds } => preds.iter().fold(IterLattice::top(), |val, id| {
+            IterLattice::meet(&val, &inputs[id.idx()])
+        }),
         _ => IterLattice::bottom(),
     }
 }

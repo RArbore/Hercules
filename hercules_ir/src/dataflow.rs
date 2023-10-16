@@ -48,9 +48,9 @@ where
  * The previous forward dataflow routine wraps around this dataflow routine,
  * where the flow function doesn't just have access to this nodes input lattice
  * values, but also all the current lattice values for all the nodes. This is
- * useful for some dataflow analyses, such as typechecking and reachability. The
- * "global" in forward_dataflow_global refers to having a global view of the out
- * lattice values.
+ * useful for some dataflow analyses, such as reachability. The "global" in
+ * forward_dataflow_global refers to having a global view of the out lattice
+ * values.
  */
 pub fn forward_dataflow_global<L, F>(
     function: &Function,
@@ -254,10 +254,9 @@ pub fn control_output_flow(
     function: &Function,
 ) -> UnionNodeSet {
     // Step 1: union inputs.
-    let mut out = UnionNodeSet::top();
-    for input in inputs {
-        out = UnionNodeSet::meet(&out, input);
-    }
+    let out = inputs
+        .into_iter()
+        .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
     let node = &function.nodes[node_id.idx()];
 
     // Step 2: clear all bits, if applicable.
