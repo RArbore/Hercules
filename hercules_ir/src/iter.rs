@@ -121,14 +121,14 @@ pub fn iter(
 ) -> (Function, Vec<Constant>) {
     // Step 1: collect constants into a map from constant values to IDs.
     let reverse_constants = constants
-        .into_iter()
+        .iter()
         .enumerate()
-        .map(|(idx, cons)| (cons, ConstantID::new(idx)))
+        .map(|(idx, cons)| (cons.clone(), ConstantID::new(idx)))
         .collect();
 
     // Step 2: run iter analysis to understand the function.
     let (result, reverse_constants) =
-        iter_analysis(&function, reverse_constants, reverse_postorder);
+        iter_analysis(&function, &constants, reverse_constants, reverse_postorder);
     println!("{:?}", result);
 
     // Step 3: re-create constants vector for module.
@@ -142,11 +142,18 @@ pub fn iter(
 
 fn iter_analysis(
     function: &Function,
+    old_constants: &Vec<Constant>,
     mut reverse_constants: HashMap<Constant, ConstantID>,
     reverse_postorder: &Vec<NodeID>,
 ) -> (Vec<IterLattice>, HashMap<Constant, ConstantID>) {
     let result = forward_dataflow_global(function, reverse_postorder, |inputs, node_id| {
-        iter_flow_function(inputs, node_id, function, &mut reverse_constants)
+        iter_flow_function(
+            inputs,
+            node_id,
+            function,
+            old_constants,
+            &mut reverse_constants,
+        )
     });
     (result, reverse_constants)
 }
@@ -155,6 +162,7 @@ fn iter_flow_function(
     inputs: &[IterLattice],
     node_id: NodeID,
     function: &Function,
+    old_constants: &Vec<Constant>,
     reverse_constants: &mut HashMap<Constant, ConstantID>,
 ) -> IterLattice {
     let node = &function.nodes[node_id.idx()];
@@ -208,6 +216,15 @@ fn iter_flow_function(
         // information here, and I don't feel like doing that.
         Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
         Node::Return { control, data: _ } => inputs[control.idx()].clone(),
+        Node::Parameter { index: _ } => IterLattice::bottom(),
+        // A constant node is the "source" of concrete constant lattice values.
+        Node::Constant { id } => IterLattice {
+            reachability: ReachabilityLattice::bottom(),
+            constant: ConstantLattice::Constant(old_constants[id.idx()].clone()),
+        },
+        // TODO: This should really be constant interpreted, since dynamic
+        // constants as values are used frequently.
+        Node::DynamicConstant { id: _ } => IterLattice::bottom(),
         _ => IterLattice::bottom(),
     }
 }
