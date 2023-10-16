@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::zip;
 
 use crate::*;
 
@@ -30,6 +31,12 @@ pub enum ConstantLattice {
     Top,
     Constant(Constant),
     Bottom,
+}
+
+impl IterLattice {
+    fn is_reachable(&self) -> bool {
+        self.reachability == ReachabilityLattice::Reachable
+    }
 }
 
 impl Semilattice for IterLattice {
@@ -156,6 +163,51 @@ fn iter_flow_function(
         Node::Region { preds } => preds.iter().fold(IterLattice::top(), |val, id| {
             IterLattice::meet(&val, &inputs[id.idx()])
         }),
+        // If node has only one output, so doesn't directly handle crossover of
+        // reachability and constant propagation. ReadProd handles that.
+        Node::If { control, cond: _ } => inputs[control.idx()].clone(),
+        Node::Fork { control, factor: _ } => inputs[control.idx()].clone(),
+        Node::Join { control } => inputs[control.idx()].clone(),
+        // Phi nodes must look at the reachability of the inputs to its
+        // corresponding region node to determine the constant value being
+        // output.
+        Node::Phi { control, data } => {
+            // Get the control predecessors of the corresponding region.
+            let region_preds = if let Node::Region { preds } = &function.nodes[control.idx()] {
+                preds
+            } else {
+                panic!("A phi's control input must be a region node.")
+            };
+            zip(region_preds.iter(), data.iter()).fold(
+                IterLattice {
+                    reachability: inputs[control.idx()].reachability.clone(),
+                    constant: ConstantLattice::top(),
+                },
+                |val, (control_id, data_id)| {
+                    // If a control input to the region node is reachable, then
+                    // and only then do we meet with the data input's constant
+                    // lattice value.
+                    if inputs[control_id.idx()].is_reachable() {
+                        IterLattice::meet(&val, &inputs[data_id.idx()])
+                    } else {
+                        val
+                    }
+                },
+            )
+        }
+        // Technically, if the dynamic constant of the corresponding fork is
+        // constant one, then a ThreadID node holds constant value zero.
+        // However, dynamic constants don't interact with node level
+        // analysis, so we will already know that a fork is useless early on
+        // and can remove the fork and join before we ever get here. Thus,
+        // it is not a useful case to program.
+        Node::ThreadID { control } => inputs[control.idx()].clone(),
+        // At least for now, collect nodes always produce unknown values. It may
+        // be worthwile to add interpretation of constants for collect nodes,
+        // but it would involve plumbing dynamic constant and fork join pairing
+        // information here, and I don't feel like doing that.
+        Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
+        Node::Return { control, data: _ } => inputs[control.idx()].clone(),
         _ => IterLattice::bottom(),
     }
 }

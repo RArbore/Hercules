@@ -254,7 +254,7 @@ pub fn control_output_flow(
     function: &Function,
 ) -> UnionNodeSet {
     // Step 1: union inputs.
-    let out = inputs
+    let mut out = inputs
         .into_iter()
         .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
     let node = &function.nodes[node_id.idx()];

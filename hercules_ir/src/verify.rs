@@ -352,16 +352,12 @@ fn verify_dominance_relationships(
         // If this node is a phi node, we need to handle adding dominance checks
         // completely differently.
         if let Node::Phi { control, data } = &function.nodes[idx] {
-            // Get the control predecessors of a region. This weird lambda trick
-            // is to get around needing to add another nesting level just to
-            // unpack the predecessor node.
-            let region_preds = (|| {
-                if let Node::Region { preds } = &function.nodes[control.idx()] {
-                    preds
-                } else {
-                    panic!("A phi's control input must be a region node.")
-                }
-            })();
+            // Get the control predecessors of a region.
+            let region_preds = if let Node::Region { preds } = &function.nodes[control.idx()] {
+                preds
+            } else {
+                panic!("A phi's control input must be a region node.")
+            };
 
             // The inputs to a phi node don't need to dominate the phi node.
             // However, the data inputs to a phi node do need to hold proper
