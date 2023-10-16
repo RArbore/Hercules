@@ -1,5 +1,7 @@
 extern crate ordered_float;
 
+use crate::*;
+
 /*
  * A module is a list of functions. Functions contain types, constants, and
  * dynamic constants, which are interned at the module level. Thus, if one
@@ -71,6 +73,58 @@ pub struct Function {
     pub return_type: TypeID,
     pub nodes: Vec<Node>,
     pub num_dynamic_constants: u32,
+}
+
+impl Function {
+    /*
+     * Many transformations will delete nodes. There isn't strictly a gravestone
+     * node value, so use the start node as a gravestone value (for IDs other
+     * than 0). This function cleans up gravestoned nodes.
+     */
+    pub fn delete_gravestones(&mut self) {
+        // Step 1: figure out which nodes are gravestones.
+        let mut gravestones = (0..self.nodes.len())
+            .filter(|x| *x != 0 && self.nodes[*x].is_start())
+            .map(|x| NodeID::new(x));
+
+        // Step 2: figure out the mapping between old node IDs and new node IDs.
+        let mut node_mapping = Vec::with_capacity(self.nodes.len());
+        let mut next_gravestone = gravestones.next();
+        let mut num_gravestones_passed = 0;
+        for idx in 0..self.nodes.len() {
+            if Some(NodeID::new(idx)) == next_gravestone {
+                node_mapping.push(NodeID::new(0));
+                num_gravestones_passed += 1;
+                next_gravestone = gravestones.next();
+            } else {
+                node_mapping.push(NodeID::new(idx - num_gravestones_passed));
+            }
+        }
+
+        // Step 3: create new nodes vector. Along the way, update all uses.
+        let mut old_nodes = vec![];
+        std::mem::swap(&mut old_nodes, &mut self.nodes);
+
+        let mut new_nodes = Vec::with_capacity(self.nodes.len() - num_gravestones_passed);
+        for (idx, mut node) in old_nodes.into_iter().enumerate() {
+            // Skip node if it's dead.
+            if idx != 0 && node.is_start() {
+                continue;
+            }
+
+            // Update uses.
+            for u in get_uses_mut(&mut node).as_mut() {
+                let old_id = **u;
+                let new_id = node_mapping[old_id.idx()];
+                **u = new_id;
+            }
+
+            // Add to new_nodes.
+            new_nodes.push(node);
+        }
+
+        std::mem::swap(&mut new_nodes, &mut self.nodes);
+    }
 }
 
 /*

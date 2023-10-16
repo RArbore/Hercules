@@ -15,7 +15,7 @@ use crate::*;
  * constants, so constant one plus constant one results in constant two.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CcpLattice {
+pub struct CCPLattice {
     reachability: ReachabilityLattice,
     constant: ConstantLattice,
 }
@@ -33,7 +33,7 @@ pub enum ConstantLattice {
     Bottom,
 }
 
-impl CcpLattice {
+impl CCPLattice {
     fn is_reachable(&self) -> bool {
         self.reachability == ReachabilityLattice::Reachable
     }
@@ -57,23 +57,23 @@ impl ConstantLattice {
     }
 }
 
-impl Semilattice for CcpLattice {
+impl Semilattice for CCPLattice {
     fn meet(a: &Self, b: &Self) -> Self {
-        CcpLattice {
+        CCPLattice {
             reachability: ReachabilityLattice::meet(&a.reachability, &b.reachability),
             constant: ConstantLattice::meet(&a.constant, &b.constant),
         }
     }
 
     fn bottom() -> Self {
-        CcpLattice {
+        CCPLattice {
             reachability: ReachabilityLattice::bottom(),
             constant: ConstantLattice::bottom(),
         }
     }
 
     fn top() -> Self {
-        CcpLattice {
+        CCPLattice {
             reachability: ReachabilityLattice::top(),
             constant: ConstantLattice::top(),
         }
@@ -198,16 +198,16 @@ pub fn ccp(
 }
 
 fn ccp_flow_function(
-    inputs: &[CcpLattice],
+    inputs: &[CCPLattice],
     node_id: NodeID,
     function: &Function,
     old_constants: &Vec<Constant>,
-) -> CcpLattice {
+) -> CCPLattice {
     let node = &function.nodes[node_id.idx()];
     match node {
-        Node::Start => CcpLattice::bottom(),
-        Node::Region { preds } => preds.iter().fold(CcpLattice::top(), |val, id| {
-            CcpLattice::meet(&val, &inputs[id.idx()])
+        Node::Start => CCPLattice::bottom(),
+        Node::Region { preds } => preds.iter().fold(CCPLattice::top(), |val, id| {
+            CCPLattice::meet(&val, &inputs[id.idx()])
         }),
         // If node has only one output, so doesn't directly handle crossover of
         // reachability and constant propagation. ReadProd handles that.
@@ -225,7 +225,7 @@ fn ccp_flow_function(
                 panic!("A phi's control input must be a region node.")
             };
             zip(region_preds.iter(), data.iter()).fold(
-                CcpLattice {
+                CCPLattice {
                     reachability: inputs[control.idx()].reachability.clone(),
                     constant: ConstantLattice::top(),
                 },
@@ -234,7 +234,7 @@ fn ccp_flow_function(
                     // and only then do we meet with the data input's constant
                     // lattice value.
                     if inputs[control_id.idx()].is_reachable() {
-                        CcpLattice::meet(&val, &inputs[data_id.idx()])
+                        CCPLattice::meet(&val, &inputs[data_id.idx()])
                     } else {
                         val
                     }
@@ -249,22 +249,22 @@ fn ccp_flow_function(
         // nodes, but it would involve plumbing dynamic constant and fork join
         // pairing information here, and I don't feel like doing that.
         Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
-        Node::Return { control, data } => CcpLattice {
+        Node::Return { control, data } => CCPLattice {
             reachability: inputs[control.idx()].reachability.clone(),
             constant: inputs[data.idx()].constant.clone(),
         },
-        Node::Parameter { index: _ } => CcpLattice::bottom(),
+        Node::Parameter { index: _ } => CCPLattice::bottom(),
         // A constant node is the "source" of concrete constant lattice values.
-        Node::Constant { id } => CcpLattice {
+        Node::Constant { id } => CCPLattice {
             reachability: ReachabilityLattice::bottom(),
             constant: ConstantLattice::Constant(old_constants[id.idx()].clone()),
         },
         // TODO: This should really be constant interpreted, since dynamic
         // constants as values are used frequently.
-        Node::DynamicConstant { id: _ } => CcpLattice::bottom(),
+        Node::DynamicConstant { id: _ } => CCPLattice::bottom(),
         // Interpret unary op on constant. TODO: avoid UB.
         Node::Unary { input, op } => {
-            let CcpLattice {
+            let CCPLattice {
                 ref reachability,
                 ref constant,
             } = inputs[input.idx()];
@@ -289,18 +289,18 @@ fn ccp_flow_function(
                 constant.clone()
             };
 
-            CcpLattice {
+            CCPLattice {
                 reachability: reachability.clone(),
                 constant: new_constant,
             }
         }
         // Interpret binary op on constants. TODO: avoid UB.
         Node::Binary { left, right, op } => {
-            let CcpLattice {
+            let CCPLattice {
                 reachability: ref left_reachability,
                 constant: ref left_constant,
             } = inputs[left.idx()];
-            let CcpLattice {
+            let CCPLattice {
                 reachability: ref right_reachability,
                 constant: ref right_constant,
             } = inputs[right.idx()];
@@ -459,7 +459,7 @@ fn ccp_flow_function(
                 ConstantLattice::meet(left_constant, right_constant)
             };
 
-            CcpLattice {
+            CCPLattice {
                 reachability: ReachabilityLattice::meet(left_reachability, right_reachability),
                 constant: new_constant,
             }
@@ -469,7 +469,7 @@ fn ccp_flow_function(
             function: _,
             dynamic_constants: _,
             args,
-        } => CcpLattice {
+        } => CCPLattice {
             reachability: args.iter().fold(ReachabilityLattice::top(), |val, id| {
                 ReachabilityLattice::meet(&val, &inputs[id.idx()].reachability)
             }),
@@ -504,7 +504,7 @@ fn ccp_flow_function(
                     if_reachability.clone()
                 };
 
-                CcpLattice {
+                CCPLattice {
                     reachability: new_reachability,
                     constant: if_constant.clone(),
                 }
@@ -532,13 +532,13 @@ fn ccp_flow_function(
                     if_reachability.clone()
                 };
 
-                CcpLattice {
+                CCPLattice {
                     reachability: new_reachability,
                     constant: if_constant.clone(),
                 }
             }
             _ => {
-                let CcpLattice {
+                let CCPLattice {
                     ref reachability,
                     ref constant,
                 } = inputs[prod.idx()];
@@ -555,7 +555,7 @@ fn ccp_flow_function(
                     constant.clone()
                 };
 
-                CcpLattice {
+                CCPLattice {
                     reachability: reachability.clone(),
                     constant: new_constant,
                 }
@@ -566,7 +566,7 @@ fn ccp_flow_function(
             prod,
             data,
             index: _,
-        } => CcpLattice {
+        } => CCPLattice {
             reachability: ReachabilityLattice::meet(
                 &inputs[prod.idx()].reachability,
                 &inputs[data.idx()].reachability,
@@ -574,11 +574,11 @@ fn ccp_flow_function(
             constant: ConstantLattice::bottom(),
         },
         Node::ReadArray { array, index } => {
-            let CcpLattice {
+            let CCPLattice {
                 reachability: ref array_reachability,
                 constant: ref array_constant,
             } = inputs[array.idx()];
-            let CcpLattice {
+            let CCPLattice {
                 reachability: ref index_reachability,
                 constant: ref index_constant,
             } = inputs[index.idx()];
@@ -612,13 +612,13 @@ fn ccp_flow_function(
                 ConstantLattice::meet(array_constant, index_constant)
             };
 
-            CcpLattice {
+            CCPLattice {
                 reachability: ReachabilityLattice::meet(array_reachability, index_reachability),
                 constant: new_constant,
             }
         }
         // WriteArray is uninterpreted for now.
-        Node::WriteArray { array, data, index } => CcpLattice {
+        Node::WriteArray { array, data, index } => CCPLattice {
             reachability: ReachabilityLattice::meet(
                 &ReachabilityLattice::meet(
                     &inputs[array.idx()].reachability,
@@ -629,6 +629,6 @@ fn ccp_flow_function(
             constant: ConstantLattice::bottom(),
         },
         Node::Match { control, sum: _ } => inputs[control.idx()].clone(),
-        _ => CcpLattice::bottom(),
+        _ => CCPLattice::bottom(),
     }
 }
