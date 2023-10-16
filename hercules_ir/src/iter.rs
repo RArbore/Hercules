@@ -132,7 +132,9 @@ pub fn iter(
     let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
         iter_flow_function(inputs, node_id, &function, &constants)
     });
-    println!("{:?}", result);
+    for val in result.iter().enumerate() {
+        println!("{:?}", val);
+    }
 
     (function, constants)
 }
@@ -189,7 +191,10 @@ fn iter_flow_function(
         // nodes, but it would involve plumbing dynamic constant and fork join
         // pairing information here, and I don't feel like doing that.
         Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
-        Node::Return { control, data: _ } => inputs[control.idx()].clone(),
+        Node::Return { control, data } => IterLattice {
+            reachability: inputs[control.idx()].reachability.clone(),
+            constant: inputs[data.idx()].constant.clone(),
+        },
         Node::Parameter { index: _ } => IterLattice::bottom(),
         // A constant node is the "source" of concrete constant lattice values.
         Node::Constant { id } => IterLattice {
@@ -565,6 +570,7 @@ fn iter_flow_function(
             ),
             constant: ConstantLattice::bottom(),
         },
+        Node::Match { control, sum: _ } => inputs[control.idx()].clone(),
         _ => IterLattice::bottom(),
     }
 }
