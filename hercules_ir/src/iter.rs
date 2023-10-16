@@ -117,11 +117,11 @@ impl Semilattice for ConstantLattice {
 
 /*
  * Top level function to run "iter" optimization. Named after the "iter"
- * optimization from the OpenJDK HotSpot compiler. Runs constant propgataion,
- * unreachable code elimination, and global value numbering, at once. Needs to
- * take ownership of constants vector from function's module (or at least a copy
- * of it) since this pass may create new constants. Might make sense to Arc +
- * Mutex the constants vector if multithreading is ever considered.
+ * optimization from the OpenJDK HotSpot compiler. Runs constant propgataion and
+ * unreachable code elimination simultaneously. Needs to take ownership of
+ * constants vector from function's module (or at least a copy of it) since this
+ * pass may create new constants. Might make sense to Arc + Mutex the constants
+ * vector if multithreading is ever considered.
  */
 pub fn iter(
     function: Function,
