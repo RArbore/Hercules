@@ -34,7 +34,7 @@ fn main() {
 
     let module = module.map(|(function, id), (types, constants, dynamic_constants)| {
         let (function, constants) =
-            hercules_ir::iter::iter(function, constants, &reverse_postorders[id.idx()]);
+            hercules_ir::ccp::ccp(function, constants, &reverse_postorders[id.idx()]);
         (function, (types, constants, dynamic_constants))
     });
 

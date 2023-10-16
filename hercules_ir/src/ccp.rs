@@ -3,18 +3,18 @@ use std::iter::zip;
 use crate::*;
 
 /*
- * The iter lattice tracks, for each node, the following information:
+ * The ccp lattice tracks, for each node, the following information:
  * 1. Reachability - is it possible for this node to be reached during any
  *    execution?
  * 2. Constant - does this node evaluate to a constant expression?
- * The iter lattice is formulated as a combination of consistuent lattices. The
- * flow function for the iter dataflow analysis "crosses" information across the
+ * The ccp lattice is formulated as a combination of consistuent lattices. The
+ * flow function for the ccp dataflow analysis "crosses" information across the
  * sub lattices - for example, whether a condition is constant may inform
  * whether a branch target is reachable. This analysis uses interpreted
  * constants, so constant one plus constant one results in constant two.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct IterLattice {
+pub struct CcpLattice {
     reachability: ReachabilityLattice,
     constant: ConstantLattice,
 }
@@ -32,7 +32,7 @@ pub enum ConstantLattice {
     Bottom,
 }
 
-impl IterLattice {
+impl CcpLattice {
     fn is_reachable(&self) -> bool {
         self.reachability == ReachabilityLattice::Reachable
     }
@@ -48,23 +48,23 @@ impl ConstantLattice {
     }
 }
 
-impl Semilattice for IterLattice {
+impl Semilattice for CcpLattice {
     fn meet(a: &Self, b: &Self) -> Self {
-        IterLattice {
+        CcpLattice {
             reachability: ReachabilityLattice::meet(&a.reachability, &b.reachability),
             constant: ConstantLattice::meet(&a.constant, &b.constant),
         }
     }
 
     fn bottom() -> Self {
-        IterLattice {
+        CcpLattice {
             reachability: ReachabilityLattice::bottom(),
             constant: ConstantLattice::bottom(),
         }
     }
 
     fn top() -> Self {
-        IterLattice {
+        CcpLattice {
             reachability: ReachabilityLattice::top(),
             constant: ConstantLattice::top(),
         }
@@ -116,21 +116,19 @@ impl Semilattice for ConstantLattice {
 }
 
 /*
- * Top level function to run "iter" optimization. Named after the "iter"
- * optimization from the OpenJDK HotSpot compiler. Runs constant propgataion and
- * unreachable code elimination simultaneously. Needs to take ownership of
- * constants vector from function's module (or at least a copy of it) since this
- * pass may create new constants. Might make sense to Arc + Mutex the constants
- * vector if multithreading is ever considered.
+ * Top level function to run conditional constant propagation. Needs to take
+ * ownership of constants vector from function's module since this pass may
+ * create new constants. Might make sense to Arc + Mutex the constants vector
+ * if multithreading is ever considered.
  */
-pub fn iter(
+pub fn ccp(
     function: Function,
     constants: Vec<Constant>,
     reverse_postorder: &Vec<NodeID>,
 ) -> (Function, Vec<Constant>) {
-    // Step 1: run iter analysis to understand the function.
+    // Step 1: run ccp analysis to understand the function.
     let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
-        iter_flow_function(inputs, node_id, &function, &constants)
+        ccp_flow_function(inputs, node_id, &function, &constants)
     });
     for val in result.iter().enumerate() {
         println!("{:?}", val);
@@ -139,17 +137,17 @@ pub fn iter(
     (function, constants)
 }
 
-fn iter_flow_function(
-    inputs: &[IterLattice],
+fn ccp_flow_function(
+    inputs: &[CcpLattice],
     node_id: NodeID,
     function: &Function,
     old_constants: &Vec<Constant>,
-) -> IterLattice {
+) -> CcpLattice {
     let node = &function.nodes[node_id.idx()];
     match node {
-        Node::Start => IterLattice::bottom(),
-        Node::Region { preds } => preds.iter().fold(IterLattice::top(), |val, id| {
-            IterLattice::meet(&val, &inputs[id.idx()])
+        Node::Start => CcpLattice::bottom(),
+        Node::Region { preds } => preds.iter().fold(CcpLattice::top(), |val, id| {
+            CcpLattice::meet(&val, &inputs[id.idx()])
         }),
         // If node has only one output, so doesn't directly handle crossover of
         // reachability and constant propagation. ReadProd handles that.
@@ -167,7 +165,7 @@ fn iter_flow_function(
                 panic!("A phi's control input must be a region node.")
             };
             zip(region_preds.iter(), data.iter()).fold(
-                IterLattice {
+                CcpLattice {
                     reachability: inputs[control.idx()].reachability.clone(),
                     constant: ConstantLattice::top(),
                 },
@@ -176,7 +174,7 @@ fn iter_flow_function(
                     // and only then do we meet with the data input's constant
                     // lattice value.
                     if inputs[control_id.idx()].is_reachable() {
-                        IterLattice::meet(&val, &inputs[data_id.idx()])
+                        CcpLattice::meet(&val, &inputs[data_id.idx()])
                     } else {
                         val
                     }
@@ -191,22 +189,22 @@ fn iter_flow_function(
         // nodes, but it would involve plumbing dynamic constant and fork join
         // pairing information here, and I don't feel like doing that.
         Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
-        Node::Return { control, data } => IterLattice {
+        Node::Return { control, data } => CcpLattice {
             reachability: inputs[control.idx()].reachability.clone(),
             constant: inputs[data.idx()].constant.clone(),
         },
-        Node::Parameter { index: _ } => IterLattice::bottom(),
+        Node::Parameter { index: _ } => CcpLattice::bottom(),
         // A constant node is the "source" of concrete constant lattice values.
-        Node::Constant { id } => IterLattice {
+        Node::Constant { id } => CcpLattice {
             reachability: ReachabilityLattice::bottom(),
             constant: ConstantLattice::Constant(old_constants[id.idx()].clone()),
         },
         // TODO: This should really be constant interpreted, since dynamic
         // constants as values are used frequently.
-        Node::DynamicConstant { id: _ } => IterLattice::bottom(),
+        Node::DynamicConstant { id: _ } => CcpLattice::bottom(),
         // Interpret unary op on constant. TODO: avoid UB.
         Node::Unary { input, op } => {
-            let IterLattice {
+            let CcpLattice {
                 ref reachability,
                 ref constant,
             } = inputs[input.idx()];
@@ -231,18 +229,18 @@ fn iter_flow_function(
                 constant.clone()
             };
 
-            IterLattice {
+            CcpLattice {
                 reachability: reachability.clone(),
                 constant: new_constant,
             }
         }
         // Interpret binary op on constants. TODO: avoid UB.
         Node::Binary { left, right, op } => {
-            let IterLattice {
+            let CcpLattice {
                 reachability: ref left_reachability,
                 constant: ref left_constant,
             } = inputs[left.idx()];
-            let IterLattice {
+            let CcpLattice {
                 reachability: ref right_reachability,
                 constant: ref right_constant,
             } = inputs[right.idx()];
@@ -401,7 +399,7 @@ fn iter_flow_function(
                 ConstantLattice::meet(left_constant, right_constant)
             };
 
-            IterLattice {
+            CcpLattice {
                 reachability: ReachabilityLattice::meet(left_reachability, right_reachability),
                 constant: new_constant,
             }
@@ -411,7 +409,7 @@ fn iter_flow_function(
             function: _,
             dynamic_constants: _,
             args,
-        } => IterLattice {
+        } => CcpLattice {
             reachability: args.iter().fold(ReachabilityLattice::top(), |val, id| {
                 ReachabilityLattice::meet(&val, &inputs[id.idx()].reachability)
             }),
@@ -446,7 +444,7 @@ fn iter_flow_function(
                     if_reachability.clone()
                 };
 
-                IterLattice {
+                CcpLattice {
                     reachability: new_reachability,
                     constant: if_constant.clone(),
                 }
@@ -474,13 +472,13 @@ fn iter_flow_function(
                     if_reachability.clone()
                 };
 
-                IterLattice {
+                CcpLattice {
                     reachability: new_reachability,
                     constant: if_constant.clone(),
                 }
             }
             _ => {
-                let IterLattice {
+                let CcpLattice {
                     ref reachability,
                     ref constant,
                 } = inputs[prod.idx()];
@@ -497,7 +495,7 @@ fn iter_flow_function(
                     constant.clone()
                 };
 
-                IterLattice {
+                CcpLattice {
                     reachability: reachability.clone(),
                     constant: new_constant,
                 }
@@ -508,7 +506,7 @@ fn iter_flow_function(
             prod,
             data,
             index: _,
-        } => IterLattice {
+        } => CcpLattice {
             reachability: ReachabilityLattice::meet(
                 &inputs[prod.idx()].reachability,
                 &inputs[data.idx()].reachability,
@@ -516,11 +514,11 @@ fn iter_flow_function(
             constant: ConstantLattice::bottom(),
         },
         Node::ReadArray { array, index } => {
-            let IterLattice {
+            let CcpLattice {
                 reachability: ref array_reachability,
                 constant: ref array_constant,
             } = inputs[array.idx()];
-            let IterLattice {
+            let CcpLattice {
                 reachability: ref index_reachability,
                 constant: ref index_constant,
             } = inputs[index.idx()];
@@ -554,13 +552,13 @@ fn iter_flow_function(
                 ConstantLattice::meet(array_constant, index_constant)
             };
 
-            IterLattice {
+            CcpLattice {
                 reachability: ReachabilityLattice::meet(array_reachability, index_reachability),
                 constant: new_constant,
             }
         }
         // WriteArray is uninterpreted for now.
-        Node::WriteArray { array, data, index } => IterLattice {
+        Node::WriteArray { array, data, index } => CcpLattice {
             reachability: ReachabilityLattice::meet(
                 &ReachabilityLattice::meet(
                     &inputs[array.idx()].reachability,
@@ -571,6 +569,6 @@ fn iter_flow_function(
             constant: ConstantLattice::bottom(),
         },
         Node::Match { control, sum: _ } => inputs[control.idx()].clone(),
-        _ => IterLattice::bottom(),
+        _ => CcpLattice::bottom(),
     }
 }
