@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::iter::zip;
 
 use crate::*;
@@ -35,6 +36,14 @@ pub enum ConstantLattice {
 impl CcpLattice {
     fn is_reachable(&self) -> bool {
         self.reachability == ReachabilityLattice::Reachable
+    }
+
+    fn get_constant(&self) -> Option<Constant> {
+        if let ConstantLattice::Constant(cons) = &self.constant {
+            Some(cons.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -122,7 +131,7 @@ impl Semilattice for ConstantLattice {
  * if multithreading is ever considered.
  */
 pub fn ccp(
-    function: Function,
+    mut function: Function,
     constants: Vec<Constant>,
     reverse_postorder: &Vec<NodeID>,
 ) -> (Function, Vec<Constant>) {
@@ -132,6 +141,57 @@ pub fn ccp(
     });
     for val in result.iter().enumerate() {
         println!("{:?}", val);
+    }
+
+    // Step 2: update uses of constants. Any node that doesn't produce a
+    // constant value, but does use a newly found constant value, needs to be
+    // updated to use the newly found constant.
+
+    // Step 2.1: assemble reverse constant map. We created a bunch of constants
+    // during the analysis, so we need to intern them.
+    let mut reverse_constant_map: HashMap<Constant, ConstantID> = constants
+        .into_iter()
+        .enumerate()
+        .map(|(idx, cons)| (cons, ConstantID::new(idx)))
+        .collect();
+
+    // Helper function for interning constants in the lattice.
+    let mut get_constant_id = |cons| {
+        if let Some(id) = reverse_constant_map.get(&cons) {
+            *id
+        } else {
+            let id = ConstantID::new(reverse_constant_map.len());
+            reverse_constant_map.insert(cons.clone(), id);
+            id
+        }
+    };
+
+    // Step 2.2: for every node, update uses of now constant nodes. We need to
+    // separately create constant nodes, since we are mutably looping over the
+    // function nodes separately.
+    let mut new_constant_nodes = vec![];
+    let base_cons_node_idx = function.nodes.len();
+    for node in function.nodes.iter_mut() {
+        for u in get_uses_mut(node).as_mut() {
+            let old_id = **u;
+            if let Some(cons) = result[old_id.idx()].get_constant() {
+                let cons_id = get_constant_id(cons);
+                let cons_node_id = NodeID::new(base_cons_node_idx + new_constant_nodes.len());
+                new_constant_nodes.push(Node::Constant { id: cons_id });
+                **u = cons_node_id;
+            }
+        }
+    }
+
+    // Step 2.3: add new constant nodes into nodes of function.
+    for node in new_constant_nodes {
+        function.nodes.push(node);
+    }
+
+    // Step 2.4: re-create module's constants vector from interning map.
+    let mut constants = vec![Constant::Boolean(false); reverse_constant_map.len()];
+    for (cons, id) in reverse_constant_map {
+        constants[id.idx()] = cons;
     }
 
     (function, constants)

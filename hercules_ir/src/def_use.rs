@@ -86,6 +86,19 @@ pub enum NodeUses<'a> {
     Phi(Box<[NodeID]>),
 }
 
+/*
+ * Enum for storing mutable uses of node. Using get_uses_mut, one can easily
+ * modify the defs that a node uses.
+ */
+#[derive(Debug)]
+pub enum NodeUsesMut<'a> {
+    Zero,
+    One([&'a mut NodeID; 1]),
+    Two([&'a mut NodeID; 2]),
+    Three([&'a mut NodeID; 3]),
+    Variable(Box<[&'a mut NodeID]>),
+}
+
 impl<'a> AsRef<[NodeID]> for NodeUses<'a> {
     fn as_ref(&self) -> &[NodeID] {
         match self {
@@ -95,6 +108,18 @@ impl<'a> AsRef<[NodeID]> for NodeUses<'a> {
             NodeUses::Three(x) => x,
             NodeUses::Variable(x) => x,
             NodeUses::Phi(x) => x,
+        }
+    }
+}
+
+impl<'a> AsMut<[&'a mut NodeID]> for NodeUsesMut<'a> {
+    fn as_mut(&mut self) -> &mut [&'a mut NodeID] {
+        match self {
+            NodeUsesMut::Zero => &mut [],
+            NodeUsesMut::One(x) => x,
+            NodeUsesMut::Two(x) => x,
+            NodeUsesMut::Three(x) => x,
+            NodeUsesMut::Variable(x) => x,
         }
     }
 }
@@ -142,5 +167,53 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             variant: _,
         } => NodeUses::One([*data]),
         Node::ExtractSum { data, variant: _ } => NodeUses::One([*data]),
+    }
+}
+
+/*
+ * Construct NodeUsesMut for a node. Note, this is not a one-to-one mutable
+ * analog of NodeUses. In particular, constant, dynamic constant, and parameter
+ * nodes all implicitly take as input the start node. However, this is not
+ * stored (it is an implict use), and thus can't be modified. Thus, those uses
+ * are not represented in NodeUsesMut, but are in NodeUses.
+ */
+pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
+    match node {
+        Node::Start => NodeUsesMut::Zero,
+        Node::Region { preds } => NodeUsesMut::Variable(preds.iter_mut().collect()),
+        Node::If { control, cond } => NodeUsesMut::Two([control, cond]),
+        Node::Fork { control, factor: _ } => NodeUsesMut::One([control]),
+        Node::Join { control } => NodeUsesMut::One([control]),
+        Node::Phi { control, data } => {
+            NodeUsesMut::Variable(std::iter::once(control).chain(data.iter_mut()).collect())
+        }
+        Node::ThreadID { control } => NodeUsesMut::One([control]),
+        Node::Collect { control, data } => NodeUsesMut::Two([control, data]),
+        Node::Return { control, data } => NodeUsesMut::Two([control, data]),
+        Node::Parameter { index: _ } => NodeUsesMut::Zero,
+        Node::Constant { id: _ } => NodeUsesMut::Zero,
+        Node::DynamicConstant { id: _ } => NodeUsesMut::Zero,
+        Node::Unary { input, op: _ } => NodeUsesMut::One([input]),
+        Node::Binary { left, right, op: _ } => NodeUsesMut::Two([left, right]),
+        Node::Call {
+            function: _,
+            dynamic_constants: _,
+            args,
+        } => NodeUsesMut::Variable(args.iter_mut().collect()),
+        Node::ReadProd { prod, index: _ } => NodeUsesMut::One([prod]),
+        Node::WriteProd {
+            prod,
+            data,
+            index: _,
+        } => NodeUsesMut::Two([prod, data]),
+        Node::ReadArray { array, index } => NodeUsesMut::Two([array, index]),
+        Node::WriteArray { array, data, index } => NodeUsesMut::Three([array, data, index]),
+        Node::Match { control, sum } => NodeUsesMut::Two([control, sum]),
+        Node::BuildSum {
+            data,
+            sum_ty: _,
+            variant: _,
+        } => NodeUsesMut::One([data]),
+        Node::ExtractSum { data, variant: _ } => NodeUsesMut::One([data]),
     }
 }
