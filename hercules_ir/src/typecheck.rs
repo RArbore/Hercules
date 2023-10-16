@@ -680,11 +680,15 @@ fn typeflow(
                         // Equality operators potentially change the input type.
                         return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
                     }
-                    BinaryOperator::Or
-                    | BinaryOperator::And
-                    | BinaryOperator::Xor
-                    | BinaryOperator::LSh
-                    | BinaryOperator::RSh => {
+                    BinaryOperator::Or | BinaryOperator::And | BinaryOperator::Xor => {
+                        if !types[id.idx()].is_fixed() && !types[id.idx()].is_bool() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have non-fixed type and non-boolean type.",
+                                op,
+                            ));
+                        }
+                    }
+                    BinaryOperator::LSh | BinaryOperator::RSh => {
                         if !types[id.idx()].is_fixed() {
                             return Error(format!(
                                 "{:?} binary node input cannot have non-fixed type.",

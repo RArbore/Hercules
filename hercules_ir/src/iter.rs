@@ -38,6 +38,16 @@ impl IterLattice {
     }
 }
 
+impl ConstantLattice {
+    fn is_top(&self) -> bool {
+        *self == ConstantLattice::Top
+    }
+
+    fn is_bottom(&self) -> bool {
+        *self == ConstantLattice::Bottom
+    }
+}
+
 impl Semilattice for IterLattice {
     fn meet(a: &Self, b: &Self) -> Self {
         IterLattice {
@@ -171,17 +181,13 @@ fn iter_flow_function(
                 },
             )
         }
-        // Technically, if the dynamic constant of the corresponding fork is
-        // constant one, then a ThreadID node holds constant value zero.
-        // However, dynamic constants don't interact with node level
-        // analysis, so we will already know that a fork is useless early on
-        // and can remove the fork and join before we ever get here. Thus,
-        // it is not a useful case to program.
+        // TODO: This should produce a constant zero if the dynamic constant for
+        // for the corresponding fork is one.
         Node::ThreadID { control } => inputs[control.idx()].clone(),
-        // At least for now, collect nodes always produce unknown values. It may
-        // be worthwile to add interpretation of constants for collect nodes,
-        // but it would involve plumbing dynamic constant and fork join pairing
-        // information here, and I don't feel like doing that.
+        // TODO: At least for now, collect nodes always produce unknown values.
+        // It may be worthwile to add interpretation of constants for collect
+        // nodes, but it would involve plumbing dynamic constant and fork join
+        // pairing information here, and I don't feel like doing that.
         Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
         Node::Return { control, data: _ } => inputs[control.idx()].clone(),
         Node::Parameter { index: _ } => IterLattice::bottom(),
@@ -199,6 +205,7 @@ fn iter_flow_function(
                 ref reachability,
                 ref constant,
             } = inputs[input.idx()];
+
             let new_constant = if let ConstantLattice::Constant(cons) = constant {
                 let new_cons = match (op, cons) {
                     (UnaryOperator::Not, Constant::Boolean(val)) => Constant::Boolean(!val),
@@ -218,8 +225,177 @@ fn iter_flow_function(
             } else {
                 constant.clone()
             };
+
             IterLattice {
                 reachability: reachability.clone(),
+                constant: new_constant,
+            }
+        }
+        // Interpret binary op on constants. TODO: avoid UB.
+        Node::Binary { left, right, op } => {
+            let IterLattice {
+                reachability: ref left_reachability,
+                constant: ref left_constant,
+            } = inputs[left.idx()];
+            let IterLattice {
+                reachability: ref right_reachability,
+                constant: ref right_constant,
+            } = inputs[right.idx()];
+
+            let new_constant = if let (
+                ConstantLattice::Constant(left_cons),
+                ConstantLattice::Constant(right_cons),
+            ) = (left_constant, right_constant)
+            {
+                let new_cons = match (op, left_cons, right_cons) {
+                    (BinaryOperator::Add, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val + right_val),
+                    (BinaryOperator::Add, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val + right_val),
+                    (BinaryOperator::Add, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val + right_val),
+                    (BinaryOperator::Add, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val + right_val),
+                    (BinaryOperator::Add, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val + right_val),
+                    (BinaryOperator::Add, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val + right_val),
+                    (BinaryOperator::Add, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val + right_val),
+                    (BinaryOperator::Add, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val + right_val),
+                    (BinaryOperator::Add, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val + *right_val),
+                    (BinaryOperator::Add, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val + *right_val),
+                    (BinaryOperator::Sub, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val - *right_val),
+                    (BinaryOperator::Sub, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val - *right_val),
+                    (BinaryOperator::Mul, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val * *right_val),
+                    (BinaryOperator::Mul, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val * *right_val),
+                    (BinaryOperator::Div, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val / right_val),
+                    (BinaryOperator::Div, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val / right_val),
+                    (BinaryOperator::Div, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val / right_val),
+                    (BinaryOperator::Div, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val / right_val),
+                    (BinaryOperator::Div, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val / right_val),
+                    (BinaryOperator::Div, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val / right_val),
+                    (BinaryOperator::Div, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val / right_val),
+                    (BinaryOperator::Div, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val / right_val),
+                    (BinaryOperator::Div, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val / *right_val),
+                    (BinaryOperator::Div, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val / *right_val),
+                    (BinaryOperator::Rem, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val % *right_val),
+                    (BinaryOperator::Rem, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val % *right_val),
+                    (BinaryOperator::LT, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::Boolean(left_val < right_val),
+                    (BinaryOperator::LT, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Boolean(*left_val < *right_val),
+                    (BinaryOperator::LT, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Boolean(*left_val < *right_val),
+                    (BinaryOperator::LTE, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::Boolean(left_val <= right_val),
+                    (BinaryOperator::LTE, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Boolean(*left_val <= *right_val),
+                    (BinaryOperator::LTE, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Boolean(*left_val <= *right_val),
+                    (BinaryOperator::GT, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::Boolean(left_val > right_val),
+                    (BinaryOperator::GT, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Boolean(*left_val > *right_val),
+                    (BinaryOperator::GT, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Boolean(*left_val > *right_val),
+                    (BinaryOperator::GTE, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::Boolean(left_val >= right_val),
+                    (BinaryOperator::GTE, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Boolean(*left_val >= *right_val),
+                    (BinaryOperator::GTE, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Boolean(*left_val >= *right_val),
+                    // EQ and NE can be implemented more easily, since we don't
+                    // need to unpack the constants.
+                    (BinaryOperator::EQ, left_val, right_val) => Constant::Boolean(left_val == right_val),
+                    (BinaryOperator::NE, left_val, right_val) => Constant::Boolean(left_val != right_val),
+                    (BinaryOperator::Or, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val || *right_val),
+                    (BinaryOperator::Or, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val | right_val),
+                    (BinaryOperator::Or, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val | right_val),
+                    (BinaryOperator::Or, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val | right_val),
+                    (BinaryOperator::Or, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val | right_val),
+                    (BinaryOperator::Or, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val | right_val),
+                    (BinaryOperator::Or, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val | right_val),
+                    (BinaryOperator::Or, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val | right_val),
+                    (BinaryOperator::Or, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val | right_val),
+                    (BinaryOperator::And, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val && *right_val),
+                    (BinaryOperator::And, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val & right_val),
+                    (BinaryOperator::And, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val & right_val),
+                    (BinaryOperator::And, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val & right_val),
+                    (BinaryOperator::And, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val & right_val),
+                    (BinaryOperator::And, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val & right_val),
+                    (BinaryOperator::And, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val & right_val),
+                    (BinaryOperator::And, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val & right_val),
+                    (BinaryOperator::And, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val & right_val),
+                    (BinaryOperator::Xor, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val ^ *right_val),
+                    (BinaryOperator::Xor, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val ^ right_val),
+                    (BinaryOperator::Xor, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val ^ right_val),
+                    (BinaryOperator::LSh, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val << right_val),
+                    (BinaryOperator::LSh, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val << right_val),
+                    (BinaryOperator::RSh, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::Integer64(left_val), Constant::Integer64(right_val)) => Constant::Integer64(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::UnsignedInteger8(left_val), Constant::UnsignedInteger8(right_val)) => Constant::UnsignedInteger8(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val >> right_val),
+                    (BinaryOperator::RSh, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val >> right_val),
+                    _ => panic!("Unsupported combination of binary operation and constant values. Did typechecking succeed?")
+                };
+                ConstantLattice::Constant(new_cons)
+            } else if left_constant.is_top() || right_constant.is_top() {
+                ConstantLattice::top()
+            } else {
+                ConstantLattice::bottom()
+            };
+
+            IterLattice {
+                reachability: ReachabilityLattice::meet(left_reachability, right_reachability),
                 constant: new_constant,
             }
         }
