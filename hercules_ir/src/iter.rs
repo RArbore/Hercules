@@ -498,6 +498,73 @@ fn iter_flow_function(
                 }
             }
         },
+        // WriteProd is uninterpreted for now.
+        Node::WriteProd {
+            prod,
+            data,
+            index: _,
+        } => IterLattice {
+            reachability: ReachabilityLattice::meet(
+                &inputs[prod.idx()].reachability,
+                &inputs[data.idx()].reachability,
+            ),
+            constant: ConstantLattice::bottom(),
+        },
+        Node::ReadArray { array, index } => {
+            let IterLattice {
+                reachability: ref array_reachability,
+                constant: ref array_constant,
+            } = inputs[array.idx()];
+            let IterLattice {
+                reachability: ref index_reachability,
+                constant: ref index_constant,
+            } = inputs[index.idx()];
+
+            let new_constant = if let (
+                ConstantLattice::Constant(array_cons),
+                ConstantLattice::Constant(index_cons),
+            ) = (array_constant, index_constant)
+            {
+                let new_cons = match (array_cons, index_cons) {
+                    (Constant::Array(_, elems), Constant::UnsignedInteger8(idx)) => {
+                        elems[*idx as usize]
+                    }
+                    (Constant::Array(_, elems), Constant::UnsignedInteger16(idx)) => {
+                        elems[*idx as usize]
+                    }
+                    (Constant::Array(_, elems), Constant::UnsignedInteger32(idx)) => {
+                        elems[*idx as usize]
+                    }
+                    (Constant::Array(_, elems), Constant::UnsignedInteger64(idx)) => {
+                        elems[*idx as usize]
+                    }
+                    _ => panic!("Unsupported inputs to ReadArray node. Did typechecking succeed?"),
+                };
+                ConstantLattice::Constant(old_constants[new_cons.idx()].clone())
+            } else if (array_constant.is_top() && !index_constant.is_bottom())
+                || (!array_constant.is_bottom() && index_constant.is_top())
+            {
+                ConstantLattice::top()
+            } else {
+                ConstantLattice::meet(array_constant, index_constant)
+            };
+
+            IterLattice {
+                reachability: ReachabilityLattice::meet(array_reachability, index_reachability),
+                constant: new_constant,
+            }
+        }
+        // WriteArray is uninterpreted for now.
+        Node::WriteArray { array, data, index } => IterLattice {
+            reachability: ReachabilityLattice::meet(
+                &ReachabilityLattice::meet(
+                    &inputs[array.idx()].reachability,
+                    &inputs[data.idx()].reachability,
+                ),
+                &inputs[index.idx()].reachability,
+            ),
+            constant: ConstantLattice::bottom(),
+        },
         _ => IterLattice::bottom(),
     }
 }
