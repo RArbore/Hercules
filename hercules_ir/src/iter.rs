@@ -391,7 +391,7 @@ fn iter_flow_function(
             } else if left_constant.is_top() || right_constant.is_top() {
                 ConstantLattice::top()
             } else {
-                ConstantLattice::bottom()
+                ConstantLattice::meet(left_constant, right_constant)
             };
 
             IterLattice {
@@ -399,6 +399,74 @@ fn iter_flow_function(
                 constant: new_constant,
             }
         }
+        // Call nodes are uninterpretable.
+        Node::Call {
+            function: _,
+            dynamic_constants: _,
+            args,
+        } => IterLattice {
+            reachability: args.iter().fold(ReachabilityLattice::top(), |val, id| {
+                ReachabilityLattice::meet(&val, &inputs[id.idx()].reachability)
+            }),
+            constant: ConstantLattice::bottom(),
+        },
+        // ReadProd handles reachability when following an if or match.
+        Node::ReadProd { prod, index } => match &function.nodes[prod.idx()] {
+            Node::If { control: _, cond } => {
+                let cond_constant = &inputs[cond.idx()].constant;
+                let if_reachability = &inputs[prod.idx()].reachability;
+                let if_constant = &inputs[prod.idx()].constant;
+
+                let new_reachability = if cond_constant.is_top() {
+                    ReachabilityLattice::top()
+                } else if let ConstantLattice::Constant(cons) = cond_constant {
+                    if let Constant::Boolean(val) = cons {
+                        if *val && *index == 0 {
+                            // If condition is true and this is the false
+                            // branch, then unreachable.
+                            ReachabilityLattice::top()
+                        } else if !val && *index == 1 {
+                            // If condition is true and this is the true branch,
+                            // then unreachable.
+                            ReachabilityLattice::top()
+                        } else {
+                            if_reachability.clone()
+                        }
+                    } else {
+                        panic!("Attempted to interpret ReadProd node, where corresponding if node has a non-boolean constnat input. Did typechecking succeed?")
+                    }
+                } else {
+                    if_reachability.clone()
+                };
+
+                IterLattice {
+                    reachability: new_reachability,
+                    constant: if_constant.clone(),
+                }
+            }
+            _ => {
+                let IterLattice {
+                    ref reachability,
+                    ref constant,
+                } = inputs[prod.idx()];
+
+                let new_constant = if let ConstantLattice::Constant(cons) = constant {
+                    let new_cons = if let Constant::Product(_, fields) = cons {
+                        old_constants[fields[*index].idx()].clone()
+                    } else {
+                        panic!("Attempted to interpret ReadProd on non-product constant. Did typechecking succeed?")
+                    };
+                    ConstantLattice::Constant(new_cons)
+                } else {
+                    constant.clone()
+                };
+
+                IterLattice {
+                    reachability: reachability.clone(),
+                    constant: new_constant,
+                }
+            }
+        },
         _ => IterLattice::bottom(),
     }
 }
