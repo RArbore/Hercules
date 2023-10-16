@@ -435,7 +435,35 @@ fn iter_flow_function(
                             if_reachability.clone()
                         }
                     } else {
-                        panic!("Attempted to interpret ReadProd node, where corresponding if node has a non-boolean constnat input. Did typechecking succeed?")
+                        panic!("Attempted to interpret ReadProd node, where corresponding if node has a non-boolean constant input. Did typechecking succeed?")
+                    }
+                } else {
+                    if_reachability.clone()
+                };
+
+                IterLattice {
+                    reachability: new_reachability,
+                    constant: if_constant.clone(),
+                }
+            }
+            Node::Match { control: _, sum } => {
+                let sum_constant = &inputs[sum.idx()].constant;
+                let if_reachability = &inputs[prod.idx()].reachability;
+                let if_constant = &inputs[prod.idx()].constant;
+
+                let new_reachability = if sum_constant.is_top() {
+                    ReachabilityLattice::top()
+                } else if let ConstantLattice::Constant(cons) = sum_constant {
+                    if let Constant::Summation(_, variant, _) = cons {
+                        if *variant as usize != *index {
+                            // If match variant is not the same as this branch,
+                            // then unreachable.
+                            ReachabilityLattice::top()
+                        } else {
+                            if_reachability.clone()
+                        }
+                    } else {
+                        panic!("Attempted to interpret ReadProd node, where corresponding match node has a non-summation constant input. Did typechecking succeed?")
                     }
                 } else {
                     if_reachability.clone()
@@ -454,6 +482,7 @@ fn iter_flow_function(
 
                 let new_constant = if let ConstantLattice::Constant(cons) = constant {
                     let new_cons = if let Constant::Product(_, fields) = cons {
+                        // Index into product constant to get result constant.
                         old_constants[fields[*index].idx()].clone()
                     } else {
                         panic!("Attempted to interpret ReadProd on non-product constant. Did typechecking succeed?")
