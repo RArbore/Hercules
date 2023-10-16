@@ -150,5 +150,7 @@ fn iter_flow_function(
     function: &Function,
     reverse_constants: &mut HashMap<Constant, ConstantID>,
 ) -> IterLattice {
-    todo!()
+    let node = &function.nodes[node_id.idx()];
+
+    IterLattice::bottom()
 }

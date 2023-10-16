@@ -28,8 +28,16 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let _ = hercules_ir::verify::verify(&mut module)
-        .expect("PANIC: Failed to verify Hercules IR module.");
+    let (_def_use, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+        hercules_ir::verify::verify(&mut module)
+            .expect("PANIC: Failed to verify Hercules IR module.");
+
+    let module = module.map(|(function, id), (types, constants, dynamic_constants)| {
+        let (function, constants) =
+            hercules_ir::iter::iter(function, constants, &reverse_postorders[id.idx()]);
+        (function, (types, constants, dynamic_constants))
+    });
+
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
         tmp_path.push("hercules_dot.dot");
