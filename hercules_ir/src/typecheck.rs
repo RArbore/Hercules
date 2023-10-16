@@ -607,6 +607,11 @@ fn typeflow(
                         }
                     }
                     UnaryOperator::Neg => {
+                        if types[id.idx()].is_unsigned() {
+                            return Error(String::from(
+                                "Neg unary node input cannot have unsigned type.",
+                            ));
+                        }
                         if !types[id.idx()].is_arithmetic() {
                             return Error(String::from(
                                 "Neg unary node input cannot have non-arithmetic type.",

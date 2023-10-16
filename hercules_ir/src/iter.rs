@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::iter::zip;
 
 use crate::*;
@@ -119,43 +118,13 @@ pub fn iter(
     constants: Vec<Constant>,
     reverse_postorder: &Vec<NodeID>,
 ) -> (Function, Vec<Constant>) {
-    // Step 1: collect constants into a map from constant values to IDs.
-    let reverse_constants = constants
-        .iter()
-        .enumerate()
-        .map(|(idx, cons)| (cons.clone(), ConstantID::new(idx)))
-        .collect();
-
-    // Step 2: run iter analysis to understand the function.
-    let (result, reverse_constants) =
-        iter_analysis(&function, &constants, reverse_constants, reverse_postorder);
+    // Step 1: run iter analysis to understand the function.
+    let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
+        iter_flow_function(inputs, node_id, &function, &constants)
+    });
     println!("{:?}", result);
 
-    // Step 3: re-create constants vector for module.
-    let mut constants = vec![Constant::Boolean(false); reverse_constants.len()];
-    for (cons, id) in reverse_constants {
-        constants[id.idx()] = cons;
-    }
-
     (function, constants)
-}
-
-fn iter_analysis(
-    function: &Function,
-    old_constants: &Vec<Constant>,
-    mut reverse_constants: HashMap<Constant, ConstantID>,
-    reverse_postorder: &Vec<NodeID>,
-) -> (Vec<IterLattice>, HashMap<Constant, ConstantID>) {
-    let result = forward_dataflow_global(function, reverse_postorder, |inputs, node_id| {
-        iter_flow_function(
-            inputs,
-            node_id,
-            function,
-            old_constants,
-            &mut reverse_constants,
-        )
-    });
-    (result, reverse_constants)
 }
 
 fn iter_flow_function(
@@ -163,7 +132,6 @@ fn iter_flow_function(
     node_id: NodeID,
     function: &Function,
     old_constants: &Vec<Constant>,
-    reverse_constants: &mut HashMap<Constant, ConstantID>,
 ) -> IterLattice {
     let node = &function.nodes[node_id.idx()];
     match node {
@@ -225,6 +193,36 @@ fn iter_flow_function(
         // TODO: This should really be constant interpreted, since dynamic
         // constants as values are used frequently.
         Node::DynamicConstant { id: _ } => IterLattice::bottom(),
+        // Interpret unary op on constant. TODO: avoid UB.
+        Node::Unary { input, op } => {
+            let IterLattice {
+                ref reachability,
+                ref constant,
+            } = inputs[input.idx()];
+            let new_constant = if let ConstantLattice::Constant(cons) = constant {
+                let new_cons = match (op, cons) {
+                    (UnaryOperator::Not, Constant::Boolean(val)) => Constant::Boolean(!val),
+                    (UnaryOperator::Neg, Constant::Integer8(val)) => Constant::Integer8(-val),
+                    (UnaryOperator::Neg, Constant::Integer16(val)) => Constant::Integer16(-val),
+                    (UnaryOperator::Neg, Constant::Integer32(val)) => Constant::Integer32(-val),
+                    (UnaryOperator::Neg, Constant::Integer64(val)) => Constant::Integer64(-val),
+                    (UnaryOperator::Neg, Constant::Float32(val)) => Constant::Float32(-val),
+                    (UnaryOperator::Neg, Constant::Float64(val)) => Constant::Float64(-val),
+                    (UnaryOperator::Bitflip, Constant::Integer8(val)) => Constant::Integer8(!val),
+                    (UnaryOperator::Bitflip, Constant::Integer16(val)) => Constant::Integer16(!val),
+                    (UnaryOperator::Bitflip, Constant::Integer32(val)) => Constant::Integer32(!val),
+                    (UnaryOperator::Bitflip, Constant::Integer64(val)) => Constant::Integer64(!val),
+                    _ => panic!("Unsupported combination of unary operation and constant value. Did typechecking succeed?")
+                };
+                ConstantLattice::Constant(new_cons)
+            } else {
+                constant.clone()
+            };
+            IterLattice {
+                reachability: reachability.clone(),
+                constant: new_constant,
+            }
+        }
         _ => IterLattice::bottom(),
     }
 }
