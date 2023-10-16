@@ -388,7 +388,9 @@ fn iter_flow_function(
                     _ => panic!("Unsupported combination of binary operation and constant values. Did typechecking succeed?")
                 };
                 ConstantLattice::Constant(new_cons)
-            } else if left_constant.is_top() || right_constant.is_top() {
+            } else if (left_constant.is_top() && !right_constant.is_bottom())
+                || (!left_constant.is_bottom() && right_constant.is_top())
+            {
                 ConstantLattice::top()
             } else {
                 ConstantLattice::meet(left_constant, right_constant)
