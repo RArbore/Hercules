@@ -33,45 +33,50 @@ where
     L: Semilattice,
     F: FnMut(&[&L], NodeID) -> L,
 {
-    // Step 1: compute NodeUses for each node in function.
-    let uses: Vec<NodeUses> = function.nodes.iter().map(|n| get_uses(n)).collect();
+    forward_dataflow_global(function, reverse_postorder, |global_outs, node_id| {
+        let uses = get_uses(&function.nodes[node_id.idx()]);
+        let pred_outs: Vec<_> = uses
+            .as_ref()
+            .iter()
+            .map(|id| &global_outs[id.idx()])
+            .collect();
+        flow_function(&pred_outs, node_id)
+    })
+}
 
-    // Step 2: create initial set of "out" points.
-    let start_node_output = flow_function(&[&L::bottom()], NodeID::new(0));
+/*
+ * The previous forward dataflow routine wraps around this dataflow routine,
+ * where the flow function doesn't just have access to this nodes input lattice
+ * values, but also all the current lattice values for all the nodes. This is
+ * useful for some dataflow analyses, such as typechecking and reachability. The
+ * "global" in forward_dataflow_global refers to having a global view of the out
+ * lattice values.
+ */
+pub fn forward_dataflow_global<L, F>(
+    function: &Function,
+    reverse_postorder: &Vec<NodeID>,
+    mut flow_function: F,
+) -> Vec<L>
+where
+    L: Semilattice,
+    F: FnMut(&[L], NodeID) -> L,
+{
+    // Step 1: create initial set of "out" points.
+    let start_node_output = flow_function(&[], NodeID::new(0));
+    let mut first_ins = vec![L::top(); function.nodes.len()];
+    first_ins[0] = start_node_output;
     let mut outs: Vec<L> = (0..function.nodes.len())
-        .map(|id| {
-            flow_function(
-                &vec![
-                    &(if id == 0 {
-                        start_node_output.clone()
-                    } else {
-                        L::top()
-                    });
-                    uses[id].as_ref().len()
-                ],
-                NodeID::new(id),
-            )
-        })
+        .map(|id| flow_function(&first_ins, NodeID::new(id)))
         .collect();
 
-    // Step 3: peform main dataflow loop.
+    // Step 2: peform main dataflow loop.
     loop {
         let mut change = false;
 
         // Iterate nodes in reverse post order.
         for node_id in reverse_postorder {
-            // Assemble the "out" values of the predecessors of this node. This
-            // vector's definition is hopefully LICMed out, so that we don't do
-            // an allocation per node. This can't be done manually because of
-            // Rust's ownership rules (in particular, pred_outs holds a
-            // reference to a value inside outs, which is mutated below).
-            let mut pred_outs = vec![];
-            for u in uses[node_id.idx()].as_ref() {
-                pred_outs.push(&outs[u.idx()]);
-            }
-
             // Compute new "out" value from predecessor "out" values.
-            let new_out = flow_function(&pred_outs[..], *node_id);
+            let new_out = flow_function(&outs, *node_id);
             if outs[node_id.idx()] != new_out {
                 change = true;
             }
@@ -87,7 +92,7 @@ where
         }
     }
 
-    // Step 4: return "out" set.
+    // Step 3: return "out" set.
     outs
 }
 

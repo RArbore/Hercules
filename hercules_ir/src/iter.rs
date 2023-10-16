@@ -151,6 +151,8 @@ fn iter_flow_function(
     reverse_constants: &mut HashMap<Constant, ConstantID>,
 ) -> IterLattice {
     let node = &function.nodes[node_id.idx()];
-
-    IterLattice::bottom()
+    match node {
+        Node::Start => IterLattice::bottom(),
+        _ => IterLattice::bottom(),
+    }
 }
