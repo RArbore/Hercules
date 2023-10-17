@@ -1,0 +1,5 @@
+fn tricky(x: i32, y: i32) -> i32
+  a = add(x, y)
+  b = add(x, y)
+  c = add(a, b)
+  r = return(start, c)

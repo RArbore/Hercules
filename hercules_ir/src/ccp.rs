@@ -139,9 +139,6 @@ pub fn ccp(
     let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
         ccp_flow_function(inputs, node_id, &function, &constants)
     });
-    for val in result.iter().enumerate() {
-        println!("{:?}", val);
-    }
 
     // Step 2: update uses of constants. Any node that doesn't produce a
     // constant value, but does use a newly found constant value, needs to be

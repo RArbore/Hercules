@@ -266,7 +266,7 @@ pub enum DynamicConstant {
  * side effects, so call nodes don't take as input or output control tokens.
  * There is also no global memory - use arrays.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     Start,
     Region {

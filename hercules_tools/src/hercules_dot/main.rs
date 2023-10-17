@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate rand;
 
 use std::env::temp_dir;
 use std::fs::File;
@@ -6,6 +7,8 @@ use std::io::prelude::*;
 use std::process::Command;
 
 use clap::Parser;
+
+use rand::Rng;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -37,12 +40,19 @@ fn main() {
             hercules_ir::ccp::ccp(function, constants, &reverse_postorders[id.idx()]);
         hercules_ir::dce::dce(&mut function);
         function.delete_gravestones();
+
+        let def_use = hercules_ir::def_use::def_use(&function);
+        hercules_ir::gvn::gvn(&mut function, &def_use);
+        function.delete_gravestones();
+
         (function, (types, constants, dynamic_constants))
     });
 
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
-        tmp_path.push("hercules_dot.dot");
+        let mut rng = rand::thread_rng();
+        let num: u64 = rng.gen();
+        tmp_path.push(format!("hercules_dot_{}.dot", num));
         let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
         hercules_ir::dot::write_dot(&module, &mut contents)

@@ -65,7 +65,7 @@ pub fn verify(
         let fork_join_map = &fork_join_maps[idx];
 
         // Calculate control output dependencies here, since they are not
-        // returned by verify. Pretty much only useful for verification.
+        // returned by verify.
         let control_output_dependencies =
             forward_dataflow(function, reverse_postorder, |inputs, id| {
                 control_output_flow(inputs, id, function)
