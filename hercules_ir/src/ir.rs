@@ -105,7 +105,7 @@ impl Function {
         let mut old_nodes = vec![];
         std::mem::swap(&mut old_nodes, &mut self.nodes);
 
-        let mut new_nodes = Vec::with_capacity(self.nodes.len() - num_gravestones_passed);
+        let mut new_nodes = Vec::with_capacity(old_nodes.len() - num_gravestones_passed);
         for (idx, mut node) in old_nodes.into_iter().enumerate() {
             // Skip node if it's dead.
             if idx != 0 && node.is_start() {

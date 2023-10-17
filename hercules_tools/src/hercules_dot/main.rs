@@ -33,8 +33,10 @@ fn main() {
             .expect("PANIC: Failed to verify Hercules IR module.");
 
     let module = module.map(|(function, id), (types, constants, dynamic_constants)| {
-        let (function, constants) =
+        let (mut function, constants) =
             hercules_ir::ccp::ccp(function, constants, &reverse_postorders[id.idx()]);
+        hercules_ir::dce::dce(&mut function);
+        function.delete_gravestones();
         (function, (types, constants, dynamic_constants))
     });
 

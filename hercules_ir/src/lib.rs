@@ -1,6 +1,7 @@
 pub mod build;
 pub mod ccp;
 pub mod dataflow;
+pub mod dce;
 pub mod def_use;
 pub mod dom;
 pub mod dot;
@@ -13,6 +14,7 @@ pub mod verify;
 pub use crate::build::*;
 pub use crate::ccp::*;
 pub use crate::dataflow::*;
+pub use crate::dce::*;
 pub use crate::def_use::*;
 pub use crate::dom::*;
 pub use crate::dot::*;
