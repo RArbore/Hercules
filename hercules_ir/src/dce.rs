@@ -20,6 +20,8 @@ pub fn dce(function: &mut Function) {
     }
 
     // Step 2: worklist over zero user nodes.
+
+    // Worklist starts as list of all nodes with 0 users.
     let mut worklist: Vec<_> = num_users
         .iter()
         .enumerate()
@@ -27,8 +29,12 @@ pub fn dce(function: &mut Function) {
         .map(|(idx, _)| idx)
         .collect();
     while let Some(work) = worklist.pop() {
+        // Use state node as gravestone node value.
         let mut gravestone = Node::Start;
         std::mem::swap(&mut function.nodes[work], &mut gravestone);
+
+        // Now that we set the gravestone, figure out other nodes that need to
+        // be added to the worklist.
         for u in get_uses(&gravestone).as_ref() {
             num_users[u.idx()] -= 1;
             if num_users[u.idx()] == 0 {
