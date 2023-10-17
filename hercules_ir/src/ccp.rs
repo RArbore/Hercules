@@ -175,17 +175,37 @@ pub fn ccp(
         for u in get_uses_mut(node).as_mut() {
             let old_id = **u;
             if let Some(cons) = result[old_id.idx()].get_constant() {
+                // Get ConstantID for this constant.
                 let cons_id = get_constant_id(cons);
-                let cons_node_id = NodeID::new(base_cons_node_idx + new_constant_nodes.len());
-                new_constant_nodes.push(Node::Constant { id: cons_id });
-                **u = cons_node_id;
+
+                // Search new_constant_nodes for a constant IR node that already
+                // referenced this ConstantID.
+                if let Some(new_nodes_idx) = new_constant_nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, id)| **id == cons_id)
+                    .map(|(idx, _)| idx)
+                    .next()
+                {
+                    // If there is already a constant IR node, calculate what
+                    // the NodeID will be for it, and set the use to that ID.
+                    **u = NodeID::new(base_cons_node_idx + new_nodes_idx);
+                } else {
+                    // If there is not already a constant IR node for this
+                    // ConstantID, add this ConstantID to the new_constant_nodes
+                    // list. Set the use to the corresponding NodeID for the new
+                    // constant IR node.
+                    let cons_node_id = NodeID::new(base_cons_node_idx + new_constant_nodes.len());
+                    new_constant_nodes.push(cons_id);
+                    **u = cons_node_id;
+                }
             }
         }
     }
 
     // Step 2.3: add new constant nodes into nodes of function.
     for node in new_constant_nodes {
-        function.nodes.push(node);
+        function.nodes.push(Node::Constant { id: node });
     }
 
     // Step 2.4: re-create module's constants vector from interning map.
