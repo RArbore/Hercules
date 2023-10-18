@@ -131,10 +131,10 @@ impl Semilattice for ConstantLattice {
  * if multithreading is ever considered.
  */
 pub fn ccp(
-    mut function: Function,
-    constants: Vec<Constant>,
+    function: &mut Function,
+    constants: &mut Vec<Constant>,
     reverse_postorder: &Vec<NodeID>,
-) -> (Function, Vec<Constant>) {
+) {
     // Step 1: run ccp analysis to understand the function.
     let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
         ccp_flow_function(inputs, node_id, &function, &constants)
@@ -147,9 +147,9 @@ pub fn ccp(
     // Step 2.1: assemble reverse constant map. We created a bunch of constants
     // during the analysis, so we need to intern them.
     let mut reverse_constant_map: HashMap<Constant, ConstantID> = constants
-        .into_iter()
+        .iter()
         .enumerate()
-        .map(|(idx, cons)| (cons, ConstantID::new(idx)))
+        .map(|(idx, cons)| (cons.clone(), ConstantID::new(idx)))
         .collect();
 
     // Helper function for interning constants in the lattice.
@@ -206,12 +206,10 @@ pub fn ccp(
     }
 
     // Step 2.4: re-create module's constants vector from interning map.
-    let mut constants = vec![Constant::Boolean(false); reverse_constant_map.len()];
+    *constants = vec![Constant::Boolean(false); reverse_constant_map.len()];
     for (cons, id) in reverse_constant_map {
         constants[id.idx()] = cons;
     }
-
-    (function, constants)
 }
 
 fn ccp_flow_function(

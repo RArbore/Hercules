@@ -35,19 +35,20 @@ fn main() {
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
-    let module = module.map(|(function, id), (types, constants, dynamic_constants)| {
-        let (mut function, constants) =
-            hercules_ir::ccp::ccp(function, constants, &reverse_postorders[id.idx()]);
-        hercules_ir::dce::dce(&mut function);
-        function.delete_gravestones();
+    let module = module.map(
+        |(mut function, id), (types, mut constants, dynamic_constants)| {
+            hercules_ir::ccp::ccp(&mut function, &mut constants, &reverse_postorders[id.idx()]);
+            hercules_ir::dce::dce(&mut function);
+            function.delete_gravestones();
 
-        let def_use = hercules_ir::def_use::def_use(&function);
-        hercules_ir::gvn::gvn(&mut function, &constants, &def_use);
-        hercules_ir::dce::dce(&mut function);
-        function.delete_gravestones();
+            let def_use = hercules_ir::def_use::def_use(&function);
+            hercules_ir::gvn::gvn(&mut function, &constants, &def_use);
+            hercules_ir::dce::dce(&mut function);
+            function.delete_gravestones();
 
-        (function, (types, constants, dynamic_constants))
-    });
+            (function, (types, constants, dynamic_constants))
+        },
+    );
 
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
