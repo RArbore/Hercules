@@ -12,28 +12,36 @@ pub fn write_dot<W: std::fmt::Write>(
     module: &ir::Module,
     typing: &ModuleTyping,
     doms: &Vec<DomTree>,
-    postdoms: &Vec<DomTree>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
     w: &mut W,
 ) -> std::fmt::Result {
     write_digraph_header(w)?;
 
     for function_id in (0..module.functions.len()).map(FunctionID::new) {
-        write_subgraph_header(function_id, module, w)?;
         let function = &module.functions[function_id.idx()];
+        write_subgraph_header(function_id, module, w)?;
 
+        // Step 1: draw IR graph itself. This includes all IR nodes and all edges
+        // between IR nodes.
         for node_id in (0..function.nodes.len()).map(NodeID::new) {
-            write_node(node_id, function_id, module, w)?;
             let node = &function.nodes[node_id.idx()];
+            let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
+            let dst_strictly_control = node.is_strictly_control();
+            let dst_control = dst_ty.is_control() || dst_strictly_control;
+
+            // Control nodes are dark red, data nodes are dark blue.
+            let color = if dst_control { "darkred" } else { "darkblue" };
+
+            write_node(node_id, function_id, color, module, w)?;
 
             for u in def_use::get_uses(&node).as_ref() {
-                let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
                 let src_ty = &module.types[typing[function_id.idx()][u.idx()].idx()];
-                let dst_strictly_control = node.is_strictly_control();
                 let src_strictly_control = function.nodes[u.idx()].is_strictly_control();
-                let dst_control = dst_ty.is_control() || dst_strictly_control;
                 let src_control = src_ty.is_control() || src_strictly_control;
 
+                // An edge between control nodes is dashed. An edge between data
+                // nodes is filled. An edge between a control node and a data
+                // node is dotted.
                 let style = if dst_control && src_control {
                     "dashed"
                 } else if !dst_control && !src_control {
@@ -42,8 +50,48 @@ pub fn write_dot<W: std::fmt::Write>(
                     "dotted"
                 };
 
-                write_edge(node_id, function_id, *u, function_id, style, module, w)?;
+                write_edge(
+                    node_id,
+                    function_id,
+                    *u,
+                    function_id,
+                    "black",
+                    style,
+                    module,
+                    w,
+                )?;
             }
+        }
+
+        // Step 2: draw dominance edges in dark green. Don't draw post dominance
+        // edges because then xdot lays out the graph strangely.
+        let dom = &doms[function_id.idx()];
+        for (child_id, parent_id) in dom.get_underlying_map() {
+            write_edge(
+                *child_id,
+                function_id,
+                *parent_id,
+                function_id,
+                "darkgreen",
+                "dotted",
+                &module,
+                w,
+            )?;
+        }
+
+        // Step 3: draw fork join edges in dark magenta.
+        let fork_join_map = &fork_join_maps[function_id.idx()];
+        for (fork_id, join_id) in fork_join_map {
+            write_edge(
+                *join_id,
+                function_id,
+                *fork_id,
+                function_id,
+                "darkmagenta",
+                "dotted",
+                &module,
+                w,
+            )?;
         }
 
         write_graph_footer(w)?;
@@ -88,18 +136,20 @@ fn write_graph_footer<W: std::fmt::Write>(w: &mut W) -> std::fmt::Result {
 fn write_node<W: std::fmt::Write>(
     node_id: NodeID,
     function_id: FunctionID,
+    color: &str,
     module: &Module,
     w: &mut W,
 ) -> std::fmt::Result {
     let node = &module.functions[function_id.idx()].nodes[node_id.idx()];
     write!(
         w,
-        "{}_{}_{} [xlabel={}, label=\"{}\"];\n",
+        "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
         node.lower_case_name(),
         function_id.idx(),
         node_id.idx(),
         node_id.idx(),
-        node.lower_case_name()
+        node.lower_case_name(),
+        color
     )?;
     Ok(())
 }
@@ -109,6 +159,7 @@ fn write_edge<W: std::fmt::Write>(
     dst_function_id: FunctionID,
     src_node_id: NodeID,
     src_function_id: FunctionID,
+    color: &str,
     style: &str,
     module: &Module,
     w: &mut W,
@@ -117,13 +168,14 @@ fn write_edge<W: std::fmt::Write>(
     let src_node = &module.functions[src_function_id.idx()].nodes[src_node_id.idx()];
     write!(
         w,
-        "{}_{}_{} -> {}_{}_{} [style=\"{}\"];\n",
+        "{}_{}_{} -> {}_{}_{} [color={}, style=\"{}\"];\n",
         src_node.lower_case_name(),
         src_function_id.idx(),
         src_node_id.idx(),
         dst_node.lower_case_name(),
         dst_function_id.idx(),
         dst_node_id.idx(),
+        color,
         style,
     )?;
     Ok(())

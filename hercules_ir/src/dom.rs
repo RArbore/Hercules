@@ -54,6 +54,10 @@ impl DomTree {
     pub fn contains_conventional(&self, x: NodeID) -> bool {
         x == NodeID::new(0) || self.idom.contains_key(&x)
     }
+
+    pub fn get_underlying_map(&self) -> &HashMap<NodeID, NodeID> {
+        &self.idom
+    }
 }
 
 /*
