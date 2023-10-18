@@ -4,18 +4,24 @@ use crate::*;
 
 /*
  * Top level function to run global value numbering. In the sea of nodes, GVN is
- * fairly simple compared to a normal CFG.
+ * fairly simple compared to in a normal CFG. Needs access to constants for
+ * identity function simplification.
  */
-pub fn gvn(function: &mut Function, def_use: &ImmutableDefUseMap) {
+pub fn gvn(function: &mut Function, constants: &Vec<Constant>, def_use: &ImmutableDefUseMap) {
     // Step 1: create worklist (starts as all nodes) and value number hashmap.
     let mut worklist: Vec<_> = (0..function.nodes.len()).rev().map(NodeID::new).collect();
     let mut value_numbers: HashMap<Node, NodeID> = HashMap::new();
 
     // Step 2: do worklist.
     while let Some(work) = worklist.pop() {
-        if let Some(leader) = value_numbers.get(&function.nodes[work.idx()]) {
-            // Also need to check that leader is not the current work node.
-            // The leader should never remove itself.
+        // First, iteratively simplify the work node by unwrapping identity
+        // functions.
+        let value = crawl_identities(work, function, constants);
+
+        // Next, check if there is a value number for this simplified value yet.
+        if let Some(leader) = value_numbers.get(&function.nodes[value.idx()]) {
+            // Also need to check that leader is not the current work ID. The
+            // leader should never remove itself.
             if *leader != work {
                 // If there is a value number (a previously found Node ID) for the
                 // current node, then replace all users' uses of the current work
@@ -41,8 +47,46 @@ pub fn gvn(function: &mut Function, def_use: &ImmutableDefUseMap) {
                 continue;
             }
         }
-        // If not found, insert node with its own node ID as the value
-        // number.
-        value_numbers.insert(function.nodes[work.idx()].clone(), work);
+        // If not found, insert the simplified node with its node ID as the
+        // value number.
+        value_numbers.insert(function.nodes[value.idx()].clone(), value);
+    }
+}
+
+/*
+ * Helper function for unwrapping identity functions.
+ */
+fn crawl_identities(mut work: NodeID, function: &Function, constants: &Vec<Constant>) -> NodeID {
+    loop {
+        // TODO: replace with API for saner pattern matching on IR.
+        if let Node::Binary {
+            left,
+            right,
+            op: BinaryOperator::Add,
+        } = function.nodes[work.idx()]
+        {
+            if let Node::Constant { id } = function.nodes[left.idx()] {
+                if constants[id.idx()].is_zero() {
+                    work = right;
+                    continue;
+                }
+            }
+        }
+
+        if let Node::Binary {
+            left,
+            right,
+            op: BinaryOperator::Add,
+        } = function.nodes[work.idx()]
+        {
+            if let Node::Constant { id } = function.nodes[right.idx()] {
+                if constants[id.idx()].is_zero() {
+                    work = left;
+                    continue;
+                }
+            }
+        }
+
+        return work;
     }
 }

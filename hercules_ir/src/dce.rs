@@ -2,7 +2,7 @@ use crate::*;
 
 /*
  * Top level function to run dead code elimination. Deletes nodes by setting
- * nodes to gravestones.
+ * nodes to gravestones. Works with a function already containing gravestones.
  */
 pub fn dce(function: &mut Function) {
     // Step 1: count number of users for each node.
@@ -29,7 +29,7 @@ pub fn dce(function: &mut Function) {
         .map(|(idx, _)| idx)
         .collect();
     while let Some(work) = worklist.pop() {
-        // Use state node as gravestone node value.
+        // Use start node as gravestone node value.
         let mut gravestone = Node::Start;
         std::mem::swap(&mut function.nodes[work], &mut gravestone);
 

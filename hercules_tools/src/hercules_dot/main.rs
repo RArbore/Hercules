@@ -42,7 +42,8 @@ fn main() {
         function.delete_gravestones();
 
         let def_use = hercules_ir::def_use::def_use(&function);
-        hercules_ir::gvn::gvn(&mut function, &def_use);
+        hercules_ir::gvn::gvn(&mut function, &constants, &def_use);
+        hercules_ir::dce::dce(&mut function);
         function.delete_gravestones();
 
         (function, (types, constants, dynamic_constants))

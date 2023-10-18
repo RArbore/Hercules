@@ -239,6 +239,43 @@ pub enum Constant {
     Array(TypeID, Box<[ConstantID]>),
 }
 
+impl Constant {
+    /*
+     * Useful for GVN.
+     */
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Constant::Integer8(0) => true,
+            Constant::Integer16(0) => true,
+            Constant::Integer32(0) => true,
+            Constant::Integer64(0) => true,
+            Constant::UnsignedInteger8(0) => true,
+            Constant::UnsignedInteger16(0) => true,
+            Constant::UnsignedInteger32(0) => true,
+            Constant::UnsignedInteger64(0) => true,
+            Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(0.0),
+            Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(0.0),
+            _ => false,
+        }
+    }
+
+    pub fn is_one(&self) -> bool {
+        match self {
+            Constant::Integer8(1) => true,
+            Constant::Integer16(1) => true,
+            Constant::Integer32(1) => true,
+            Constant::Integer64(1) => true,
+            Constant::UnsignedInteger8(1) => true,
+            Constant::UnsignedInteger16(1) => true,
+            Constant::UnsignedInteger32(1) => true,
+            Constant::UnsignedInteger64(1) => true,
+            Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(1.0),
+            Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(1.0),
+            _ => false,
+        }
+    }
+}
+
 /*
  * Dynamic constants are unsigned 64-bit integers passed to a Hercules function
  * at runtime using the Hercules conductor API. They cannot be the result of
