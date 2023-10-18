@@ -58,7 +58,8 @@ pub fn gvn(function: &mut Function, constants: &Vec<Constant>, def_use: &Immutab
  */
 fn crawl_identities(mut work: NodeID, function: &Function, constants: &Vec<Constant>) -> NodeID {
     loop {
-        // TODO: replace with API for saner pattern matching on IR.
+        // TODO: replace with API for saner pattern matching on IR. Also,
+        // actually add the rest of the identity functions.
         if let Node::Binary {
             left,
             right,
