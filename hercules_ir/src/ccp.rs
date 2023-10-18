@@ -125,10 +125,7 @@ impl Semilattice for ConstantLattice {
 }
 
 /*
- * Top level function to run conditional constant propagation. Needs to take
- * ownership of constants vector from function's module since this pass may
- * create new constants. Might make sense to Arc + Mutex the constants vector
- * if multithreading is ever considered.
+ * Top level function to run conditional constant propagation.
  */
 pub fn ccp(
     function: &mut Function,
