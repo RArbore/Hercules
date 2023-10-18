@@ -10,6 +10,9 @@ use clap::Parser;
 
 use rand::Rng;
 
+pub mod dot;
+use dot::*;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -35,7 +38,7 @@ fn main() {
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
-    let module = module.map(
+    let mut module = module.map(
         |(mut function, id), (types, mut constants, dynamic_constants)| {
             hercules_ir::ccp::ccp(&mut function, &mut constants, &reverse_postorders[id.idx()]);
             hercules_ir::dce::dce(&mut function);
@@ -49,6 +52,9 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
+    let (_def_use, _reverse_postorders, typing, doms, postdoms, fork_join_maps) =
+        hercules_ir::verify::verify(&mut module)
+            .expect("PANIC: Failed to verify Hercules IR module.");
 
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
@@ -57,8 +63,15 @@ fn main() {
         tmp_path.push(format!("hercules_dot_{}.dot", num));
         let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        hercules_ir::dot::write_dot(&module, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
+        write_dot(
+            &module,
+            &typing,
+            &doms,
+            &postdoms,
+            &fork_join_maps,
+            &mut contents,
+        )
+        .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");
         Command::new("xdot")
@@ -68,8 +81,15 @@ fn main() {
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        hercules_ir::dot::write_dot(&module, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
+        write_dot(
+            &module,
+            &typing,
+            &doms,
+            &postdoms,
+            &fork_join_maps,
+            &mut contents,
+        )
+        .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");
     }
