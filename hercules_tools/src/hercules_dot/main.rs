@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate rand;
 
 use std::env::temp_dir;
 use std::fs::File;
@@ -6,6 +7,11 @@ use std::io::prelude::*;
 use std::process::Command;
 
 use clap::Parser;
+
+use rand::Rng;
+
+pub mod dot;
+use dot::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -28,14 +34,41 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let _ = hercules_ir::verify::verify(&mut module)
-        .expect("PANIC: Failed to verify Hercules IR module.");
+    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+        hercules_ir::verify::verify(&mut module)
+            .expect("PANIC: Failed to verify Hercules IR module.");
+
+    let mut module = module.map(
+        |(mut function, id), (types, mut constants, dynamic_constants)| {
+            hercules_ir::ccp::ccp(
+                &mut function,
+                &mut constants,
+                &def_uses[id.idx()],
+                &reverse_postorders[id.idx()],
+            );
+            hercules_ir::dce::dce(&mut function);
+            function.delete_gravestones();
+
+            let def_use = hercules_ir::def_use::def_use(&function);
+            hercules_ir::gvn::gvn(&mut function, &constants, &def_use);
+            hercules_ir::dce::dce(&mut function);
+            function.delete_gravestones();
+
+            (function, (types, constants, dynamic_constants))
+        },
+    );
+    let (_def_use, _reverse_postorders, typing, doms, _postdoms, fork_join_maps) =
+        hercules_ir::verify::verify(&mut module)
+            .expect("PANIC: Failed to verify Hercules IR module.");
+
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
-        tmp_path.push("hercules_dot.dot");
+        let mut rng = rand::thread_rng();
+        let num: u64 = rng.gen();
+        tmp_path.push(format!("hercules_dot_{}.dot", num));
         let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        hercules_ir::dot::write_dot(&module, &mut contents)
+        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
             .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");
@@ -46,7 +79,7 @@ fn main() {
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        hercules_ir::dot::write_dot(&module, &mut contents)
+        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
             .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");

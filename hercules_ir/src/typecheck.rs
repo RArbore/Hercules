@@ -175,6 +175,21 @@ fn typeflow(
             }
         };
 
+    // We need to make sure dynamic constant parameters reference valid dynamic
+    // constant parameters of the current function. This involves traversing a
+    // given dynamic constant expression to determine that all referenced
+    // parameter dynamic constants are valid.
+    fn check_dynamic_constants(
+        root: DynamicConstantID,
+        dynamic_constants: &Vec<DynamicConstant>,
+        num_parameters: u32,
+    ) -> bool {
+        match dynamic_constants[root.idx()] {
+            DynamicConstant::Parameter(idx) => idx < num_parameters as usize,
+            _ => true,
+        }
+    }
+
     // Each node requires different type logic. This unfortunately results in a
     // large match statement. Oh well. Each arm returns the lattice value for
     // the "out" type of the node.
@@ -250,12 +265,14 @@ fn typeflow(
 
             inputs[0].clone()
         }
-        Node::Fork {
-            control: _,
-            factor: _,
-        } => {
+        Node::Fork { control: _, factor } => {
             if inputs.len() != 1 {
                 return Error(String::from("Fork node must have exactly one input."));
+            }
+
+            if !check_dynamic_constants(*factor, dynamic_constants, function.num_dynamic_constants)
+            {
+                return Error(String::from("Referenced parameter dynamic constant is not a valid dynamic constant parameter for the current function."));
             }
 
             if let Concrete(id) = inputs[0] {
@@ -559,9 +576,13 @@ fn typeflow(
                 }
             }
         }
-        Node::DynamicConstant { id: _ } => {
+        Node::DynamicConstant { id } => {
             if inputs.len() != 1 {
                 return Error(String::from("DynamicConstant node must have one input."));
+            }
+
+            if !check_dynamic_constants(*id, dynamic_constants, function.num_dynamic_constants) {
+                return Error(String::from("Referenced parameter dynamic constant is not a valid dynamic constant parameter for the current function."));
             }
 
             // Dynamic constants are always u64.
@@ -586,6 +607,11 @@ fn typeflow(
                         }
                     }
                     UnaryOperator::Neg => {
+                        if types[id.idx()].is_unsigned() {
+                            return Error(String::from(
+                                "Neg unary node input cannot have unsigned type.",
+                            ));
+                        }
                         if !types[id.idx()].is_arithmetic() {
                             return Error(String::from(
                                 "Neg unary node input cannot have non-arithmetic type.",
@@ -654,11 +680,15 @@ fn typeflow(
                         // Equality operators potentially change the input type.
                         return Concrete(get_type_id(Type::Boolean, types, reverse_type_map));
                     }
-                    BinaryOperator::Or
-                    | BinaryOperator::And
-                    | BinaryOperator::Xor
-                    | BinaryOperator::LSh
-                    | BinaryOperator::RSh => {
+                    BinaryOperator::Or | BinaryOperator::And | BinaryOperator::Xor => {
+                        if !types[id.idx()].is_fixed() && !types[id.idx()].is_bool() {
+                            return Error(format!(
+                                "{:?} binary node input cannot have non-fixed type and non-boolean type.",
+                                op,
+                            ));
+                        }
+                    }
+                    BinaryOperator::LSh | BinaryOperator::RSh => {
                         if !types[id.idx()].is_fixed() {
                             return Error(format!(
                                 "{:?} binary node input cannot have non-fixed type.",
@@ -694,6 +724,16 @@ fn typeflow(
                     dc_args.len(),
                     callee.num_dynamic_constants
                 ));
+            }
+
+            for dc_id in dc_args.iter() {
+                if !check_dynamic_constants(
+                    *dc_id,
+                    dynamic_constants,
+                    function.num_dynamic_constants,
+                ) {
+                    return Error(String::from("Referenced parameter dynamic constant is not a valid dynamic constant parameter for the current function."));
+                }
             }
 
             // Check argument types.

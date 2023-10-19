@@ -1,17 +1,174 @@
 extern crate ordered_float;
 
+use std::fmt::Write;
+
+use crate::*;
+
 /*
  * A module is a list of functions. Functions contain types, constants, and
  * dynamic constants, which are interned at the module level. Thus, if one
  * wants to run an intraprocedural pass in parallel, it is advised to first
  * destruct the module, then reconstruct it once finished.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Module {
     pub functions: Vec<Function>,
     pub types: Vec<Type>,
     pub constants: Vec<Constant>,
     pub dynamic_constants: Vec<DynamicConstant>,
+}
+
+impl Module {
+    /*
+     * There are many transformations that need to iterate over the functions
+     * in a module, while having mutable access to the interned types,
+     * constants, and dynamic constants in a module. This code is really ugly,
+     * so write it once.
+     */
+    pub fn map<F>(self, mut func: F) -> Self
+    where
+        F: FnMut(
+            (Function, FunctionID),
+            (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>),
+        ) -> (Function, (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>)),
+    {
+        let Module {
+            functions,
+            types,
+            constants,
+            dynamic_constants,
+        } = self;
+        let mut stuff = (types, constants, dynamic_constants);
+        let functions = functions
+            .into_iter()
+            .enumerate()
+            .map(|(idx, function)| {
+                let mut new_stuff = (vec![], vec![], vec![]);
+                std::mem::swap(&mut stuff, &mut new_stuff);
+                let (function, mut new_stuff) = func((function, FunctionID::new(idx)), new_stuff);
+                std::mem::swap(&mut stuff, &mut new_stuff);
+                function
+            })
+            .collect();
+        let (types, constants, dynamic_constants) = stuff;
+        Module {
+            functions,
+            types,
+            constants,
+            dynamic_constants,
+        }
+    }
+
+    /*
+     * Printing out types, constants, and dynamic constants fully requires a
+     * reference to the module, since references to other types, constants, and
+     * dynamic constants are done using IDs.
+     */
+    pub fn write_type<W: Write>(&self, ty_id: TypeID, w: &mut W) -> std::fmt::Result {
+        match &self.types[ty_id.idx()] {
+            Type::Control(_) => write!(w, "Control"),
+            Type::Boolean => write!(w, "Boolean"),
+            Type::Integer8 => write!(w, "Integer8"),
+            Type::Integer16 => write!(w, "Integer16"),
+            Type::Integer32 => write!(w, "Integer32"),
+            Type::Integer64 => write!(w, "Integer64"),
+            Type::UnsignedInteger8 => write!(w, "UnsignedInteger8"),
+            Type::UnsignedInteger16 => write!(w, "UnsignedInteger16"),
+            Type::UnsignedInteger32 => write!(w, "UnsignedInteger32"),
+            Type::UnsignedInteger64 => write!(w, "UnsignedInteger64"),
+            Type::Float32 => write!(w, "Float32"),
+            Type::Float64 => write!(w, "Float64"),
+            Type::Product(fields) => {
+                write!(w, "Product(")?;
+                for idx in 0..fields.len() {
+                    let field_ty_id = fields[idx];
+                    self.write_type(field_ty_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Type::Summation(fields) => {
+                write!(w, "Summation(")?;
+                for idx in 0..fields.len() {
+                    let field_ty_id = fields[idx];
+                    self.write_type(field_ty_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Type::Array(elem, length) => {
+                write!(w, "Array(")?;
+                self.write_type(*elem, w)?;
+                write!(w, ", ")?;
+                self.write_dynamic_constant(*length, w)?;
+                write!(w, ")")
+            }
+        }?;
+
+        Ok(())
+    }
+
+    pub fn write_constant<W: Write>(&self, cons_id: ConstantID, w: &mut W) -> std::fmt::Result {
+        match &self.constants[cons_id.idx()] {
+            Constant::Boolean(val) => write!(w, "{}", val),
+            Constant::Integer8(val) => write!(w, "{}", val),
+            Constant::Integer16(val) => write!(w, "{}", val),
+            Constant::Integer32(val) => write!(w, "{}", val),
+            Constant::Integer64(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger8(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger16(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger32(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger64(val) => write!(w, "{}", val),
+            Constant::Float32(val) => write!(w, "{}", val),
+            Constant::Float64(val) => write!(w, "{}", val),
+            Constant::Product(_, fields) => {
+                write!(w, "(")?;
+                for idx in 0..fields.len() {
+                    let field_cons_id = fields[idx];
+                    self.write_constant(field_cons_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Constant::Summation(_, variant, field) => {
+                write!(w, "%{}(", variant)?;
+                self.write_constant(*field, w)?;
+                write!(w, ")")
+            }
+            Constant::Array(_, elems) => {
+                write!(w, "[")?;
+                for idx in 0..elems.len() {
+                    let elem_cons_id = elems[idx];
+                    self.write_constant(elem_cons_id, w)?;
+                    if idx + 1 < elems.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, "]")
+            }
+        }?;
+
+        Ok(())
+    }
+
+    pub fn write_dynamic_constant<W: Write>(
+        &self,
+        dc_id: DynamicConstantID,
+        w: &mut W,
+    ) -> std::fmt::Result {
+        match &self.dynamic_constants[dc_id.idx()] {
+            DynamicConstant::Constant(cons) => write!(w, "{}", cons),
+            DynamicConstant::Parameter(param) => write!(w, "#{}", param),
+        }?;
+
+        Ok(())
+    }
 }
 
 /*
@@ -29,6 +186,61 @@ pub struct Function {
     pub return_type: TypeID,
     pub nodes: Vec<Node>,
     pub num_dynamic_constants: u32,
+}
+
+impl Function {
+    /*
+     * Many transformations will delete nodes. There isn't strictly a gravestone
+     * node value, so use the start node as a gravestone value (for IDs other
+     * than 0). This function cleans up gravestoned nodes.
+     */
+    pub fn delete_gravestones(&mut self) {
+        // Step 1: figure out which nodes are gravestones.
+        let mut gravestones = (0..self.nodes.len())
+            .filter(|x| *x != 0 && self.nodes[*x].is_start())
+            .map(|x| NodeID::new(x));
+
+        // Step 2: figure out the mapping between old node IDs and new node IDs.
+        let mut node_mapping = Vec::with_capacity(self.nodes.len());
+        let mut next_gravestone = gravestones.next();
+        let mut num_gravestones_passed = 0;
+        for idx in 0..self.nodes.len() {
+            if Some(NodeID::new(idx)) == next_gravestone {
+                node_mapping.push(NodeID::new(0));
+                num_gravestones_passed += 1;
+                next_gravestone = gravestones.next();
+            } else {
+                node_mapping.push(NodeID::new(idx - num_gravestones_passed));
+            }
+        }
+
+        // Step 3: create new nodes vector. Along the way, update all uses.
+        let mut old_nodes = vec![];
+        std::mem::swap(&mut old_nodes, &mut self.nodes);
+
+        let mut new_nodes = Vec::with_capacity(old_nodes.len() - num_gravestones_passed);
+        for (idx, mut node) in old_nodes.into_iter().enumerate() {
+            // Skip node if it's dead.
+            if idx != 0 && node.is_start() {
+                continue;
+            }
+
+            // Update uses.
+            for u in get_uses_mut(&mut node).as_mut() {
+                let old_id = **u;
+                let new_id = node_mapping[old_id.idx()];
+                if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
+                    panic!("While deleting gravestones, came across a use of a gravestoned node.");
+                }
+                **u = new_id;
+            }
+
+            // Add to new_nodes.
+            new_nodes.push(node);
+        }
+
+        std::mem::swap(&mut new_nodes, &mut self.nodes);
+    }
 }
 
 /*
@@ -143,6 +355,43 @@ pub enum Constant {
     Array(TypeID, Box<[ConstantID]>),
 }
 
+impl Constant {
+    /*
+     * Useful for GVN.
+     */
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Constant::Integer8(0) => true,
+            Constant::Integer16(0) => true,
+            Constant::Integer32(0) => true,
+            Constant::Integer64(0) => true,
+            Constant::UnsignedInteger8(0) => true,
+            Constant::UnsignedInteger16(0) => true,
+            Constant::UnsignedInteger32(0) => true,
+            Constant::UnsignedInteger64(0) => true,
+            Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(0.0),
+            Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(0.0),
+            _ => false,
+        }
+    }
+
+    pub fn is_one(&self) -> bool {
+        match self {
+            Constant::Integer8(1) => true,
+            Constant::Integer16(1) => true,
+            Constant::Integer32(1) => true,
+            Constant::Integer64(1) => true,
+            Constant::UnsignedInteger8(1) => true,
+            Constant::UnsignedInteger16(1) => true,
+            Constant::UnsignedInteger32(1) => true,
+            Constant::UnsignedInteger64(1) => true,
+            Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(1.0),
+            Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(1.0),
+            _ => false,
+        }
+    }
+}
+
 /*
  * Dynamic constants are unsigned 64-bit integers passed to a Hercules function
  * at runtime using the Hercules conductor API. They cannot be the result of
@@ -170,7 +419,7 @@ pub enum DynamicConstant {
  * side effects, so call nodes don't take as input or output control tokens.
  * There is also no global memory - use arrays.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     Start,
     Region {

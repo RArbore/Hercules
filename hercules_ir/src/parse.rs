@@ -7,6 +7,13 @@ use std::str::FromStr;
 use crate::*;
 
 /*
+ * TODO: This parsing code was written before the generic build API was created.
+ * As a result, this parsing code duplicates much of the interning logic the
+ * build API is meant to abstract away. The parsing code should be re-written to
+ * use the new build API.
+ */
+
+/*
  * Top level parse function.
  */
 pub fn parse(ir_test: &str) -> Result<Module, ()> {
