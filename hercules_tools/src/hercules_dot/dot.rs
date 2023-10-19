@@ -1,6 +1,7 @@
 extern crate hercules_ir;
 
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use self::hercules_ir::*;
 
@@ -8,7 +9,7 @@ use self::hercules_ir::*;
  * Top level function to write a module out as a dot graph. Takes references to
  * many analysis results to generate a more informative dot graph.
  */
-pub fn write_dot<W: std::fmt::Write>(
+pub fn write_dot<W: Write>(
     module: &ir::Module,
     typing: &ModuleTyping,
     doms: &Vec<DomTree>,
@@ -101,19 +102,21 @@ pub fn write_dot<W: std::fmt::Write>(
     Ok(())
 }
 
-fn write_digraph_header<W: std::fmt::Write>(w: &mut W) -> std::fmt::Result {
+fn write_digraph_header<W: Write>(w: &mut W) -> std::fmt::Result {
     write!(w, "digraph \"Module\" {{\n")?;
     write!(w, "compound=true\n")?;
     Ok(())
 }
 
-fn write_subgraph_header<W: std::fmt::Write>(
+fn write_subgraph_header<W: Write>(
     function_id: FunctionID,
     module: &Module,
     w: &mut W,
 ) -> std::fmt::Result {
     let function = &module.functions[function_id.idx()];
     write!(w, "subgraph {} {{\n", function.name)?;
+
+    // Write number of dynamic constants in brackets.
     if function.num_dynamic_constants > 0 {
         write!(
             w,
@@ -128,12 +131,12 @@ fn write_subgraph_header<W: std::fmt::Write>(
     Ok(())
 }
 
-fn write_graph_footer<W: std::fmt::Write>(w: &mut W) -> std::fmt::Result {
+fn write_graph_footer<W: Write>(w: &mut W) -> std::fmt::Result {
     write!(w, "}}\n")?;
     Ok(())
 }
 
-fn write_node<W: std::fmt::Write>(
+fn write_node<W: Write>(
     node_id: NodeID,
     function_id: FunctionID,
     color: &str,
@@ -141,6 +144,48 @@ fn write_node<W: std::fmt::Write>(
     w: &mut W,
 ) -> std::fmt::Result {
     let node = &module.functions[function_id.idx()].nodes[node_id.idx()];
+
+    // Some nodes have additional information that need to get written after the
+    // node label.
+    let mut suffix = String::new();
+    match node {
+        Node::Fork { control: _, factor } => module.write_dynamic_constant(*factor, &mut suffix)?,
+        Node::Parameter { index } => write!(&mut suffix, "#{}", index)?,
+        Node::Constant { id } => module.write_constant(*id, &mut suffix)?,
+        Node::DynamicConstant { id } => module.write_dynamic_constant(*id, &mut suffix)?,
+        Node::Call {
+            function,
+            dynamic_constants,
+            args: _,
+        } => {
+            write!(&mut suffix, "{}", module.functions[function.idx()].name)?;
+            for dc_id in dynamic_constants.iter() {
+                write!(&mut suffix, ", ")?;
+                module.write_dynamic_constant(*dc_id, &mut suffix)?;
+            }
+        }
+        Node::ReadProd { prod: _, index } => write!(&mut suffix, "{}", index)?,
+        Node::WriteProd {
+            prod: _,
+            data: _,
+            index,
+        } => write!(&mut suffix, "{}", index)?,
+        Node::BuildSum {
+            data: _,
+            sum_ty: _,
+            variant,
+        } => write!(&mut suffix, "{}", variant)?,
+        Node::ExtractSum { data: _, variant } => write!(&mut suffix, "{}", variant)?,
+        _ => {}
+    };
+
+    // If this is a node with additional information, add that to the node
+    // label.
+    let label = if suffix.is_empty() {
+        node.lower_case_name().to_owned()
+    } else {
+        format!("{} ({})", node.lower_case_name(), suffix)
+    };
     write!(
         w,
         "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
@@ -148,13 +193,13 @@ fn write_node<W: std::fmt::Write>(
         function_id.idx(),
         node_id.idx(),
         node_id.idx(),
-        node.lower_case_name(),
+        label,
         color
     )?;
     Ok(())
 }
 
-fn write_edge<W: std::fmt::Write>(
+fn write_edge<W: Write>(
     dst_node_id: NodeID,
     dst_function_id: FunctionID,
     src_node_id: NodeID,

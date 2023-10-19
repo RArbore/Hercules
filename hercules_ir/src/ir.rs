@@ -1,5 +1,7 @@
 extern crate ordered_float;
 
+use std::fmt::Write;
+
 use crate::*;
 
 /*
@@ -55,6 +57,117 @@ impl Module {
             constants,
             dynamic_constants,
         }
+    }
+
+    /*
+     * Printing out types, constants, and dynamic constants fully requires a
+     * reference to the module, since references to other types, constants, and
+     * dynamic constants are done using IDs.
+     */
+    pub fn write_type<W: Write>(&self, ty_id: TypeID, w: &mut W) -> std::fmt::Result {
+        match &self.types[ty_id.idx()] {
+            Type::Control(_) => write!(w, "Control"),
+            Type::Boolean => write!(w, "Boolean"),
+            Type::Integer8 => write!(w, "Integer8"),
+            Type::Integer16 => write!(w, "Integer16"),
+            Type::Integer32 => write!(w, "Integer32"),
+            Type::Integer64 => write!(w, "Integer64"),
+            Type::UnsignedInteger8 => write!(w, "UnsignedInteger8"),
+            Type::UnsignedInteger16 => write!(w, "UnsignedInteger16"),
+            Type::UnsignedInteger32 => write!(w, "UnsignedInteger32"),
+            Type::UnsignedInteger64 => write!(w, "UnsignedInteger64"),
+            Type::Float32 => write!(w, "Float32"),
+            Type::Float64 => write!(w, "Float64"),
+            Type::Product(fields) => {
+                write!(w, "Product(")?;
+                for idx in 0..fields.len() {
+                    let field_ty_id = fields[idx];
+                    self.write_type(field_ty_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Type::Summation(fields) => {
+                write!(w, "Summation(")?;
+                for idx in 0..fields.len() {
+                    let field_ty_id = fields[idx];
+                    self.write_type(field_ty_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Type::Array(elem, length) => {
+                write!(w, "Array(")?;
+                self.write_type(*elem, w)?;
+                write!(w, ", ")?;
+                self.write_dynamic_constant(*length, w)?;
+                write!(w, ")")
+            }
+        }?;
+
+        Ok(())
+    }
+
+    pub fn write_constant<W: Write>(&self, cons_id: ConstantID, w: &mut W) -> std::fmt::Result {
+        match &self.constants[cons_id.idx()] {
+            Constant::Boolean(val) => write!(w, "{}", val),
+            Constant::Integer8(val) => write!(w, "{}", val),
+            Constant::Integer16(val) => write!(w, "{}", val),
+            Constant::Integer32(val) => write!(w, "{}", val),
+            Constant::Integer64(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger8(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger16(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger32(val) => write!(w, "{}", val),
+            Constant::UnsignedInteger64(val) => write!(w, "{}", val),
+            Constant::Float32(val) => write!(w, "{}", val),
+            Constant::Float64(val) => write!(w, "{}", val),
+            Constant::Product(_, fields) => {
+                write!(w, "(")?;
+                for idx in 0..fields.len() {
+                    let field_cons_id = fields[idx];
+                    self.write_constant(field_cons_id, w)?;
+                    if idx + 1 < fields.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, ")")
+            }
+            Constant::Summation(_, variant, field) => {
+                write!(w, "%{}(", variant)?;
+                self.write_constant(*field, w)?;
+                write!(w, ")")
+            }
+            Constant::Array(_, elems) => {
+                write!(w, "[")?;
+                for idx in 0..elems.len() {
+                    let elem_cons_id = elems[idx];
+                    self.write_constant(elem_cons_id, w)?;
+                    if idx + 1 < elems.len() {
+                        write!(w, ", ")?;
+                    }
+                }
+                write!(w, "]")
+            }
+        }?;
+
+        Ok(())
+    }
+
+    pub fn write_dynamic_constant<W: Write>(
+        &self,
+        dc_id: DynamicConstantID,
+        w: &mut W,
+    ) -> std::fmt::Result {
+        match &self.dynamic_constants[dc_id.idx()] {
+            DynamicConstant::Constant(cons) => write!(w, "{}", cons),
+            DynamicConstant::Parameter(param) => write!(w, "#{}", param),
+        }?;
+
+        Ok(())
     }
 }
 
