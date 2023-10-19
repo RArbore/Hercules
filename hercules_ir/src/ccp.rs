@@ -130,6 +130,7 @@ impl Semilattice for ConstantLattice {
 pub fn ccp(
     function: &mut Function,
     constants: &mut Vec<Constant>,
+    def_use: &ImmutableDefUseMap,
     reverse_postorder: &Vec<NodeID>,
 ) {
     // Step 1: run ccp analysis to understand the function.
@@ -206,6 +207,85 @@ pub fn ccp(
     *constants = vec![Constant::Boolean(false); reverse_constant_map.len()];
     for (cons, id) in reverse_constant_map {
         constants[id.idx()] = cons;
+    }
+
+    // Step 3: delete dead branches. Any nodes that are unreachable should be
+    // deleted. Any if or match nodes that now are light on users need to be
+    // removed immediately, since if and match nodes have requirements on the
+    // number of users.
+
+    // Step 3.1: delete unreachable nodes. Loop over the length of the dataflow
+    // result instead of the function's node list, since in step 2, constant
+    // nodes were added that don't have a corresponding lattice result.
+    for idx in 0..result.len() {
+        if !result[idx].is_reachable() {
+            function.nodes[idx] = Node::Start;
+        }
+    }
+
+    // Step 3.2: remove uses of data nodes in phi nodes corresponding to
+    // unreachable uses in corresponding region nodes.
+    for phi_id in (0..result.len()).map(NodeID::new) {
+        if let Node::Phi { control, data } = &function.nodes[phi_id.idx()] {
+            if let Node::Region { preds } = &function.nodes[control.idx()] {
+                let new_data = zip(preds.iter(), data.iter())
+                    .filter(|(pred, _)| result[pred.idx()].is_reachable())
+                    .map(|(_, datum)| *datum)
+                    .collect();
+                function.nodes[phi_id.idx()] = Node::Phi {
+                    control: *control,
+                    data: new_data,
+                };
+            }
+        }
+    }
+
+    // Step 3.3: remove uses of unreachable nodes in region nodes.
+    for node in function.nodes.iter_mut() {
+        if let Node::Region { preds } = node {
+            *preds = preds
+                .iter()
+                .filter(|pred| result[pred.idx()].is_reachable())
+                .map(|x| *x)
+                .collect();
+        }
+    }
+
+    // Step 3.4: remove if and match nodes with one reachable user.
+    for branch_id in (0..result.len()).map(NodeID::new) {
+        if let Node::If { control, cond: _ } | Node::Match { control, sum: _ } =
+            function.nodes[branch_id.idx()].clone()
+        {
+            let users = def_use.get_users(branch_id);
+            let mut reachable_users = users
+                .iter()
+                .filter(|user| result[user.idx()].is_reachable());
+            let the_reachable_user = reachable_users
+                .next()
+                .expect("During CCP, found a branch with no reachable users.");
+
+            // The reachable users iterator will contain one user if we need to
+            // remove this branch node.
+            if let None = reachable_users.next() {
+                // The user is a ReadProd node, which in turn has one user.
+                let target = def_use.get_users(*the_reachable_user)[0];
+
+                // For each use in the target of the reachable ReadProd, turn it
+                // into a use of the node proceeding this branch node.
+                for u in get_uses_mut(&mut function.nodes[target.idx()]).as_mut() {
+                    if **u == *the_reachable_user {
+                        **u = control;
+                    }
+                }
+
+                // Remove this branch node, since it is malformed. Also remove
+                // all successor ReadProd nodes.
+                function.nodes[branch_id.idx()] = Node::Start;
+                for user in users {
+                    function.nodes[user.idx()] = Node::Start;
+                }
+            }
+        }
     }
 }
 

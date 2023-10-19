@@ -34,13 +34,18 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let (_def_use, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
     let mut module = module.map(
         |(mut function, id), (types, mut constants, dynamic_constants)| {
-            hercules_ir::ccp::ccp(&mut function, &mut constants, &reverse_postorders[id.idx()]);
+            hercules_ir::ccp::ccp(
+                &mut function,
+                &mut constants,
+                &def_uses[id.idx()],
+                &reverse_postorders[id.idx()],
+            );
             hercules_ir::dce::dce(&mut function);
             function.delete_gravestones();
 

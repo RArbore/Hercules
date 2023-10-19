@@ -229,6 +229,9 @@ impl Function {
             for u in get_uses_mut(&mut node).as_mut() {
                 let old_id = **u;
                 let new_id = node_mapping[old_id.idx()];
+                if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
+                    panic!("While deleting gravestones, came across a use of a gravestoned node.");
+                }
                 **u = new_id;
             }
 
