@@ -33,7 +33,7 @@ where
     L: Semilattice,
     F: FnMut(&[&L], NodeID) -> L,
 {
-    forward_dataflow_global(function, reverse_postorder, |global_outs, node_id| {
+    dataflow_global(function, reverse_postorder, |global_outs, node_id| {
         let uses = get_uses(&function.nodes[node_id.idx()]);
         let pred_outs: Vec<_> = uses
             .as_ref()
@@ -45,14 +45,38 @@ where
 }
 
 /*
- * The previous forward dataflow routine wraps around this dataflow routine,
+ * Top level backward dataflow function. Instead of passing the uses' lattice
+ * values to the flow function, passes in the users' lattice values.
+ */
+pub fn backward_dataflow<L, F>(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    reverse_postorder: &Vec<NodeID>,
+    mut flow_function: F,
+) -> Vec<L>
+where
+    L: Semilattice,
+    F: FnMut(&[&L], NodeID) -> L,
+{
+    dataflow_global(function, reverse_postorder, |global_outs, node_id| {
+        let users = def_use.get_users(node_id);
+        let succ_outs: Vec<_> = users
+            .as_ref()
+            .iter()
+            .map(|id| &global_outs[id.idx()])
+            .collect();
+        flow_function(&succ_outs, node_id)
+    })
+}
+
+/*
+ * The previous forward dataflow routines wraps around this dataflow routine,
  * where the flow function doesn't just have access to this nodes input lattice
  * values, but also all the current lattice values for all the nodes. This is
  * useful for some dataflow analyses, such as reachability. The "global" in
- * forward_dataflow_global refers to having a global view of the out lattice
- * values.
+ * dataflow_global refers to having a global view of the out lattice values.
  */
-pub fn forward_dataflow_global<L, F>(
+pub fn dataflow_global<L, F>(
     function: &Function,
     reverse_postorder: &Vec<NodeID>,
     mut flow_function: F,
@@ -75,7 +99,7 @@ where
 
         // Iterate nodes in reverse post order.
         for node_id in reverse_postorder {
-            // Compute new "out" value from predecessor "out" values.
+            // Compute new "out" value from previous "out" values.
             let new_out = flow_function(&outs, *node_id);
             if outs[node_id.idx()] != new_out {
                 change = true;
@@ -269,6 +293,38 @@ pub fn control_output_flow(
         let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
         singular.set(node_id.idx(), true);
         out = UnionNodeSet::meet(&out, &UnionNodeSet::Bits(singular));
+    }
+
+    out
+}
+
+/*
+ * Flow function for collecting all of a data node's immediate uses / users of
+ * control nodes. Useful for code generation.
+ */
+pub fn immediate_control_flow(
+    inputs: &[&UnionNodeSet],
+    node_id: NodeID,
+    function: &Function,
+) -> UnionNodeSet {
+    // Step 1: union inputs.
+    let mut out = inputs
+        .into_iter()
+        .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
+    let node = &function.nodes[node_id.idx()];
+
+    // Step 2: figure out if this node is a control node.
+    let control = if let Node::ReadProd { prod, index: _ } = node {
+        function.nodes[prod.idx()].is_strictly_control()
+    } else {
+        node.is_strictly_control()
+    };
+
+    // Step 3: clear all bits and set bit for current node, if applicable.
+    if control {
+        let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
+        singular.set(node_id.idx(), true);
+        out = UnionNodeSet::Bits(singular);
     }
 
     out

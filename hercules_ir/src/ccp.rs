@@ -134,7 +134,7 @@ pub fn ccp(
     reverse_postorder: &Vec<NodeID>,
 ) {
     // Step 1: run ccp analysis to understand the function.
-    let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
+    let result = dataflow_global(&function, reverse_postorder, |inputs, node_id| {
         ccp_flow_function(inputs, node_id, &function, &constants)
     });
 
