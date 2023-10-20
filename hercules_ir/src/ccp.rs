@@ -324,6 +324,9 @@ pub fn collapse_region_chains(function: &mut Function, def_use: &ImmutableDefUse
                     }
                 }
 
+                // Delete this region.
+                function.nodes[id.idx()] = Node::Start;
+
                 // Step 2: bridge gap between uses and users of corresponding
                 // phi nodes.
                 let phis: Vec<NodeID> = def_use
@@ -351,6 +354,9 @@ pub fn collapse_region_chains(function: &mut Function, def_use: &ImmutableDefUse
                             }
                         }
                     }
+
+                    // Delete this phi.
+                    function.nodes[phi_id.idx()] = Node::Start;
                 }
             }
         }
