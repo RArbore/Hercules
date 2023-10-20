@@ -308,7 +308,7 @@ pub fn collapse_region_chains(function: &mut Function, def_use: &ImmutableDefUse
     for id in (0..function.nodes.len()).map(NodeID::new) {
         if let Node::Region { preds } = &function.nodes[id.idx()] {
             if preds.len() == 1 {
-                // Step 1: bridge the gap between use and user.
+                // Step 1: bridge gap between use and user.
                 let predecessor = preds[0];
                 let successor = def_use
                     .get_users(id)
@@ -324,7 +324,7 @@ pub fn collapse_region_chains(function: &mut Function, def_use: &ImmutableDefUse
                     }
                 }
 
-                // Step 2: bridge the gap between use and user of corresponding
+                // Step 2: bridge gap between uses and users of corresponding
                 // phi nodes.
                 let phis: Vec<NodeID> = def_use
                     .get_users(id)
