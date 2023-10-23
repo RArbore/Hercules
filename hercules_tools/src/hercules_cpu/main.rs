@@ -1,17 +1,9 @@
 extern crate clap;
-extern crate rand;
 
-use std::env::temp_dir;
 use std::fs::File;
 use std::io::prelude::*;
-use std::process::Command;
 
 use clap::Parser;
-
-use rand::Rng;
-
-pub mod dot;
-use dot::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -25,7 +17,7 @@ struct Args {
 fn main() {
     let args = Args::parse();
     if !args.hir_file.ends_with(".hir") {
-        eprintln!("WARNING: Running hercules_dot on a file without a .hir extension - interpreting as a textual Hercules IR file.");
+        eprintln!("WARNING: Running hercules_cpu on a file without a .hir extension - interpreting as a textual Hercules IR file.");
     }
 
     let mut file = File::open(args.hir_file).expect("PANIC: Unable to open input file.");
@@ -57,31 +49,16 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (_def_uses, _reverse_postorders, typing, doms, _postdoms, fork_join_maps) =
+    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
-    if args.output.is_empty() {
-        let mut tmp_path = temp_dir();
-        let mut rng = rand::thread_rng();
-        let num: u64 = rng.gen();
-        tmp_path.push(format!("hercules_dot_{}.dot", num));
-        let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
-        let mut contents = String::new();
-        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
-        file.write_all(contents.as_bytes())
-            .expect("PANIC: Unable to write output file contents.");
-        Command::new("xdot")
-            .args([tmp_path])
-            .output()
-            .expect("PANIC: Couldn't execute xdot.");
-    } else {
-        let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
-        let mut contents = String::new();
-        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
-        file.write_all(contents.as_bytes())
-            .expect("PANIC: Unable to write output file contents.");
-    }
+    let _bbs: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_codegen::gcm::gcm(function, &def_uses[idx], &reverse_postorders[idx])
+        })
+        .collect();
 }

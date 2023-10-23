@@ -144,6 +144,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
+name = "hercules_codegen"
+version = "0.1.0"
+dependencies = [
+ "hercules_ir",
+]
+
+[[package]]
 name = "hercules_ir"
 version = "0.1.0"
 dependencies = [
@@ -164,6 +171,7 @@ name = "hercules_tools"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hercules_codegen",
  "hercules_ir",
  "hercules_opt",
  "rand",

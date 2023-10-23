@@ -7,8 +7,13 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 name = "hercules_dot"
 path = "src/hercules_dot/main.rs"
 
+[[bin]]
+name = "hercules_cpu"
+path = "src/hercules_cpu/main.rs"
+
 [dependencies]
 clap = { version = "*", features = ["derive"] }
 hercules_ir = { path = "../hercules_ir" }
 hercules_opt = { path = "../hercules_opt" }
+hercules_codegen = { path = "../hercules_codegen" }
 rand = "*"

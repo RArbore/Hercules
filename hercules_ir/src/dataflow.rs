@@ -86,9 +86,7 @@ where
     F: FnMut(&[L], NodeID) -> L,
 {
     // Step 1: create initial set of "out" points.
-    let start_node_output = flow_function(&[], NodeID::new(0));
-    let mut first_ins = vec![L::top(); function.nodes.len()];
-    first_ins[0] = start_node_output;
+    let first_ins = vec![L::top(); function.nodes.len()];
     let mut outs: Vec<L> = (0..function.nodes.len())
         .map(|id| flow_function(&first_ins, NodeID::new(id)))
         .collect();
