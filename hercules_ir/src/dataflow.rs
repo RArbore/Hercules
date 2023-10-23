@@ -304,13 +304,23 @@ pub fn control_output_flow(
  */
 pub fn immediate_control_flow(
     inputs: &[&UnionNodeSet],
-    node_id: NodeID,
+    mut node_id: NodeID,
     function: &Function,
 ) -> UnionNodeSet {
-    // Step 1: union inputs.
-    let mut out = inputs
-        .into_iter()
-        .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
+    let mut out = UnionNodeSet::top();
+
+    // Step 1: replace node if this is a phi, thread ID, or collect.
+    if let Node::Phi { control, data: _ }
+    | Node::ThreadID { control }
+    | Node::Collect { control, data: _ } = &function.nodes[node_id.idx()]
+    {
+        node_id = *control;
+    } else {
+        // Union node inputs if not a special case.
+        out = inputs
+            .into_iter()
+            .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
+    }
     let node = &function.nodes[node_id.idx()];
 
     // Step 2: figure out if this node is a control node.
