@@ -153,11 +153,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hercules_opt"
+version = "0.1.0"
+dependencies = [
+ "hercules_ir",
+]
+
+[[package]]
 name = "hercules_tools"
 version = "0.1.0"
 dependencies = [
  "clap",
  "hercules_ir",
+ "hercules_opt",
  "rand",
 ]
 

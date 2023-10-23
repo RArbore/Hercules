@@ -40,18 +40,18 @@ fn main() {
 
     let mut module = module.map(
         |(mut function, id), (types, mut constants, dynamic_constants)| {
-            hercules_ir::ccp::ccp(
+            hercules_opt::ccp::ccp(
                 &mut function,
                 &mut constants,
                 &def_uses[id.idx()],
                 &reverse_postorders[id.idx()],
             );
-            hercules_ir::dce::dce(&mut function);
+            hercules_opt::dce::dce(&mut function);
             function.delete_gravestones();
 
             let def_use = hercules_ir::def_use::def_use(&function);
-            hercules_ir::gvn::gvn(&mut function, &constants, &def_use);
-            hercules_ir::dce::dce(&mut function);
+            hercules_opt::gvn::gvn(&mut function, &constants, &def_use);
+            hercules_opt::dce::dce(&mut function);
             function.delete_gravestones();
 
             (function, (types, constants, dynamic_constants))

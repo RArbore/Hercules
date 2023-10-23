@@ -1,6 +1,9 @@
+extern crate hercules_ir;
+
 use std::collections::HashMap;
 
-use crate::*;
+use self::hercules_ir::def_use::*;
+use self::hercules_ir::ir::*;
 
 /*
  * Top level function to run global value numbering. In the sea of nodes, GVN is

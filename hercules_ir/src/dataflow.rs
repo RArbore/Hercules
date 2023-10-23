@@ -300,7 +300,9 @@ pub fn control_output_flow(
 
 /*
  * Flow function for collecting all of a data node's immediate uses / users of
- * control nodes. Useful for code generation.
+ * control nodes. Useful for code generation. Since this is for immediate uses /
+ * users of control nodes, control node uses / users do not propagate through
+ * control nodes, or through control output nodes (phis, thread IDs, collects).
  */
 pub fn immediate_control_flow(
     inputs: &[&UnionNodeSet],

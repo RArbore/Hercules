@@ -1,7 +1,11 @@
+extern crate hercules_ir;
+
 use std::collections::HashMap;
 use std::iter::zip;
 
-use crate::*;
+use self::hercules_ir::dataflow::*;
+use self::hercules_ir::def_use::*;
+use self::hercules_ir::ir::*;
 
 /*
  * The ccp lattice tracks, for each node, the following information:

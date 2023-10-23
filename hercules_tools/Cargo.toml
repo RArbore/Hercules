@@ -10,4 +10,5 @@ path = "src/hercules_dot/main.rs"
 [dependencies]
 clap = { version = "*", features = ["derive"] }
 hercules_ir = { path = "../hercules_ir" }
+hercules_opt = { path = "../hercules_opt" }
 rand = "*"
