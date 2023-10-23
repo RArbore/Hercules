@@ -1,6 +1,6 @@
 extern crate bitvec;
 
-use dataflow::bitvec::prelude::*;
+use self::bitvec::prelude::*;
 
 use crate::*;
 

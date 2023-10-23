@@ -3,7 +3,7 @@ extern crate bitvec;
 use std::collections::HashMap;
 use std::iter::zip;
 
-use verify::bitvec::prelude::*;
+use self::bitvec::prelude::*;
 
 use crate::*;
 

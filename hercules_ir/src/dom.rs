@@ -1,8 +1,6 @@
-extern crate bitvec;
+use std::collections::HashMap;
 
 use crate::*;
-
-use std::collections::HashMap;
 
 /*
  * Custom type for storing a dominator tree. For each control node, store its
