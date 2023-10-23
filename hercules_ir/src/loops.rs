@@ -22,3 +22,10 @@ pub struct LoopTree {
 }
 
 impl LoopTree {}
+
+/*
+ * Top level function for calculating loop trees.
+ */
+pub fn loops(subgraph: &Subgraph, dom: &DomTree) -> LoopTree {
+    todo!()
+}
