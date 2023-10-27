@@ -8,6 +8,7 @@ use crate::*;
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
+    root: NodeID,
     idom: HashMap<NodeID, NodeID>,
 }
 
@@ -45,12 +46,8 @@ impl DomTree {
         self.idom.contains_key(&x)
     }
 
-    /*
-     * Typically, node ID 0 is the root of the dom tree. Under this assumption,
-     * this function checks if a node is in the dom tree.
-     */
-    pub fn contains_conventional(&self, x: NodeID) -> bool {
-        x == NodeID::new(0) || self.idom.contains_key(&x)
+    pub fn contains(&self, x: NodeID) -> bool {
+        x == self.root || self.idom.contains_key(&x)
     }
 
     pub fn get_underlying_map(&self) -> &HashMap<NodeID, NodeID> {
@@ -119,7 +116,7 @@ pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
         }
     }
 
-    DomTree { idom }
+    DomTree { root, idom }
 }
 
 fn preorder(subgraph: &Subgraph, root: NodeID) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {

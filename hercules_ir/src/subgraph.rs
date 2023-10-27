@@ -36,6 +36,15 @@ impl<'a> Iterator for SubgraphIterator<'a> {
     }
 }
 
+impl IntoIterator for Subgraph {
+    type Item = NodeID;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.into_iter()
+    }
+}
+
 impl Subgraph {
     pub fn num_nodes(&self) -> u32 {
         self.nodes.len() as u32
@@ -43,6 +52,10 @@ impl Subgraph {
 
     pub fn contains_node(&self, id: NodeID) -> bool {
         self.node_numbers.contains_key(&id)
+    }
+
+    pub fn iter<'a>(&'a self) -> std::slice::Iter<'a, NodeID> {
+        self.nodes.iter()
     }
 
     pub fn preds(&self, id: NodeID) -> SubgraphIterator {

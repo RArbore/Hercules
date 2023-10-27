@@ -34,7 +34,7 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+    let (def_uses, reverse_postorders, _typing, _subgraphs, _doms, _postdoms, _fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
@@ -57,7 +57,7 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (_def_uses, _reverse_postorders, typing, doms, _postdoms, fork_join_maps) =
+    let (_def_uses, _reverse_postorders, typing, _subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 

@@ -26,7 +26,7 @@ fn main() {
         .expect("PANIC: Unable to read input file contents.");
     let mut module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+    let (def_uses, reverse_postorders, _typing, _subgraphs, _doms, _postdoms, _fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
@@ -49,7 +49,7 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (def_uses, reverse_postorders, _typing, _doms, _postdoms, _fork_join_maps) =
+    let (def_uses, reverse_postorders, _typing, subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
@@ -58,7 +58,14 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_codegen::gcm::gcm(function, &def_uses[idx], &reverse_postorders[idx])
+            hercules_codegen::gcm::gcm(
+                function,
+                &def_uses[idx],
+                &reverse_postorders[idx],
+                &subgraphs[idx],
+                &doms[idx],
+                &fork_join_maps[idx],
+            )
         })
         .collect();
 }
