@@ -15,6 +15,7 @@ pub struct Subgraph {
     forward_edges: Vec<u32>,
     first_backward_edges: Vec<u32>,
     backward_edges: Vec<u32>,
+    original_num_nodes: u32,
 }
 
 pub struct SubgraphIterator<'a> {
@@ -48,6 +49,10 @@ impl IntoIterator for Subgraph {
 impl Subgraph {
     pub fn num_nodes(&self) -> u32 {
         self.nodes.len() as u32
+    }
+
+    pub fn original_num_nodes(&self) -> u32 {
+        self.original_num_nodes
     }
 
     pub fn contains_node(&self, id: NodeID) -> bool {
@@ -99,6 +104,7 @@ impl Subgraph {
             forward_edges,
             mut first_backward_edges,
             mut backward_edges,
+            original_num_nodes,
         } = self;
 
         // Since we need to add a "new" root to the subgraph, we first need to
@@ -151,6 +157,7 @@ impl Subgraph {
             forward_edges: backward_edges,
             first_backward_edges: new_first_forward_edges,
             backward_edges: new_forward_edges,
+            original_num_nodes,
         }
     }
 }
@@ -172,6 +179,7 @@ where
         forward_edges: vec![],
         first_backward_edges: vec![],
         backward_edges: vec![],
+        original_num_nodes: function.nodes.len() as u32,
     };
 
     // Step 1: collect predicated nodes.
