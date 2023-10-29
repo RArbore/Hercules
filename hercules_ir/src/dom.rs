@@ -4,17 +4,18 @@ use crate::*;
 
 /*
  * Custom type for storing a dominator tree. For each control node, store its
- * immediate dominator.
+ * immediate dominator, and its level in the dominator tree. Dominator tree
+ * levels are used for finding common ancestors.
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
     root: NodeID,
-    idom: HashMap<NodeID, NodeID>,
+    idom: HashMap<NodeID, (u32, NodeID)>,
 }
 
 impl DomTree {
     pub fn imm_dom(&self, x: NodeID) -> Option<NodeID> {
-        self.idom.get(&x).map(|x| x.clone())
+        self.idom.get(&x).map(|x| x.1)
     }
 
     pub fn does_imm_dom(&self, a: NodeID, b: NodeID) -> bool {
@@ -50,7 +51,7 @@ impl DomTree {
         x == self.root || self.idom.contains_key(&x)
     }
 
-    pub fn get_underlying_map(&self) -> &HashMap<NodeID, NodeID> {
+    pub fn get_underlying_map(&self) -> &HashMap<NodeID, (u32, NodeID)> {
         &self.idom
     }
 }
@@ -70,7 +71,7 @@ pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
     let mut idom = HashMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
-        idom.insert(*w, parents[w]);
+        idom.insert(*w, (0, parents[w]));
     }
 
     // Step 2: define snca_compress, which will be used to compute semi-
@@ -111,8 +112,24 @@ pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
     // Step 4: compute idom.
     for v_n in 1..preorder.len() {
         let v = preorder[v_n];
-        while node_numbers[&idom[&v]] > semi[v_n] {
-            *idom.get_mut(&v).unwrap() = idom[&idom[&v]];
+        while node_numbers[&idom[&v].1] > semi[v_n] {
+            *idom.get_mut(&v).unwrap() = idom[&idom[&v].1];
+        }
+    }
+
+    // Step 5: compute levels in idom.
+    let mut change = true;
+    while change {
+        change = false;
+        for node in preorder[1..].iter() {
+            let (level, parent) = idom[node];
+            if level == 0 && parent == root {
+                idom.get_mut(node).unwrap().0 = 1;
+                change = true;
+            } else if level == 0 && idom[&parent].0 != 0 {
+                idom.get_mut(node).unwrap().0 = 1 + idom[&parent].0;
+                change = true;
+            }
         }
     }
 

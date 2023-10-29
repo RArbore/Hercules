@@ -67,7 +67,7 @@ pub fn write_dot<W: Write>(
         // Step 2: draw dominance edges in dark green. Don't draw post dominance
         // edges because then xdot lays out the graph strangely.
         let dom = &doms[function_id.idx()];
-        for (child_id, parent_id) in dom.get_underlying_map() {
+        for (child_id, (_, parent_id)) in dom.get_underlying_map() {
             write_edge(
                 *child_id,
                 function_id,
