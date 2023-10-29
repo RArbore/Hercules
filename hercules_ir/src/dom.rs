@@ -51,6 +51,44 @@ impl DomTree {
         x == self.root || self.idom.contains_key(&x)
     }
 
+    /*
+     * Find the node with the highest level in the dom tree amongst the nodes
+     * given. Although not technically necessary, you're probably using this
+     * function wrong if the nodes in the iterator do not form a dominance
+     * chain.
+     */
+    pub fn lowest_amongst<I>(&self, x: I) -> NodeID
+    where
+        I: Iterator<Item = NodeID>,
+    {
+        x.map(|x| self.idom[&x])
+            .max_by(|x, y| x.0.cmp(&y.0))
+            .unwrap()
+            .1
+    }
+
+    pub fn common_ancestor<I>(&self, x: I) -> NodeID
+    where
+        I: Iterator<Item = NodeID>,
+    {
+        let mut positions: HashMap<NodeID, u32> = x.map(|x| (x, self.idom[&x].0)).collect();
+        let mut current_level = *positions.iter().map(|(_, level)| level).max().unwrap();
+        while positions.len() > 1 {
+            let at_current_level: Vec<NodeID> = positions
+                .iter()
+                .filter(|(_, level)| **level == current_level)
+                .map(|(node, _)| *node)
+                .collect();
+            for node in at_current_level.into_iter() {
+                positions.remove(&node);
+                let (level, parent) = self.idom[&node];
+                positions.insert(parent, level);
+            }
+            current_level -= 1;
+        }
+        positions.into_iter().next().unwrap().0
+    }
+
     pub fn get_underlying_map(&self) -> &HashMap<NodeID, (u32, NodeID)> {
         &self.idom
     }
