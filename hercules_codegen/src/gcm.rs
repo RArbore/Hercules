@@ -36,14 +36,14 @@ pub fn gcm(
     // Step 2: calculate loop tree of function.
     let loops = loops(&control_subgraph, NodeID::new(0), &dom, fork_join_map);
 
-    println!(
-        "{:?}",
-        dom.lowest_amongst(immediate_control_uses[19].nodes(function.nodes.len() as u32))
-    );
-    println!(
-        "{:?}",
-        dom.common_ancestor(immediate_control_users[19].nodes(function.nodes.len() as u32))
-    );
+    // Step 3: find most control dependent, shallowest loop level node for every
+    // node.
+    for idx in 0..function.nodes.len() {
+        let above =
+            dom.lowest_amongst(immediate_control_uses[idx].nodes(function.nodes.len() as u32));
+        let below =
+            dom.common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32));
+    }
 
     todo!()
 }

@@ -77,7 +77,9 @@ impl DomTree {
     where
         I: Iterator<Item = NodeID>,
     {
-        let mut positions: HashMap<NodeID, u32> = x.map(|x| (x, self.idom[&x].0)).collect();
+        let mut positions: HashMap<NodeID, u32> = x
+            .map(|x| (x, if x == self.root { 0 } else { self.idom[&x].0 }))
+            .collect();
         let mut current_level = *positions.iter().map(|(_, level)| level).max().unwrap();
         while positions.len() > 1 {
             let at_current_level: Vec<NodeID> = positions
@@ -89,7 +91,7 @@ impl DomTree {
                 positions.remove(&node);
                 let (level, parent) = self.idom[&node];
                 assert!(level == current_level);
-                positions.insert(parent, level);
+                positions.insert(parent, level - 1);
             }
             current_level -= 1;
         }
