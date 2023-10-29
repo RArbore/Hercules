@@ -44,6 +44,9 @@ pub fn gcm(
                 dom.lowest_amongst(immediate_control_uses[idx].nodes(function.nodes.len() as u32));
             let lowest = dom
                 .common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32));
+
+            // Collect into vector to reverse, since we want to traverse down
+            // the dom tree, not up it.
             let mut chain = dom
                 .chain(lowest, highest)
                 .collect::<Vec<_>>()
@@ -52,6 +55,7 @@ pub fn gcm(
 
             let mut location = chain.next().unwrap();
             while let Some(control_node) = chain.next() {
+                // Traverse down the dom tree until we find a loop.
                 if loops.contains(control_node) {
                     break;
                 } else {
