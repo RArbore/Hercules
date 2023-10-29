@@ -38,12 +38,30 @@ pub fn gcm(
 
     // Step 3: find most control dependent, shallowest loop level node for every
     // node.
-    for idx in 0..function.nodes.len() {
-        let above =
-            dom.lowest_amongst(immediate_control_uses[idx].nodes(function.nodes.len() as u32));
-        let below =
-            dom.common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32));
-    }
+    let bbs = (0..function.nodes.len())
+        .map(|idx| {
+            let highest =
+                dom.lowest_amongst(immediate_control_uses[idx].nodes(function.nodes.len() as u32));
+            let lowest = dom
+                .common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32));
+            let mut chain = dom
+                .chain(lowest, highest)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev();
 
-    todo!()
+            let mut location = chain.next().unwrap();
+            while let Some(control_node) = chain.next() {
+                if loops.contains(control_node) {
+                    break;
+                } else {
+                    location = control_node;
+                }
+            }
+
+            location
+        })
+        .collect();
+
+    bbs
 }

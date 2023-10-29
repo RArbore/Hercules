@@ -22,7 +22,11 @@ pub struct LoopTree {
     loops: HashMap<NodeID, (BitVec<u8, Lsb0>, NodeID)>,
 }
 
-impl LoopTree {}
+impl LoopTree {
+    pub fn contains(&self, x: NodeID) -> bool {
+        x == self.root || self.loops.contains_key(&x)
+    }
+}
 
 /*
  * Top level function for calculating loop trees.

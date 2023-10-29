@@ -13,6 +13,13 @@ pub struct DomTree {
     idom: HashMap<NodeID, (u32, NodeID)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DomChainIterator<'a> {
+    dom: &'a DomTree,
+    iter: Option<NodeID>,
+    top: NodeID,
+}
+
 impl DomTree {
     pub fn imm_dom(&self, x: NodeID) -> Option<NodeID> {
         self.idom.get(&x).map(|x| x.1)
@@ -52,7 +59,7 @@ impl DomTree {
     }
 
     /*
-     * Find the node with the largest level in the dom tree amongst the nodes
+     * Find the node with the lowest level in the dom tree amongst the nodes
      * given. Although not technically necessary, you're probably using this
      * function wrong if the nodes in the iterator do not form a dominance
      * chain.
@@ -98,8 +105,36 @@ impl DomTree {
         positions.into_iter().next().unwrap().0
     }
 
+    pub fn chain<'a>(&'a self, bottom: NodeID, top: NodeID) -> DomChainIterator<'a> {
+        DomChainIterator {
+            dom: self,
+            iter: Some(bottom),
+            top,
+        }
+    }
+
     pub fn get_underlying_map(&self) -> &HashMap<NodeID, (u32, NodeID)> {
         &self.idom
+    }
+}
+
+impl<'a> Iterator for DomChainIterator<'a> {
+    type Item = NodeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(iter) = self.iter {
+            let ret = iter;
+            if ret == self.top {
+                self.iter = None;
+            } else if let Some(iter) = self.dom.imm_dom(iter) {
+                self.iter = Some(iter);
+            } else {
+                panic!("In DomChainIterator, top node doesn't dominate bottom node.")
+            }
+            Some(ret)
+        } else {
+            None
+        }
     }
 }
 

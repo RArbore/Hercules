@@ -53,7 +53,7 @@ fn main() {
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
-    let _bbs: Vec<_> = module
+    let bbs: Vec<_> = module
         .functions
         .iter()
         .enumerate()
@@ -66,6 +66,12 @@ fn main() {
                 &doms[idx],
                 &fork_join_maps[idx],
             )
+            .iter()
+            .map(|id| id.idx())
+            .enumerate()
+            .collect::<Vec<_>>()
         })
         .collect();
+
+    println!("{:?}", bbs);
 }
