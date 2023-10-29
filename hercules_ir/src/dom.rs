@@ -52,7 +52,7 @@ impl DomTree {
     }
 
     /*
-     * Find the node with the highest level in the dom tree amongst the nodes
+     * Find the node with the largest level in the dom tree amongst the nodes
      * given. Although not technically necessary, you're probably using this
      * function wrong if the nodes in the iterator do not form a dominance
      * chain.
@@ -61,10 +61,16 @@ impl DomTree {
     where
         I: Iterator<Item = NodeID>,
     {
-        x.map(|x| self.idom[&x])
-            .max_by(|x, y| x.0.cmp(&y.0))
-            .unwrap()
-            .1
+        x.map(|x| {
+            if x == self.root {
+                (0, x)
+            } else {
+                (self.idom[&x].0, x)
+            }
+        })
+        .max_by(|x, y| x.0.cmp(&y.0))
+        .unwrap()
+        .1
     }
 
     pub fn common_ancestor<I>(&self, x: I) -> NodeID
@@ -82,6 +88,7 @@ impl DomTree {
             for node in at_current_level.into_iter() {
                 positions.remove(&node);
                 let (level, parent) = self.idom[&node];
+                assert!(level == current_level);
                 positions.insert(parent, level);
             }
             current_level -= 1;

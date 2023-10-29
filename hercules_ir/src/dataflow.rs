@@ -1,6 +1,7 @@
 extern crate bitvec;
 
 use self::bitvec::prelude::*;
+use self::bitvec::slice::*;
 
 use crate::*;
 
@@ -179,6 +180,16 @@ impl IntersectNodeSet {
             IntersectNodeSet::Full => true,
         }
     }
+
+    pub fn nodes(&self, num_nodes: u32) -> NodeSetIterator {
+        match self {
+            IntersectNodeSet::Empty => NodeSetIterator::Empty,
+            IntersectNodeSet::Bits(bitvec) => {
+                NodeSetIterator::Bits(bitvec.iter_ones().map(NodeID::new))
+            }
+            IntersectNodeSet::Full => NodeSetIterator::Full(0, num_nodes),
+        }
+    }
 }
 
 impl Semilattice for IntersectNodeSet {
@@ -227,6 +238,16 @@ impl UnionNodeSet {
             UnionNodeSet::Full => true,
         }
     }
+
+    pub fn nodes(&self, num_nodes: u32) -> NodeSetIterator {
+        match self {
+            UnionNodeSet::Empty => NodeSetIterator::Empty,
+            UnionNodeSet::Bits(bitvec) => {
+                NodeSetIterator::Bits(bitvec.iter_ones().map(NodeID::new))
+            }
+            UnionNodeSet::Full => NodeSetIterator::Full(0, num_nodes),
+        }
+    }
 }
 
 impl Semilattice for UnionNodeSet {
@@ -253,6 +274,33 @@ impl Semilattice for UnionNodeSet {
     fn top() -> Self {
         // For unioning flow functions, the top state is empty.
         UnionNodeSet::Empty
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum NodeSetIterator<'a> {
+    Empty,
+    Bits(std::iter::Map<IterOnes<'a, u8, LocalBits>, fn(usize) -> ir::NodeID>),
+    Full(u32, u32),
+}
+
+impl<'a> Iterator for NodeSetIterator<'a> {
+    type Item = NodeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            NodeSetIterator::Empty => None,
+            NodeSetIterator::Bits(iter) => iter.next(),
+            NodeSetIterator::Full(idx, cap) => {
+                if idx < cap {
+                    let id = NodeID::new(*idx as usize);
+                    *idx += 1;
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
