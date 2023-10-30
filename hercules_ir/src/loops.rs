@@ -13,7 +13,7 @@ use crate::*;
  * IR graph. The children of the root correspond to the top-level loops and fork
  * join pairs, and so on. Each node in the loop tree has a representative
  * "header" node. For normal loops, this is the region node branched to by a
- * dominated if node. For fork join pairs, this is the fork node. A loop is an
+ * dominated if node. For fork join pairs, this is the fork node. A loop is a
  * top-level loop if its parent is the root node of the subgraph.
  */
 #[derive(Debug, Clone)]
