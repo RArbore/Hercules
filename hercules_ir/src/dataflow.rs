@@ -59,7 +59,9 @@ where
     L: Semilattice,
     F: FnMut(&[&L], NodeID) -> L,
 {
-    dataflow_global(function, reverse_postorder, |global_outs, node_id| {
+    let mut postorder = reverse_postorder.clone();
+    postorder.reverse();
+    dataflow_global(function, &postorder, |global_outs, node_id| {
         let users = def_use.get_users(node_id);
         let succ_outs: Vec<_> = users
             .as_ref()
@@ -79,7 +81,7 @@ where
  */
 pub fn dataflow_global<L, F>(
     function: &Function,
-    reverse_postorder: &Vec<NodeID>,
+    order: &Vec<NodeID>,
     mut flow_function: F,
 ) -> Vec<L>
 where
@@ -96,8 +98,8 @@ where
     loop {
         let mut change = false;
 
-        // Iterate nodes in reverse post order.
-        for node_id in reverse_postorder {
+        // Iterate nodes in specified order.
+        for node_id in order {
             // Compute new "out" value from previous "out" values.
             let new_out = flow_function(&outs, *node_id);
             if outs[node_id.idx()] != new_out {
