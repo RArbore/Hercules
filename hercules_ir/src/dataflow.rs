@@ -1,6 +1,7 @@
 extern crate bitvec;
 
-use dataflow::bitvec::prelude::*;
+use self::bitvec::prelude::*;
+use self::bitvec::slice::*;
 
 use crate::*;
 
@@ -33,7 +34,7 @@ where
     L: Semilattice,
     F: FnMut(&[&L], NodeID) -> L,
 {
-    forward_dataflow_global(function, reverse_postorder, |global_outs, node_id| {
+    dataflow_global(function, reverse_postorder, |global_outs, node_id| {
         let uses = get_uses(&function.nodes[node_id.idx()]);
         let pred_outs: Vec<_> = uses
             .as_ref()
@@ -45,16 +46,42 @@ where
 }
 
 /*
- * The previous forward dataflow routine wraps around this dataflow routine,
+ * Top level backward dataflow function. Instead of passing the uses' lattice
+ * values to the flow function, passes in the users' lattice values.
+ */
+pub fn backward_dataflow<L, F>(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    reverse_postorder: &Vec<NodeID>,
+    mut flow_function: F,
+) -> Vec<L>
+where
+    L: Semilattice,
+    F: FnMut(&[&L], NodeID) -> L,
+{
+    let mut postorder = reverse_postorder.clone();
+    postorder.reverse();
+    dataflow_global(function, &postorder, |global_outs, node_id| {
+        let users = def_use.get_users(node_id);
+        let succ_outs: Vec<_> = users
+            .as_ref()
+            .iter()
+            .map(|id| &global_outs[id.idx()])
+            .collect();
+        flow_function(&succ_outs, node_id)
+    })
+}
+
+/*
+ * The previous forward dataflow routines wraps around this dataflow routine,
  * where the flow function doesn't just have access to this nodes input lattice
  * values, but also all the current lattice values for all the nodes. This is
  * useful for some dataflow analyses, such as reachability. The "global" in
- * forward_dataflow_global refers to having a global view of the out lattice
- * values.
+ * dataflow_global refers to having a global view of the out lattice values.
  */
-pub fn forward_dataflow_global<L, F>(
+pub fn dataflow_global<L, F>(
     function: &Function,
-    reverse_postorder: &Vec<NodeID>,
+    order: &Vec<NodeID>,
     mut flow_function: F,
 ) -> Vec<L>
 where
@@ -62,9 +89,7 @@ where
     F: FnMut(&[L], NodeID) -> L,
 {
     // Step 1: create initial set of "out" points.
-    let start_node_output = flow_function(&[], NodeID::new(0));
-    let mut first_ins = vec![L::top(); function.nodes.len()];
-    first_ins[0] = start_node_output;
+    let first_ins = vec![L::top(); function.nodes.len()];
     let mut outs: Vec<L> = (0..function.nodes.len())
         .map(|id| flow_function(&first_ins, NodeID::new(id)))
         .collect();
@@ -73,9 +98,9 @@ where
     loop {
         let mut change = false;
 
-        // Iterate nodes in reverse post order.
-        for node_id in reverse_postorder {
-            // Compute new "out" value from predecessor "out" values.
+        // Iterate nodes in specified order.
+        for node_id in order {
+            // Compute new "out" value from previous "out" values.
             let new_out = flow_function(&outs, *node_id);
             if outs[node_id.idx()] != new_out {
                 change = true;
@@ -157,6 +182,16 @@ impl IntersectNodeSet {
             IntersectNodeSet::Full => true,
         }
     }
+
+    pub fn nodes(&self, num_nodes: u32) -> NodeSetIterator {
+        match self {
+            IntersectNodeSet::Empty => NodeSetIterator::Empty,
+            IntersectNodeSet::Bits(bitvec) => {
+                NodeSetIterator::Bits(bitvec.iter_ones().map(NodeID::new))
+            }
+            IntersectNodeSet::Full => NodeSetIterator::Full(0, num_nodes),
+        }
+    }
 }
 
 impl Semilattice for IntersectNodeSet {
@@ -205,6 +240,16 @@ impl UnionNodeSet {
             UnionNodeSet::Full => true,
         }
     }
+
+    pub fn nodes(&self, num_nodes: u32) -> NodeSetIterator {
+        match self {
+            UnionNodeSet::Empty => NodeSetIterator::Empty,
+            UnionNodeSet::Bits(bitvec) => {
+                NodeSetIterator::Bits(bitvec.iter_ones().map(NodeID::new))
+            }
+            UnionNodeSet::Full => NodeSetIterator::Full(0, num_nodes),
+        }
+    }
 }
 
 impl Semilattice for UnionNodeSet {
@@ -231,6 +276,33 @@ impl Semilattice for UnionNodeSet {
     fn top() -> Self {
         // For unioning flow functions, the top state is empty.
         UnionNodeSet::Empty
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum NodeSetIterator<'a> {
+    Empty,
+    Bits(std::iter::Map<IterOnes<'a, u8, LocalBits>, fn(usize) -> ir::NodeID>),
+    Full(u32, u32),
+}
+
+impl<'a> Iterator for NodeSetIterator<'a> {
+    type Item = NodeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            NodeSetIterator::Empty => None,
+            NodeSetIterator::Bits(iter) => iter.next(),
+            NodeSetIterator::Full(idx, cap) => {
+                if idx < cap {
+                    let id = NodeID::new(*idx as usize);
+                    *idx += 1;
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -269,6 +341,50 @@ pub fn control_output_flow(
         let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
         singular.set(node_id.idx(), true);
         out = UnionNodeSet::meet(&out, &UnionNodeSet::Bits(singular));
+    }
+
+    out
+}
+
+/*
+ * Flow function for collecting all of a data node's immediate uses / users of
+ * control nodes. Useful for code generation. Since this is for immediate uses /
+ * users of control nodes, control node uses / users do not propagate through
+ * control nodes, or through control output nodes (phis, thread IDs, collects).
+ */
+pub fn immediate_control_flow(
+    inputs: &[&UnionNodeSet],
+    mut node_id: NodeID,
+    function: &Function,
+) -> UnionNodeSet {
+    let mut out = UnionNodeSet::top();
+
+    // Step 1: replace node if this is a phi, thread ID, or collect.
+    if let Node::Phi { control, data: _ }
+    | Node::ThreadID { control }
+    | Node::Collect { control, data: _ } = &function.nodes[node_id.idx()]
+    {
+        node_id = *control;
+    } else {
+        // Union node inputs if not a special case.
+        out = inputs
+            .into_iter()
+            .fold(UnionNodeSet::top(), |a, b| UnionNodeSet::meet(&a, b));
+    }
+    let node = &function.nodes[node_id.idx()];
+
+    // Step 2: figure out if this node is a control node.
+    let control = if let Node::ReadProd { prod, index: _ } = node {
+        function.nodes[prod.idx()].is_strictly_control()
+    } else {
+        node.is_strictly_control()
+    };
+
+    // Step 3: clear all bits and set bit for current node, if applicable.
+    if control {
+        let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
+        singular.set(node_id.idx(), true);
+        out = UnionNodeSet::Bits(singular);
     }
 
     out

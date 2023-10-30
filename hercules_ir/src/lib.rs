@@ -1,24 +1,20 @@
 pub mod build;
-pub mod ccp;
 pub mod dataflow;
-pub mod dce;
 pub mod def_use;
 pub mod dom;
-pub mod gvn;
 pub mod ir;
+pub mod loops;
 pub mod parse;
 pub mod subgraph;
 pub mod typecheck;
 pub mod verify;
 
 pub use crate::build::*;
-pub use crate::ccp::*;
 pub use crate::dataflow::*;
-pub use crate::dce::*;
 pub use crate::def_use::*;
 pub use crate::dom::*;
-pub use crate::gvn::*;
 pub use crate::ir::*;
+pub use crate::loops::*;
 pub use crate::parse::*;
 pub use crate::subgraph::*;
 pub use crate::typecheck::*;

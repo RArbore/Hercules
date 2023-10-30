@@ -1,0 +1,7 @@
+[package]
+name = "hercules_opt"
+version = "0.1.0"
+authors = ["Russel Arbore <rarbore2@illinois.edu>"]
+
+[dependencies]
+hercules_ir = { path = "../hercules_ir" }

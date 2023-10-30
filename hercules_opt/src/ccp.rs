@@ -1,7 +1,11 @@
+extern crate hercules_ir;
+
 use std::collections::HashMap;
 use std::iter::zip;
 
-use crate::*;
+use self::hercules_ir::dataflow::*;
+use self::hercules_ir::def_use::*;
+use self::hercules_ir::ir::*;
 
 /*
  * The ccp lattice tracks, for each node, the following information:
@@ -134,7 +138,7 @@ pub fn ccp(
     reverse_postorder: &Vec<NodeID>,
 ) {
     // Step 1: run ccp analysis to understand the function.
-    let result = forward_dataflow_global(&function, reverse_postorder, |inputs, node_id| {
+    let result = dataflow_global(&function, reverse_postorder, |inputs, node_id| {
         ccp_flow_function(inputs, node_id, &function, &constants)
     });
 
@@ -268,6 +272,10 @@ pub fn ccp(
             // remove this branch node.
             if let None = reachable_users.next() {
                 // The user is a ReadProd node, which in turn has one user.
+                assert!(
+                    def_use.get_users(*the_reachable_user).len() == 1,
+                    "Control ReadProd node doesn't have exactly one user."
+                );
                 let target = def_use.get_users(*the_reachable_user)[0];
 
                 // For each use in the target of the reachable ReadProd, turn it
@@ -283,6 +291,76 @@ pub fn ccp(
                 function.nodes[branch_id.idx()] = Node::Start;
                 for user in users {
                     function.nodes[user.idx()] = Node::Start;
+                }
+            }
+        }
+    }
+
+    // Step 4: collapse region chains.
+    collapse_region_chains(function, def_use);
+}
+
+/*
+ * Top level function to collapse region chains. A chain is a list of at least
+ * one region node that takes only one control input. Region chains can be
+ * deleted. The use of the head of the chain can turn into the use by the user
+ * of the tail of the chain.
+ */
+pub fn collapse_region_chains(function: &mut Function, def_use: &ImmutableDefUseMap) {
+    // Loop over all region nodes. It's fine to modify the function as we loop
+    // over it.
+    for id in (0..function.nodes.len()).map(NodeID::new) {
+        if let Node::Region { preds } = &function.nodes[id.idx()] {
+            if preds.len() == 1 {
+                // Step 1: bridge gap between use and user.
+                let predecessor = preds[0];
+                let successor = def_use
+                    .get_users(id)
+                    .iter()
+                    .filter(|x| !function.nodes[x.idx()].is_phi())
+                    .next()
+                    .expect("Region node doesn't have a non-phi user.");
+
+                // Set successor's use of this region to use the region's use.
+                for u in get_uses_mut(&mut function.nodes[successor.idx()]).as_mut() {
+                    if **u == id {
+                        **u = predecessor;
+                    }
+                }
+
+                // Delete this region.
+                function.nodes[id.idx()] = Node::Start;
+
+                // Step 2: bridge gap between uses and users of corresponding
+                // phi nodes.
+                let phis: Vec<NodeID> = def_use
+                    .get_users(id)
+                    .iter()
+                    .map(|x| *x)
+                    .filter(|x| function.nodes[x.idx()].is_phi())
+                    .collect();
+                for phi_id in phis {
+                    let data_uses =
+                        if let Node::Phi { control, data } = &function.nodes[phi_id.idx()] {
+                            assert!(*control == id);
+                            data
+                        } else {
+                            panic!()
+                        };
+                    assert!(data_uses.len() == 1, "Phi node doesn't have exactly one data use, while corresponding region had exactly one control use.");
+                    let predecessor = data_uses[0];
+
+                    // Set successors' use of this phi to use the phi's use.
+                    for successor in def_use.get_users(phi_id) {
+                        for u in get_uses_mut(&mut function.nodes[successor.idx()]).as_mut() {
+                            if **u == phi_id {
+                                **u = predecessor;
+                            }
+                        }
+                    }
+
+                    // Delete this phi.
+                    function.nodes[phi_id.idx()] = Node::Start;
                 }
             }
         }

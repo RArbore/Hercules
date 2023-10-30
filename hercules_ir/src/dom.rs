@@ -1,21 +1,28 @@
-extern crate bitvec;
+use std::collections::HashMap;
 
 use crate::*;
 
-use std::collections::HashMap;
-
 /*
  * Custom type for storing a dominator tree. For each control node, store its
- * immediate dominator.
+ * immediate dominator, and its level in the dominator tree. Dominator tree
+ * levels are used for finding common ancestors.
  */
 #[derive(Debug, Clone)]
 pub struct DomTree {
-    idom: HashMap<NodeID, NodeID>,
+    root: NodeID,
+    idom: HashMap<NodeID, (u32, NodeID)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomChainIterator<'a> {
+    dom: &'a DomTree,
+    iter: Option<NodeID>,
+    top: NodeID,
 }
 
 impl DomTree {
     pub fn imm_dom(&self, x: NodeID) -> Option<NodeID> {
-        self.idom.get(&x).map(|x| x.clone())
+        self.idom.get(&x).map(|x| x.1)
     }
 
     pub fn does_imm_dom(&self, a: NodeID, b: NodeID) -> bool {
@@ -47,16 +54,87 @@ impl DomTree {
         self.idom.contains_key(&x)
     }
 
-    /*
-     * Typically, node ID 0 is the root of the dom tree. Under this assumption,
-     * this function checks if a node is in the dom tree.
-     */
-    pub fn contains_conventional(&self, x: NodeID) -> bool {
-        x == NodeID::new(0) || self.idom.contains_key(&x)
+    pub fn contains(&self, x: NodeID) -> bool {
+        x == self.root || self.idom.contains_key(&x)
     }
 
-    pub fn get_underlying_map(&self) -> &HashMap<NodeID, NodeID> {
+    /*
+     * Find the node with the lowest level in the dom tree amongst the nodes
+     * given. Although not technically necessary, you're probably using this
+     * function wrong if the nodes in the iterator do not form a dominance
+     * chain.
+     */
+    pub fn lowest_amongst<I>(&self, x: I) -> NodeID
+    where
+        I: Iterator<Item = NodeID>,
+    {
+        x.map(|x| {
+            if x == self.root {
+                (0, x)
+            } else {
+                (self.idom[&x].0, x)
+            }
+        })
+        .max_by(|x, y| x.0.cmp(&y.0))
+        .unwrap()
+        .1
+    }
+
+    pub fn common_ancestor<I>(&self, x: I) -> NodeID
+    where
+        I: Iterator<Item = NodeID>,
+    {
+        let mut positions: HashMap<NodeID, u32> = x
+            .map(|x| (x, if x == self.root { 0 } else { self.idom[&x].0 }))
+            .collect();
+        let mut current_level = *positions.iter().map(|(_, level)| level).max().unwrap();
+        while positions.len() > 1 {
+            let at_current_level: Vec<NodeID> = positions
+                .iter()
+                .filter(|(_, level)| **level == current_level)
+                .map(|(node, _)| *node)
+                .collect();
+            for node in at_current_level.into_iter() {
+                positions.remove(&node);
+                let (level, parent) = self.idom[&node];
+                assert!(level == current_level);
+                positions.insert(parent, level - 1);
+            }
+            current_level -= 1;
+        }
+        positions.into_iter().next().unwrap().0
+    }
+
+    pub fn chain<'a>(&'a self, bottom: NodeID, top: NodeID) -> DomChainIterator<'a> {
+        DomChainIterator {
+            dom: self,
+            iter: Some(bottom),
+            top,
+        }
+    }
+
+    pub fn get_underlying_map(&self) -> &HashMap<NodeID, (u32, NodeID)> {
         &self.idom
+    }
+}
+
+impl<'a> Iterator for DomChainIterator<'a> {
+    type Item = NodeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(iter) = self.iter {
+            let ret = iter;
+            if ret == self.top {
+                self.iter = None;
+            } else if let Some(iter) = self.dom.imm_dom(iter) {
+                self.iter = Some(iter);
+            } else {
+                panic!("In DomChainIterator, top node doesn't dominate bottom node.")
+            }
+            Some(ret)
+        } else {
+            None
+        }
     }
 }
 
@@ -75,7 +153,7 @@ pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
     let mut idom = HashMap::new();
     for w in preorder[1..].iter() {
         // Each idom starts as the parent node.
-        idom.insert(*w, parents[w]);
+        idom.insert(*w, (0, parents[w]));
     }
 
     // Step 2: define snca_compress, which will be used to compute semi-
@@ -116,12 +194,28 @@ pub fn dominator(subgraph: &Subgraph, root: NodeID) -> DomTree {
     // Step 4: compute idom.
     for v_n in 1..preorder.len() {
         let v = preorder[v_n];
-        while node_numbers[&idom[&v]] > semi[v_n] {
-            *idom.get_mut(&v).unwrap() = idom[&idom[&v]];
+        while node_numbers[&idom[&v].1] > semi[v_n] {
+            *idom.get_mut(&v).unwrap() = idom[&idom[&v].1];
         }
     }
 
-    DomTree { idom }
+    // Step 5: compute levels in idom.
+    let mut change = true;
+    while change {
+        change = false;
+        for node in preorder[1..].iter() {
+            let (level, parent) = idom[node];
+            if level == 0 && parent == root {
+                idom.get_mut(node).unwrap().0 = 1;
+                change = true;
+            } else if level == 0 && idom[&parent].0 != 0 {
+                idom.get_mut(node).unwrap().0 = 1 + idom[&parent].0;
+                change = true;
+            }
+        }
+    }
+
+    DomTree { root, idom }
 }
 
 fn preorder(subgraph: &Subgraph, root: NodeID) -> (Vec<NodeID>, HashMap<NodeID, NodeID>) {
