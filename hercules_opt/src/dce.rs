@@ -1,4 +1,7 @@
-use crate::*;
+extern crate hercules_ir;
+
+use self::hercules_ir::def_use::*;
+use self::hercules_ir::ir::*;
 
 /*
  * Top level function to run dead code elimination. Deletes nodes by setting
