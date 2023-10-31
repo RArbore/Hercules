@@ -66,12 +66,13 @@ fn main() {
                 &doms[idx],
                 &fork_join_maps[idx],
             )
-            .iter()
-            .map(|id| id.idx())
-            .enumerate()
-            .collect::<Vec<_>>()
         })
         .collect();
 
-    println!("{:?}", bbs);
+    hercules_codegen::cpu_alpha::cpu_alpha_codegen(
+        &module,
+        &reverse_postorders,
+        &bbs,
+        &std::path::Path::new("test.o"),
+    );
 }

@@ -170,7 +170,7 @@ impl Subgraph {
  */
 pub fn subgraph<F>(function: &Function, def_use: &ImmutableDefUseMap, predicate: F) -> Subgraph
 where
-    F: Fn(&Node) -> bool,
+    F: Fn(NodeID) -> bool,
 {
     let mut subgraph = Subgraph {
         nodes: vec![],
@@ -183,12 +183,12 @@ where
     };
 
     // Step 1: collect predicated nodes.
-    for (idx, node) in function.nodes.iter().enumerate() {
-        if predicate(node) {
+    for id in (0..function.nodes.len()).map(NodeID::new) {
+        if predicate(id) {
             subgraph
                 .node_numbers
-                .insert(NodeID::new(idx), subgraph.nodes.len() as u32);
-            subgraph.nodes.push(NodeID::new(idx));
+                .insert(id, subgraph.nodes.len() as u32);
+            subgraph.nodes.push(id);
         }
     }
 
@@ -235,35 +235,5 @@ where
  * Get the control subgraph of a function.
  */
 pub fn control_subgraph(function: &Function, def_use: &ImmutableDefUseMap) -> Subgraph {
-    use Node::*;
-
-    subgraph(function, def_use, |node| match node {
-        Start
-        | Region { preds: _ }
-        | If {
-            control: _,
-            cond: _,
-        }
-        | Fork {
-            control: _,
-            factor: _,
-        }
-        | Join { control: _ }
-        | Return {
-            control: _,
-            data: _,
-        }
-        | Match { control: _, sum: _ } => true,
-        ReadProd { prod, index: _ } => match function.nodes[prod.idx()] {
-            // ReadProd nodes are control nodes if their predecessor is a
-            // legal control node.
-            Match { control: _, sum: _ }
-            | If {
-                control: _,
-                cond: _,
-            } => true,
-            _ => false,
-        },
-        _ => false,
-    })
+    subgraph(function, def_use, |node| function.is_control(node))
 }

@@ -241,6 +241,31 @@ impl Function {
 
         std::mem::swap(&mut new_nodes, &mut self.nodes);
     }
+
+    /*
+     * Checking if a node is control requires surrounding context, so this is a
+     * member of Function, not Node.
+     */
+    pub fn is_control(&self, id: NodeID) -> bool {
+        if self.nodes[id.idx()].is_strictly_control() {
+            return true;
+        }
+
+        if let Node::ReadProd { prod, index: _ } = self.nodes[id.idx()] {
+            return match self.nodes[prod.idx()] {
+                // ReadProd nodes are control nodes if their predecessor is a
+                // legal control node.
+                Node::Match { control: _, sum: _ }
+                | Node::If {
+                    control: _,
+                    cond: _,
+                } => true,
+                _ => false,
+            };
+        }
+
+        false
+    }
 }
 
 /*

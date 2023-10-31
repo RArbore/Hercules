@@ -4,4 +4,6 @@ version = "0.1.0"
 authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
 [dependencies]
+bitvec = "*"
+inkwell = { version = "*", features = ["llvm16-0"] }
 hercules_ir = { path = "../hercules_ir" }
