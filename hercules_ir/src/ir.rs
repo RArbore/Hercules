@@ -1,6 +1,12 @@
+extern crate bitvec;
 extern crate ordered_float;
 
 use std::fmt::Write;
+use std::ops::Coroutine;
+use std::ops::CoroutineState;
+use std::pin::Pin;
+
+use self::bitvec::prelude::*;
 
 use crate::*;
 
@@ -168,6 +174,39 @@ impl Module {
         }?;
 
         Ok(())
+    }
+
+    pub fn types_bottom_up(&self) -> impl Iterator<Item = TypeID> {
+        let mut types = &self.types;
+        let mut visited = bitvec![u8, Lsb0; 0; self.types.len()];
+        let mut stack = vec![TypeID::new(0)];
+        let coroutine = move || {
+            yield TypeID::new(0);
+        };
+        TypesIterator {
+            coroutine: Box::new(coroutine),
+        }
+    }
+}
+
+pub struct TypesIterator<G>
+where
+    G: Coroutine<Yield = TypeID, Return = ()> + Unpin,
+{
+    coroutine: G,
+}
+
+impl<G> Iterator for TypesIterator<G>
+where
+    G: Coroutine<Yield = TypeID, Return = ()> + Unpin,
+{
+    type Item = TypeID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match Pin::new(&mut self.coroutine).resume(()) {
+            CoroutineState::Yielded(ty) => Some(ty),
+            CoroutineState::Complete(_) => None,
+        }
     }
 }
 

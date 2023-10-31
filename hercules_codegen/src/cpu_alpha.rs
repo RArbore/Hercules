@@ -6,10 +6,11 @@ use std::iter::zip;
 
 use self::bitvec::prelude::*;
 
-use self::inkwell::builder::Builder;
-use self::inkwell::context::Context;
-use self::inkwell::module::Module;
-use self::inkwell::OptimizationLevel;
+use self::inkwell::builder::*;
+use self::inkwell::context::*;
+use self::inkwell::module::*;
+use self::inkwell::types::*;
+use self::inkwell::*;
 
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::ir::*;
@@ -59,7 +60,11 @@ pub fn cpu_alpha_codegen(
     let module = context.create_module("");
     let builder = context.create_builder();
 
-    // Step 3: add all the types.
+    // Step 3: add all the types. This requires translating from our interning
+    // structures to LLVM's. We can't just blow through the types vector, since
+    // a type may reference a type ID ahead of it in the vector. Instead,
+    // iterate types in a bottom up order with respect to the type intern DAGs.
+    let mut llvm_types = vec![context.void_type().as_any_type_enum(); types.len()];
 
     // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {
