@@ -56,15 +56,20 @@ pub fn cpu_alpha_codegen(
     }
 
     // Step 2: initialize LLVM objects.
-    let context = Context::create();
-    let module = context.create_module("");
-    let builder = context.create_builder();
+    let llvm_context = Context::create();
+    let llvm_module = llvm_context.create_module("");
+    let llvm_builder = llvm_context.create_builder();
 
     // Step 3: add all the types. This requires translating from our interning
     // structures to LLVM's. We can't just blow through the types vector, since
     // a type may reference a type ID ahead of it in the vector. Instead,
     // iterate types in a bottom up order with respect to the type intern DAGs.
-    let mut llvm_types = vec![context.void_type().as_any_type_enum(); types.len()];
+    let mut llvm_types = vec![llvm_context.void_type().as_any_type_enum(); types.len()];
+    for id in module.types_bottom_up() {
+        let mut ty_string = String::new();
+        module.write_type(id, &mut ty_string).unwrap();
+        println!("{} {}", id.idx(), ty_string);
+    }
 
     // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {

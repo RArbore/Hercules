@@ -176,12 +176,51 @@ impl Module {
         Ok(())
     }
 
-    pub fn types_bottom_up(&self) -> impl Iterator<Item = TypeID> {
-        let mut types = &self.types;
+    /*
+     * Create an iterator that traverses all the types in the module bottom up.
+     * This uses a coroutine to make iteratively traversing the type DAGs
+     * easier.
+     */
+    pub fn types_bottom_up(&self) -> impl Iterator<Item = TypeID> + '_ {
+        let types = &self.types;
         let mut visited = bitvec![u8, Lsb0; 0; self.types.len()];
-        let mut stack = vec![TypeID::new(0)];
+        let mut stack = (0..self.types.len())
+            .map(TypeID::new)
+            .collect::<Vec<TypeID>>();
         let coroutine = move || {
-            yield TypeID::new(0);
+            while let Some(id) = stack.pop() {
+                if visited[id.idx()] {
+                    continue;
+                }
+                match &types[id.idx()] {
+                    Type::Product(children) | Type::Summation(children) => {
+                        let can_yield = children.iter().all(|x| visited[x.idx()]);
+                        if can_yield {
+                            visited.set(id.idx(), true);
+                            yield id;
+                        } else {
+                            stack.push(id);
+                            for id in children.iter() {
+                                stack.push(*id);
+                            }
+                        }
+                    }
+                    Type::Array(child, _) => {
+                        let can_yield = visited[child.idx()];
+                        if can_yield {
+                            visited.set(id.idx(), true);
+                            yield id;
+                        } else {
+                            stack.push(id);
+                            stack.push(*child);
+                        }
+                    }
+                    _ => {
+                        visited.set(id.idx(), true);
+                        yield id;
+                    }
+                }
+            }
         };
         TypesIterator {
             coroutine: Box::new(coroutine),
@@ -203,6 +242,7 @@ where
     type Item = TypeID;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Iterator corresponds to yields from coroutine.
         match Pin::new(&mut self.coroutine).resume(()) {
             CoroutineState::Yielded(ty) => Some(ty),
             CoroutineState::Complete(_) => None,
