@@ -188,17 +188,23 @@ impl Module {
             .map(TypeID::new)
             .collect::<Vec<TypeID>>();
         let coroutine = move || {
+            // Since this is a coroutine, handle recursion manually.
             while let Some(id) = stack.pop() {
                 if visited[id.idx()] {
                     continue;
                 }
                 match &types[id.idx()] {
                     Type::Product(children) | Type::Summation(children) => {
+                        // We have to yield the children of this node before
+                        // this node itself. We keep track of which nodes have
+                        // yielded using visited.
                         let can_yield = children.iter().all(|x| visited[x.idx()]);
                         if can_yield {
                             visited.set(id.idx(), true);
                             yield id;
                         } else {
+                            // Push ourselves, then children, so that children
+                            // get popped first.
                             stack.push(id);
                             for id in children.iter() {
                                 stack.push(*id);
@@ -206,6 +212,8 @@ impl Module {
                         }
                     }
                     Type::Array(child, _) => {
+                        // Same idea as product / summation, but there's only
+                        // one child.
                         let can_yield = visited[child.idx()];
                         if can_yield {
                             visited.set(id.idx(), true);

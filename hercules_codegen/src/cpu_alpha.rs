@@ -64,11 +64,55 @@ pub fn cpu_alpha_codegen(
     // structures to LLVM's. We can't just blow through the types vector, since
     // a type may reference a type ID ahead of it in the vector. Instead,
     // iterate types in a bottom up order with respect to the type intern DAGs.
-    let mut llvm_types = vec![llvm_context.void_type().as_any_type_enum(); types.len()];
+    let mut llvm_types = vec![llvm_context.i8_type().as_basic_type_enum(); types.len()];
     for id in module.types_bottom_up() {
-        let mut ty_string = String::new();
-        module.write_type(id, &mut ty_string).unwrap();
-        println!("{} {}", id.idx(), ty_string);
+        match &types[id.idx()] {
+            Type::Control(_) => {}
+            Type::Boolean => {
+                llvm_types[id.idx()] = llvm_context.bool_type().as_basic_type_enum();
+            }
+            Type::Integer8 | Type::UnsignedInteger8 => {
+                llvm_types[id.idx()] = llvm_context.i8_type().as_basic_type_enum();
+            }
+            Type::Integer16 | Type::UnsignedInteger16 => {
+                llvm_types[id.idx()] = llvm_context.i16_type().as_basic_type_enum();
+            }
+            Type::Integer32 | Type::UnsignedInteger32 => {
+                llvm_types[id.idx()] = llvm_context.i32_type().as_basic_type_enum();
+            }
+            Type::Integer64 | Type::UnsignedInteger64 => {
+                llvm_types[id.idx()] = llvm_context.i64_type().as_basic_type_enum();
+            }
+            Type::Float32 => {
+                llvm_types[id.idx()] = llvm_context.f32_type().as_basic_type_enum();
+            }
+            Type::Float64 => {
+                llvm_types[id.idx()] = llvm_context.f64_type().as_basic_type_enum();
+            }
+            // Because we traverse in bottom-up order, we can assume that the
+            // LLVM types for children types are already computed.
+            Type::Product(fields) => {
+                let field_types = fields
+                    .iter()
+                    .map(|id| llvm_types[id.idx()])
+                    .collect::<Box<[_]>>();
+                llvm_types[id.idx()] = llvm_context
+                    .struct_type(&field_types, false)
+                    .as_basic_type_enum();
+            }
+            Type::Array(elem, _) => {
+                let elem_type = llvm_types[elem.idx()];
+                llvm_types[id.idx()] = elem_type
+                    .ptr_type(AddressSpace::default())
+                    .as_basic_type_enum();
+            }
+            _ => todo!(),
+        }
+    }
+    for (id, llvm_type) in zip((0..types.len()).map(TypeID::new), llvm_types) {
+        let mut ty_str = String::new();
+        module.write_type(id, &mut ty_str).unwrap();
+        println!("{} {}", ty_str, llvm_type);
     }
 
     // Step 4: do codegen for each function.
