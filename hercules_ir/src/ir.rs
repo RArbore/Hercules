@@ -230,29 +230,29 @@ impl Module {
                 }
             }
         };
-        TypesIterator {
+        CoroutineIterator {
             coroutine: Box::new(coroutine),
         }
     }
 }
 
-pub struct TypesIterator<G>
+struct CoroutineIterator<G, I>
 where
-    G: Coroutine<Yield = TypeID, Return = ()> + Unpin,
+    G: Coroutine<Yield = I, Return = ()> + Unpin,
 {
     coroutine: G,
 }
 
-impl<G> Iterator for TypesIterator<G>
+impl<G, I> Iterator for CoroutineIterator<G, I>
 where
-    G: Coroutine<Yield = TypeID, Return = ()> + Unpin,
+    G: Coroutine<Yield = I, Return = ()> + Unpin,
 {
-    type Item = TypeID;
+    type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Iterator corresponds to yields from coroutine.
         match Pin::new(&mut self.coroutine).resume(()) {
-            CoroutineState::Yielded(ty) => Some(ty),
+            CoroutineState::Yielded(item) => Some(item),
             CoroutineState::Complete(_) => None,
         }
     }

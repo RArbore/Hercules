@@ -10,6 +10,7 @@ use self::inkwell::builder::*;
 use self::inkwell::context::*;
 use self::inkwell::module::*;
 use self::inkwell::types::*;
+use self::inkwell::values::*;
 use self::inkwell::*;
 
 use self::hercules_ir::def_use::*;
@@ -60,7 +61,7 @@ pub fn cpu_alpha_codegen(
     let llvm_module = llvm_context.create_module("");
     let llvm_builder = llvm_context.create_builder();
 
-    // Step 3: add all the types. This requires translating from our interning
+    // Step 3: convert the types. This requires translating from our interning
     // structures to LLVM's. We can't just blow through the types vector, since
     // a type may reference a type ID ahead of it in the vector. Instead,
     // iterate types in a bottom up order with respect to the type intern DAGs.
@@ -106,7 +107,7 @@ pub fn cpu_alpha_codegen(
                     .ptr_type(AddressSpace::default())
                     .as_basic_type_enum();
             }
-            _ => todo!(),
+            Type::Summation(_) => todo!(),
         }
     }
     for (id, llvm_type) in zip((0..types.len()).map(TypeID::new), llvm_types) {
@@ -114,6 +115,16 @@ pub fn cpu_alpha_codegen(
         module.write_type(id, &mut ty_str).unwrap();
         println!("{} {}", ty_str, llvm_type);
     }
+
+    // Step 4: convert the constants. This is done in a very similar manner as
+    // types.
+    let mut llvm_constants = vec![
+        llvm_context
+            .i8_type()
+            .const_int(0, false)
+            .as_basic_value_enum();
+        constants.len()
+    ];
 
     // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {
