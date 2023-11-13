@@ -72,7 +72,8 @@ fn main() {
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(
         &module,
         &reverse_postorders,
+        &def_uses,
         &bbs,
-        &std::path::Path::new("test.o"),
+        &std::path::Path::new("test.bc"),
     );
 }

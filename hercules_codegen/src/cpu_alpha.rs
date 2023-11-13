@@ -2,6 +2,7 @@ extern crate bitvec;
 extern crate hercules_ir;
 extern crate inkwell;
 
+use std::collections::HashMap;
 use std::iter::zip;
 
 use self::bitvec::prelude::*;
@@ -31,6 +32,7 @@ use self::hercules_ir::ir::*;
 pub fn cpu_alpha_codegen(
     module: &hercules_ir::ir::Module,
     reverse_postorders: &Vec<Vec<NodeID>>,
+    def_uses: &Vec<ImmutableDefUseMap>,
     bbs: &Vec<Vec<NodeID>>,
     path: &std::path::Path,
 ) {
@@ -109,11 +111,6 @@ pub fn cpu_alpha_codegen(
             }
             Type::Summation(_) => todo!(),
         }
-    }
-    for (id, llvm_type) in zip((0..types.len()).map(TypeID::new), llvm_types) {
-        let mut ty_str = String::new();
-        module.write_type(id, &mut ty_str).unwrap();
-        println!("{} {}", ty_str, llvm_type);
     }
 
     // Step 4: convert the constants. This is done in a very similar manner as
@@ -208,16 +205,111 @@ pub fn cpu_alpha_codegen(
             Constant::Summation(_, _, _) => todo!(),
         }
     }
-    for (id, llvm_constant) in zip((0..constants.len()).map(ConstantID::new), llvm_constants) {
-        let mut ty_str = String::new();
-        module.write_constant(id, &mut ty_str).unwrap();
-        println!("{} {}", ty_str, llvm_constant);
-    }
 
     // Step 5: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
+        let def_use = &def_uses[function_idx];
         let cfg = &cfgs[function_idx];
         let dfg = &dfgs[function_idx];
+        let bb = &bbs[function_idx];
+
+        // Step 5.1: create LLVM function object.
+        let llvm_ret_type = llvm_types[function.return_type.idx()];
+        let llvm_param_types = function
+            .param_types
+            .iter()
+            .map(|id| llvm_types[id.idx()].into())
+            .collect::<Box<[_]>>();
+        let llvm_fn_type = llvm_ret_type.fn_type(&llvm_param_types, false);
+        let llvm_fn = llvm_module.add_function(&function.name, llvm_fn_type, None);
+
+        // Step 5.2: create LLVM basic blocks.
+        let mut llvm_bbs = HashMap::new();
+        for id in cfg {
+            llvm_bbs.insert(
+                id,
+                llvm_context.append_basic_block(llvm_fn, &format!("bb_{}", id.idx())),
+            );
+        }
+
+        // Step 5.3: fill basic blocks with data instructions.
+        let mut values = HashMap::new();
+        for id in dfg {
+            let llvm_bb = llvm_bbs[&bb[id.idx()]];
+            llvm_builder.position_at_end(llvm_bb);
+            match function.nodes[id.idx()] {
+                Node::Parameter { index } => {
+                    values.insert(
+                        id,
+                        llvm_fn
+                            .get_nth_param(index as u32)
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                Node::Binary { left, right, op } => {
+                    let left = values[&left];
+                    let right = values[&right];
+                    match op {
+                        BinaryOperator::Add => {
+                            if left.get_type().is_float_type() {
+                                values.insert(
+                                    id,
+                                    llvm_builder
+                                        .build_float_add(
+                                            left.into_float_value(),
+                                            right.into_float_value(),
+                                            "",
+                                        )
+                                        .unwrap()
+                                        .as_basic_value_enum(),
+                                );
+                            } else {
+                                values.insert(
+                                    id,
+                                    llvm_builder
+                                        .build_int_add(
+                                            left.into_int_value(),
+                                            right.into_int_value(),
+                                            "",
+                                        )
+                                        .unwrap()
+                                        .as_basic_value_enum(),
+                                );
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
+                _ => todo!(),
+            }
+        }
+
+        // Step 5.4: add control flow between basic blocks.
+        for id in cfg {
+            let llvm_bb = llvm_bbs[id];
+            llvm_builder.position_at_end(llvm_bb);
+            match function.nodes[id.idx()] {
+                Node::Start => {
+                    let successor = def_use
+                        .get_users(*id)
+                        .iter()
+                        .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                        .next()
+                        .unwrap();
+                    llvm_builder
+                        .build_unconditional_branch(llvm_bbs[successor])
+                        .unwrap();
+                }
+                Node::Return { control: _, data } => {
+                    llvm_builder.build_return(Some(&values[&data])).unwrap();
+                }
+                _ => todo!(),
+            }
+        }
     }
+
+    // Step 6: write out module to given file path.
+    llvm_module.write_bitcode_to_path(path);
 }
