@@ -234,6 +234,65 @@ impl Module {
             coroutine: Box::new(coroutine),
         }
     }
+
+    /*
+     * Create an iterator that traverses all the constants in the module bottom up.
+     * This uses a coroutine to make iteratively traversing the constant DAGs
+     * easier.
+     */
+    pub fn constants_bottom_up(&self) -> impl Iterator<Item = ConstantID> + '_ {
+        let constants = &self.constants;
+        let mut visited = bitvec![u8, Lsb0; 0; self.constants.len()];
+        let mut stack = (0..self.constants.len())
+            .map(ConstantID::new)
+            .collect::<Vec<ConstantID>>();
+        let coroutine = move || {
+            // Since this is a coroutine, handle recursion manually.
+            while let Some(id) = stack.pop() {
+                if visited[id.idx()] {
+                    continue;
+                }
+                match &constants[id.idx()] {
+                    Constant::Product(_, children) | Constant::Array(_, children) => {
+                        // We have to yield the children of this node before
+                        // this node itself. We keep track of which nodes have
+                        // yielded using visited.
+                        let can_yield = children.iter().all(|x| visited[x.idx()]);
+                        if can_yield {
+                            visited.set(id.idx(), true);
+                            yield id;
+                        } else {
+                            // Push ourselves, then children, so that children
+                            // get popped first.
+                            stack.push(id);
+                            for id in children.iter() {
+                                stack.push(*id);
+                            }
+                        }
+                    }
+                    Constant::Summation(_, _, child) => {
+                        // Same idea as product / summation, but there's only
+                        // one child.
+                        let can_yield = visited[child.idx()];
+                        if can_yield {
+                            visited.set(id.idx(), true);
+                            yield id;
+                        } else {
+                            stack.push(id);
+                            stack.push(*child);
+                        }
+                    }
+                    _ => {
+                        visited.set(id.idx(), true);
+                        yield id;
+                    }
+                }
+            }
+        };
+        CoroutineIterator {
+            coroutine: Box::new(coroutine),
+        }
+    }
 }
 
 struct CoroutineIterator<G, I>

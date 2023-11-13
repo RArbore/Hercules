@@ -125,8 +125,96 @@ pub fn cpu_alpha_codegen(
             .as_basic_value_enum();
         constants.len()
     ];
+    for id in module.constants_bottom_up() {
+        match &constants[id.idx()] {
+            Constant::Boolean(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .bool_type()
+                    .const_int(*val as u64, false)
+                    .as_basic_value_enum();
+            }
+            Constant::Integer8(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i8_type()
+                    .const_int(*val as u64, true)
+                    .as_basic_value_enum();
+            }
+            Constant::Integer16(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i16_type()
+                    .const_int(*val as u64, true)
+                    .as_basic_value_enum();
+            }
+            Constant::Integer32(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i32_type()
+                    .const_int(*val as u64, true)
+                    .as_basic_value_enum();
+            }
+            Constant::Integer64(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i64_type()
+                    .const_int(*val as u64, true)
+                    .as_basic_value_enum();
+            }
+            Constant::UnsignedInteger8(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i8_type()
+                    .const_int(*val as u64, false)
+                    .as_basic_value_enum();
+            }
+            Constant::UnsignedInteger16(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i16_type()
+                    .const_int(*val as u64, false)
+                    .as_basic_value_enum();
+            }
+            Constant::UnsignedInteger32(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i32_type()
+                    .const_int(*val as u64, false)
+                    .as_basic_value_enum();
+            }
+            Constant::UnsignedInteger64(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .i64_type()
+                    .const_int(*val, false)
+                    .as_basic_value_enum();
+            }
+            Constant::Float32(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .f32_type()
+                    .const_float(val.into_inner() as f64)
+                    .as_basic_value_enum();
+            }
+            Constant::Float64(val) => {
+                llvm_constants[id.idx()] = llvm_context
+                    .f64_type()
+                    .const_float(val.into_inner())
+                    .as_basic_value_enum();
+            }
+            // Because we traverse in bottom-up order, we can assume that the
+            // LLVM constants for children constants are already computed.
+            Constant::Product(_, fields) => {
+                let field_constants = fields
+                    .iter()
+                    .map(|id| llvm_constants[id.idx()])
+                    .collect::<Box<[_]>>();
+                llvm_constants[id.idx()] = llvm_context
+                    .const_struct(&field_constants, false)
+                    .as_basic_value_enum();
+            }
+            Constant::Array(_, _) => todo!(),
+            Constant::Summation(_, _, _) => todo!(),
+        }
+    }
+    for (id, llvm_constant) in zip((0..constants.len()).map(ConstantID::new), llvm_constants) {
+        let mut ty_str = String::new();
+        module.write_constant(id, &mut ty_str).unwrap();
+        println!("{} {}", ty_str, llvm_constant);
+    }
 
-    // Step 4: do codegen for each function.
+    // Step 5: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
         let cfg = &cfgs[function_idx];
