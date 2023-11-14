@@ -7,6 +7,7 @@ use std::iter::zip;
 
 use self::bitvec::prelude::*;
 
+use self::inkwell::basic_block::*;
 use self::inkwell::builder::*;
 use self::inkwell::context::*;
 use self::inkwell::module::*;
@@ -228,7 +229,7 @@ pub fn cpu_alpha_codegen(
         let mut llvm_bbs = HashMap::new();
         for id in cfg {
             llvm_bbs.insert(
-                id,
+                *id,
                 llvm_context.append_basic_block(llvm_fn, &format!("bb_{}", id.idx())),
             );
         }
@@ -236,80 +237,106 @@ pub fn cpu_alpha_codegen(
         // Step 5.3: fill basic blocks with data instructions.
         let mut values = HashMap::new();
         for id in dfg {
-            let llvm_bb = llvm_bbs[&bb[id.idx()]];
-            llvm_builder.position_at_end(llvm_bb);
-            match function.nodes[id.idx()] {
-                Node::Parameter { index } => {
-                    values.insert(
-                        id,
-                        llvm_fn
-                            .get_nth_param(index as u32)
-                            .unwrap()
-                            .as_basic_value_enum(),
-                    );
-                }
-                Node::Binary { left, right, op } => {
-                    let left = values[&left];
-                    let right = values[&right];
-                    match op {
-                        BinaryOperator::Add => {
-                            if left.get_type().is_float_type() {
-                                values.insert(
-                                    id,
-                                    llvm_builder
-                                        .build_float_add(
-                                            left.into_float_value(),
-                                            right.into_float_value(),
-                                            "",
-                                        )
-                                        .unwrap()
-                                        .as_basic_value_enum(),
-                                );
-                            } else {
-                                values.insert(
-                                    id,
-                                    llvm_builder
-                                        .build_int_add(
-                                            left.into_int_value(),
-                                            right.into_int_value(),
-                                            "",
-                                        )
-                                        .unwrap()
-                                        .as_basic_value_enum(),
-                                );
-                            }
-                        }
-                        _ => todo!(),
-                    }
-                }
-                _ => todo!(),
-            }
+            emit_llvm_for_node(
+                *id,
+                &mut values,
+                function,
+                bb,
+                def_use,
+                &llvm_builder,
+                llvm_fn,
+                &llvm_bbs,
+            );
         }
 
         // Step 5.4: add control flow between basic blocks.
         for id in cfg {
-            let llvm_bb = llvm_bbs[id];
-            llvm_builder.position_at_end(llvm_bb);
-            match function.nodes[id.idx()] {
-                Node::Start => {
-                    let successor = def_use
-                        .get_users(*id)
-                        .iter()
-                        .filter(|id| function.nodes[id.idx()].is_strictly_control())
-                        .next()
-                        .unwrap();
-                    llvm_builder
-                        .build_unconditional_branch(llvm_bbs[successor])
-                        .unwrap();
-                }
-                Node::Return { control: _, data } => {
-                    llvm_builder.build_return(Some(&values[&data])).unwrap();
-                }
-                _ => todo!(),
-            }
+            emit_llvm_for_node(
+                *id,
+                &mut values,
+                function,
+                bb,
+                def_use,
+                &llvm_builder,
+                llvm_fn,
+                &llvm_bbs,
+            );
         }
     }
 
     // Step 6: write out module to given file path.
     llvm_module.write_bitcode_to_path(path);
+}
+
+/*
+ * Emit LLVM implementing a single node.
+ */
+fn emit_llvm_for_node<'ctx>(
+    id: NodeID,
+    values: &mut HashMap<NodeID, BasicValueEnum<'ctx>>,
+    function: &Function,
+    bb: &Vec<NodeID>,
+    def_use: &ImmutableDefUseMap,
+    llvm_builder: &'ctx Builder,
+    llvm_fn: FunctionValue<'ctx>,
+    llvm_bbs: &HashMap<NodeID, BasicBlock<'ctx>>,
+) {
+    let llvm_bb = llvm_bbs[&bb[id.idx()]];
+    llvm_builder.position_at_end(llvm_bb);
+    match function.nodes[id.idx()] {
+        Node::Start => {
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+            llvm_builder
+                .build_unconditional_branch(llvm_bbs[successor])
+                .unwrap();
+        }
+        Node::Return { control: _, data } => {
+            llvm_builder.build_return(Some(&values[&data])).unwrap();
+        }
+        Node::Parameter { index } => {
+            values.insert(
+                id,
+                llvm_fn
+                    .get_nth_param(index as u32)
+                    .unwrap()
+                    .as_basic_value_enum(),
+            );
+        }
+        Node::Binary { left, right, op } => {
+            let left = values[&left];
+            let right = values[&right];
+            match op {
+                BinaryOperator::Add => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_add(
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_add(left.into_int_value(), right.into_int_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                _ => todo!(),
+            }
+        }
+        _ => todo!(),
+    }
 }
