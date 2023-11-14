@@ -37,8 +37,6 @@ pub fn cpu_alpha_codegen(
     bbs: &Vec<Vec<NodeID>>,
     path: &std::path::Path,
 ) {
-    // Step 1: partition reverse postorder into control and data nodes, for each
-    // function individually.
     let hercules_ir::ir::Module {
         functions,
         types,
@@ -46,25 +44,12 @@ pub fn cpu_alpha_codegen(
         dynamic_constants,
     } = module;
 
-    let mut cfgs = vec![];
-    let mut dfgs = vec![];
-    for function_idx in 0..functions.len() {
-        let function = &functions[function_idx];
-        let reverse_postorder = &reverse_postorders[function_idx];
-        let (cfg, dfg): (Vec<_>, Vec<_>) = reverse_postorder
-            .iter()
-            .map(|x| *x)
-            .partition(|id| function.is_control(*id));
-        cfgs.push(cfg);
-        dfgs.push(dfg);
-    }
-
-    // Step 2: initialize LLVM objects.
+    // Step 1: initialize LLVM objects.
     let llvm_context = Context::create();
     let llvm_module = llvm_context.create_module("");
     let llvm_builder = llvm_context.create_builder();
 
-    // Step 3: convert the types. This requires translating from our interning
+    // Step 2: convert the types. This requires translating from our interning
     // structures to LLVM's. We can't just blow through the types vector, since
     // a type may reference a type ID ahead of it in the vector. Instead,
     // iterate types in a bottom up order with respect to the type intern DAGs.
@@ -114,7 +99,7 @@ pub fn cpu_alpha_codegen(
         }
     }
 
-    // Step 4: convert the constants. This is done in a very similar manner as
+    // Step 3: convert the constants. This is done in a very similar manner as
     // types.
     let mut llvm_constants = vec![
         llvm_context
@@ -207,15 +192,14 @@ pub fn cpu_alpha_codegen(
         }
     }
 
-    // Step 5: do codegen for each function.
+    // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
         let def_use = &def_uses[function_idx];
-        let cfg = &cfgs[function_idx];
-        let dfg = &dfgs[function_idx];
         let bb = &bbs[function_idx];
+        let reverse_postorder = &reverse_postorders[function_idx];
 
-        // Step 5.1: create LLVM function object.
+        // Step 4.1: create LLVM function object.
         let llvm_ret_type = llvm_types[function.return_type.idx()];
         let llvm_param_types = function
             .param_types
@@ -225,32 +209,21 @@ pub fn cpu_alpha_codegen(
         let llvm_fn_type = llvm_ret_type.fn_type(&llvm_param_types, false);
         let llvm_fn = llvm_module.add_function(&function.name, llvm_fn_type, None);
 
-        // Step 5.2: create LLVM basic blocks.
+        // Step 4.2: create LLVM basic blocks. A node needs a corresponding
+        // basic block if its entry in the basic blocks vector points to iself.
         let mut llvm_bbs = HashMap::new();
-        for id in cfg {
-            llvm_bbs.insert(
-                *id,
-                llvm_context.append_basic_block(llvm_fn, &format!("bb_{}", id.idx())),
-            );
+        for id in (0..function.nodes.len()).map(NodeID::new) {
+            if bb[id.idx()] == id {
+                llvm_bbs.insert(
+                    id,
+                    llvm_context.append_basic_block(llvm_fn, &format!("bb_{}", id.idx())),
+                );
+            }
         }
 
-        // Step 5.3: fill basic blocks with data instructions.
+        // Step 4.3: emit LLVM for each node.
         let mut values = HashMap::new();
-        for id in dfg {
-            emit_llvm_for_node(
-                *id,
-                &mut values,
-                function,
-                bb,
-                def_use,
-                &llvm_builder,
-                llvm_fn,
-                &llvm_bbs,
-            );
-        }
-
-        // Step 5.4: add control flow between basic blocks.
-        for id in cfg {
+        for id in reverse_postorder {
             emit_llvm_for_node(
                 *id,
                 &mut values,
@@ -264,7 +237,7 @@ pub fn cpu_alpha_codegen(
         }
     }
 
-    // Step 6: write out module to given file path.
+    // Step 5: write out module to given file path.
     llvm_module.write_bitcode_to_path(path);
 }
 
