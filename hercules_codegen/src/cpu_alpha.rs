@@ -32,6 +32,7 @@ use self::hercules_ir::ir::*;
  */
 pub fn cpu_alpha_codegen(
     module: &hercules_ir::ir::Module,
+    typing: &hercules_ir::typecheck::ModuleTyping,
     reverse_postorders: &Vec<Vec<NodeID>>,
     def_uses: &Vec<ImmutableDefUseMap>,
     bbs: &Vec<Vec<NodeID>>,
@@ -195,6 +196,7 @@ pub fn cpu_alpha_codegen(
     // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
+        let typing = &typing[function_idx];
         let def_use = &def_uses[function_idx];
         let bb = &bbs[function_idx];
         let reverse_postorder = &reverse_postorders[function_idx];
@@ -228,6 +230,8 @@ pub fn cpu_alpha_codegen(
                 *id,
                 &mut values,
                 function,
+                typing,
+                types,
                 bb,
                 def_use,
                 &llvm_builder,
@@ -248,6 +252,8 @@ fn emit_llvm_for_node<'ctx>(
     id: NodeID,
     values: &mut HashMap<NodeID, BasicValueEnum<'ctx>>,
     function: &Function,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
     bb: &Vec<NodeID>,
     def_use: &ImmutableDefUseMap,
     llvm_builder: &'ctx Builder,
@@ -302,6 +308,91 @@ fn emit_llvm_for_node<'ctx>(
                             id,
                             llvm_builder
                                 .build_int_add(left.into_int_value(), right.into_int_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::Sub => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_sub(
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_sub(left.into_int_value(), right.into_int_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::Mul => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_mul(
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_mul(left.into_int_value(), right.into_int_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::Div => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_div(
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_unsigned_div(
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_signed_div(
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
                                 .unwrap()
                                 .as_basic_value_enum(),
                         );

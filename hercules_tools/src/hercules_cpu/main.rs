@@ -49,7 +49,7 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (def_uses, reverse_postorders, _typing, subgraphs, doms, _postdoms, fork_join_maps) =
+    let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
@@ -71,6 +71,7 @@ fn main() {
 
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(
         &module,
+        &typing,
         &reverse_postorders,
         &def_uses,
         &bbs,
