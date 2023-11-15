@@ -225,8 +225,8 @@ pub fn cpu_alpha_codegen(
         }
 
         // Step 4.3: emit LLVM for each node. Assemble worklist of nodes,
-        // starting as reverse post order of nodes. For non-phi data nodes, only
-        // emit once all uses are emitted. In addition, consider additional anti
+        // starting as reverse post order of nodes. For non-phi nodes, only emit
+        // once all data uses are emitted. In addition, consider additional anti
         // dependence edges from read to write nodes.
         let mut values = HashMap::new();
         let mut worklist = VecDeque::from(reverse_postorder.clone());
