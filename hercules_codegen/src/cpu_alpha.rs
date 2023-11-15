@@ -398,7 +398,321 @@ fn emit_llvm_for_node<'ctx>(
                         );
                     }
                 }
-                _ => todo!(),
+                BinaryOperator::Rem => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_rem(
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_unsigned_rem(
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_signed_rem(
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::LT => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::OLT,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::ULT,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::SLT,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::LTE => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::OLE,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::ULE,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::SLE,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::GT => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::OGT,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::UGT,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::SGT,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::GTE => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::OGE,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else if types[typing[id.idx()].idx()].is_unsigned() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::UGE,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::SGE,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::EQ => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::OEQ,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::EQ,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::NE => {
+                    if left.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_compare(
+                                    FloatPredicate::ONE,
+                                    left.into_float_value(),
+                                    right.into_float_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_compare(
+                                    IntPredicate::NE,
+                                    left.into_int_value(),
+                                    right.into_int_value(),
+                                    "",
+                                )
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+                BinaryOperator::Or => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_or(left.into_int_value(), right.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                BinaryOperator::And => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_and(left.into_int_value(), right.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                BinaryOperator::Xor => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_xor(left.into_int_value(), right.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                BinaryOperator::LSh => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_left_shift(left.into_int_value(), right.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                BinaryOperator::RSh => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_right_shift(
+                                left.into_int_value(),
+                                right.into_int_value(),
+                                !types[typing[id.idx()].idx()].is_unsigned(),
+                                "",
+                            )
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
             }
         }
         _ => todo!(),
