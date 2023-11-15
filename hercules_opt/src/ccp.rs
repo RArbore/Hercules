@@ -442,16 +442,16 @@ fn ccp_flow_function(
             let new_constant = if let ConstantLattice::Constant(cons) = constant {
                 let new_cons = match (op, cons) {
                     (UnaryOperator::Not, Constant::Boolean(val)) => Constant::Boolean(!val),
+                    (UnaryOperator::Not, Constant::Integer8(val)) => Constant::Integer8(!val),
+                    (UnaryOperator::Not, Constant::Integer16(val)) => Constant::Integer16(!val),
+                    (UnaryOperator::Not, Constant::Integer32(val)) => Constant::Integer32(!val),
+                    (UnaryOperator::Not, Constant::Integer64(val)) => Constant::Integer64(!val),
                     (UnaryOperator::Neg, Constant::Integer8(val)) => Constant::Integer8(-val),
                     (UnaryOperator::Neg, Constant::Integer16(val)) => Constant::Integer16(-val),
                     (UnaryOperator::Neg, Constant::Integer32(val)) => Constant::Integer32(-val),
                     (UnaryOperator::Neg, Constant::Integer64(val)) => Constant::Integer64(-val),
                     (UnaryOperator::Neg, Constant::Float32(val)) => Constant::Float32(-val),
                     (UnaryOperator::Neg, Constant::Float64(val)) => Constant::Float64(-val),
-                    (UnaryOperator::Bitflip, Constant::Integer8(val)) => Constant::Integer8(!val),
-                    (UnaryOperator::Bitflip, Constant::Integer16(val)) => Constant::Integer16(!val),
-                    (UnaryOperator::Bitflip, Constant::Integer32(val)) => Constant::Integer32(!val),
-                    (UnaryOperator::Bitflip, Constant::Integer64(val)) => Constant::Integer64(!val),
                     _ => panic!("Unsupported combination of unary operation and constant value. Did typechecking succeed?")
                 };
                 ConstantLattice::Constant(new_cons)

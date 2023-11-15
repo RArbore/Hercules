@@ -600,9 +600,9 @@ fn typeflow(
             if let Concrete(id) = inputs[0] {
                 match op {
                     UnaryOperator::Not => {
-                        if !types[id.idx()].is_bool() {
+                        if !types[id.idx()].is_bool() && !types[id.idx()].is_fixed() {
                             return Error(String::from(
-                                "Not unary node input cannot have non-boolean type.",
+                                "Not unary node input cannot have non-bool and non-fixed type.",
                             ));
                         }
                     }
@@ -615,13 +615,6 @@ fn typeflow(
                         if !types[id.idx()].is_arithmetic() {
                             return Error(String::from(
                                 "Neg unary node input cannot have non-arithmetic type.",
-                            ));
-                        }
-                    }
-                    UnaryOperator::Bitflip => {
-                        if !types[id.idx()].is_fixed() {
-                            return Error(String::from(
-                                "Bitflip unary node input cannot have non-fixed type.",
                             ));
                         }
                     }

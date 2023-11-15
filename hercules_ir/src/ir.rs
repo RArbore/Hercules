@@ -682,7 +682,6 @@ pub enum Node {
 pub enum UnaryOperator {
     Not,
     Neg,
-    Bitflip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -914,7 +913,6 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "Not",
             UnaryOperator::Neg => "Neg",
-            UnaryOperator::Bitflip => "Bitflip",
         }
     }
 
@@ -922,7 +920,6 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "not",
             UnaryOperator::Neg => "neg",
-            UnaryOperator::Bitflip => "bitflip",
         }
     }
 }

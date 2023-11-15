@@ -286,6 +286,39 @@ fn emit_llvm_for_node<'ctx>(
                     .as_basic_value_enum(),
             );
         }
+        Node::Unary { input, op } => {
+            let input = values[&input];
+            match op {
+                UnaryOperator::Not => {
+                    values.insert(
+                        id,
+                        llvm_builder
+                            .build_not(input.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    );
+                }
+                UnaryOperator::Neg => {
+                    if input.get_type().is_float_type() {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_float_neg(input.into_float_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    } else {
+                        values.insert(
+                            id,
+                            llvm_builder
+                                .build_int_neg(input.into_int_value(), "")
+                                .unwrap()
+                                .as_basic_value_enum(),
+                        );
+                    }
+                }
+            }
+        }
         Node::Binary { left, right, op } => {
             let left = values[&left];
             let right = values[&right];
