@@ -3,6 +3,7 @@ extern crate hercules_ir;
 extern crate inkwell;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::iter::zip;
 
 use self::bitvec::prelude::*;
@@ -223,21 +224,40 @@ pub fn cpu_alpha_codegen(
             }
         }
 
-        // Step 4.3: emit LLVM for each node.
+        // Step 4.3: emit LLVM for each node. Assemble worklist of nodes,
+        // starting as reverse post order of nodes. For non-phi data nodes, only
+        // emit once all uses are emitted. In addition, consider additional anti
+        // dependence edges from read to write nodes.
         let mut values = HashMap::new();
-        for id in reverse_postorder {
-            emit_llvm_for_node(
-                *id,
-                &mut values,
-                function,
-                typing,
-                types,
-                bb,
-                def_use,
-                &llvm_builder,
-                llvm_fn,
-                &llvm_bbs,
-            );
+        let mut worklist = VecDeque::from(reverse_postorder.clone());
+        while let Some(id) = worklist.pop_front() {
+            if !function.nodes[id.idx()].is_phi()
+                && !get_uses(&function.nodes[id.idx()])
+                    .as_ref()
+                    .into_iter()
+                    .all(|x| {
+                        function.nodes[x.idx()].is_strictly_control() || values.contains_key(x)
+                    })
+            {
+                // Skip emitting node if it's not a phi node and if its data
+                // uses are not emitted yet.
+                worklist.push_back(id);
+            } else {
+                // Once all of the data dependencies for this node are emitted,
+                // this node can be emitted.
+                emit_llvm_for_node(
+                    id,
+                    &mut values,
+                    function,
+                    typing,
+                    types,
+                    bb,
+                    def_use,
+                    &llvm_builder,
+                    llvm_fn,
+                    &llvm_bbs,
+                );
+            }
         }
     }
 
