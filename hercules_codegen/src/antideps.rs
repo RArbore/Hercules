@@ -8,5 +8,5 @@ use self::hercules_ir::ir::*;
  * the write node.
  */
 pub fn antideps(function: &Function) -> Vec<(NodeID, NodeID)> {
-    todo!()
+    vec![]
 }

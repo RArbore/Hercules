@@ -69,12 +69,19 @@ fn main() {
         })
         .collect();
 
+    let antideps: Vec<_> = module
+        .functions
+        .iter()
+        .map(|function| hercules_codegen::antideps::antideps(function))
+        .collect();
+
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(
         &module,
         &typing,
         &reverse_postorders,
         &def_uses,
         &bbs,
+        &antideps,
         &std::path::Path::new("test.bc"),
     );
 }
