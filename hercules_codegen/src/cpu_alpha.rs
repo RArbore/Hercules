@@ -37,6 +37,7 @@ pub fn cpu_alpha_codegen(
     reverse_postorders: &Vec<Vec<NodeID>>,
     def_uses: &Vec<ImmutableDefUseMap>,
     bbs: &Vec<Vec<NodeID>>,
+    antideps: &Vec<Vec<(NodeID, NodeID)>>,
     path: &std::path::Path,
 ) {
     let hercules_ir::ir::Module {
@@ -198,9 +199,10 @@ pub fn cpu_alpha_codegen(
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
         let typing = &typing[function_idx];
+        let reverse_postorder = &reverse_postorders[function_idx];
         let def_use = &def_uses[function_idx];
         let bb = &bbs[function_idx];
-        let reverse_postorder = &reverse_postorders[function_idx];
+        let antideps = &antideps[function_idx];
 
         // Step 4.1: create LLVM function object.
         let llvm_ret_type = llvm_types[function.return_type.idx()];
@@ -235,6 +237,11 @@ pub fn cpu_alpha_codegen(
                 && !get_uses(&function.nodes[id.idx()])
                     .as_ref()
                     .into_iter()
+                    .chain(
+                        antideps.iter().filter_map(
+                            |(read, write)| if id == *write { Some(read) } else { None },
+                        ),
+                    )
                     .all(|x| {
                         function.nodes[x.idx()].is_strictly_control() || values.contains_key(x)
                     })
