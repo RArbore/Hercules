@@ -57,13 +57,24 @@ pub fn write_dot<W: Write>(
                     "dotted"
                 };
 
+                // To have a consistent layout, we will add "back edges" in the
+                // IR graph as backward facing edges in the graphviz output, so
+                // that they don't mess up the layout. There isn't necessarily a
+                // precise definition of a "back edge" in Hercules IR. I've
+                // found what makes for the most clear output graphs is treating
+                // edges to phi nodes as back edges when the phi node appears
+                // before the use in the reverse postorder, and treating a
+                // control edge a back edge when the destination appears before
+                // the source in the reverse postorder.
+                let is_back_edge = reverse_postorder_node_numbers[node_id.idx()]
+                    < reverse_postorder_node_numbers[u.idx()]
+                    && (node.is_phi() || (function.is_control(node_id) && function.is_control(*u)));
                 write_edge(
                     node_id,
                     function_id,
                     *u,
                     function_id,
-                    reverse_postorder_node_numbers[node_id.idx()]
-                        >= reverse_postorder_node_numbers[u.idx()],
+                    !is_back_edge,
                     "black",
                     style,
                     module,
