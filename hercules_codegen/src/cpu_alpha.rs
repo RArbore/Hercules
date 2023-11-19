@@ -4,14 +4,12 @@ extern crate inkwell;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::iter::zip;
-
-use self::bitvec::prelude::*;
 
 use self::inkwell::basic_block::*;
 use self::inkwell::builder::*;
 use self::inkwell::context::*;
-use self::inkwell::module::*;
 use self::inkwell::types::*;
 use self::inkwell::values::*;
 use self::inkwell::*;
@@ -231,6 +229,7 @@ pub fn cpu_alpha_codegen(
         // once all data uses are emitted. In addition, consider additional anti
         // dependence edges from read to write nodes.
         let mut values = HashMap::new();
+        let mut phi_values = HashMap::new();
         let mut worklist = VecDeque::from(reverse_postorder.clone());
         while let Some(id) = worklist.pop_front() {
             if !function.nodes[id.idx()].is_phi()
@@ -253,6 +252,7 @@ pub fn cpu_alpha_codegen(
                 emit_llvm_for_node(
                     id,
                     &mut values,
+                    &mut phi_values,
                     function,
                     typing,
                     types,
@@ -266,6 +266,44 @@ pub fn cpu_alpha_codegen(
                 );
             }
         }
+
+        // Step 4.4: patch phi nodes with incoming data values.
+        for id in (0..function.nodes.len()).map(NodeID::new) {
+            let node = &function.nodes[id.idx()];
+            if node.is_phi() {
+                // Region node is the only strictly control use of the phi.
+                let uses = get_uses(node);
+                let region = uses
+                    .as_ref()
+                    .iter()
+                    .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                    .next()
+                    .unwrap();
+
+                // Need to create intermediate vector - Inkwell expects a list
+                // of dynamic references to basic values. Those references must
+                // reference concrete basic values, which we need to create.
+                // Thus, we need to store them in this intermediate vector.
+                let data_uses: Vec<_> = uses
+                    .as_ref()
+                    .iter()
+                    .filter(|id| !function.nodes[id.idx()].is_strictly_control())
+                    .map(|id| BasicValueEnum::try_from(values[id]).unwrap())
+                    .collect();
+                let data_uses = data_uses
+                    .iter()
+                    .map(|ref_value| ref_value as &dyn BasicValue);
+
+                // The basic blocks are the uses of the region node.
+                let region_uses = get_uses(&function.nodes[region.idx()]);
+                let pred_bbs = region_uses.as_ref().iter().map(|x| llvm_bbs[&bb[x.idx()]]);
+
+                // The order of the data uses of the phi corresponds with the
+                // order of the control uses of the region.
+                let incoming_values: Vec<_> = zip(data_uses, pred_bbs).collect();
+                phi_values[&id].add_incoming(&incoming_values[..]);
+            }
+        }
     }
 
     // Step 5: write out module to given file path.
@@ -277,7 +315,8 @@ pub fn cpu_alpha_codegen(
  */
 fn emit_llvm_for_node<'ctx>(
     id: NodeID,
-    values: &mut HashMap<NodeID, BasicValueEnum<'ctx>>,
+    values: &mut HashMap<NodeID, AnyValueEnum<'ctx>>,
+    phi_values: &mut HashMap<NodeID, PhiValue<'ctx>>,
     function: &Function,
     typing: &Vec<TypeID>,
     types: &Vec<Type>,
@@ -309,16 +348,16 @@ fn emit_llvm_for_node<'ctx>(
                 llvm_builder
                     .build_conditional_branch(
                         values[&cond].into_int_value(),
-                        llvm_bbs[&bb[successors[0].idx()]],
                         llvm_bbs[&bb[successors[1].idx()]],
+                        llvm_bbs[&bb[successors[0].idx()]],
                     )
                     .unwrap();
             } else {
                 llvm_builder
                     .build_conditional_branch(
                         values[&cond].into_int_value(),
-                        llvm_bbs[&bb[successors[1].idx()]],
                         llvm_bbs[&bb[successors[0].idx()]],
+                        llvm_bbs[&bb[successors[1].idx()]],
                     )
                     .unwrap();
             }
@@ -327,16 +366,18 @@ fn emit_llvm_for_node<'ctx>(
             control: _,
             data: _,
         } => {
-            values.insert(
-                id,
-                llvm_builder
-                    .build_phi(llvm_types[typing[id.idx()].idx()], "")
-                    .unwrap()
-                    .as_basic_value(),
-            );
+            // For some reason, Inkwell doesn't convert phi values to/from the
+            // AnyValueEnum type properly, so store phi values in another map.
+            let phi_value = llvm_builder
+                .build_phi(llvm_types[typing[id.idx()].idx()], "")
+                .unwrap();
+            phi_values.insert(id, phi_value);
+            values.insert(id, phi_value.as_any_value_enum());
         }
         Node::Return { control: _, data } => {
-            llvm_builder.build_return(Some(&values[&data])).unwrap();
+            llvm_builder
+                .build_return(Some(&BasicValueEnum::try_from(values[&data]).unwrap()))
+                .unwrap();
         }
         Node::Parameter { index } => {
             values.insert(
@@ -344,11 +385,11 @@ fn emit_llvm_for_node<'ctx>(
                 llvm_fn
                     .get_nth_param(index as u32)
                     .unwrap()
-                    .as_basic_value_enum(),
+                    .as_any_value_enum(),
             );
         }
         Node::Constant { id: cons_id } => {
-            values.insert(id, llvm_constants[cons_id.idx()]);
+            values.insert(id, llvm_constants[cons_id.idx()].into());
         }
         Node::Unary { input, op } => {
             let input = values[&input];
@@ -359,7 +400,7 @@ fn emit_llvm_for_node<'ctx>(
                         llvm_builder
                             .build_not(input.into_int_value(), "")
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
                 UnaryOperator::Neg => {
@@ -369,7 +410,7 @@ fn emit_llvm_for_node<'ctx>(
                             llvm_builder
                                 .build_float_neg(input.into_float_value(), "")
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -377,7 +418,7 @@ fn emit_llvm_for_node<'ctx>(
                             llvm_builder
                                 .build_int_neg(input.into_int_value(), "")
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -398,7 +439,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -406,7 +447,7 @@ fn emit_llvm_for_node<'ctx>(
                             llvm_builder
                                 .build_int_add(left.into_int_value(), right.into_int_value(), "")
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -421,7 +462,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -429,7 +470,7 @@ fn emit_llvm_for_node<'ctx>(
                             llvm_builder
                                 .build_int_sub(left.into_int_value(), right.into_int_value(), "")
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -444,7 +485,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -452,7 +493,7 @@ fn emit_llvm_for_node<'ctx>(
                             llvm_builder
                                 .build_int_mul(left.into_int_value(), right.into_int_value(), "")
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -467,7 +508,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -479,7 +520,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -491,7 +532,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -506,7 +547,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -518,7 +559,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -530,7 +571,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -546,7 +587,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -559,7 +600,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -572,7 +613,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -588,7 +629,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -601,7 +642,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -614,7 +655,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -630,7 +671,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -643,7 +684,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -656,7 +697,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -672,7 +713,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else if types[typing[id.idx()].idx()].is_unsigned() {
                         values.insert(
@@ -685,7 +726,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -698,7 +739,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -714,7 +755,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -727,7 +768,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -743,7 +784,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     } else {
                         values.insert(
@@ -756,7 +797,7 @@ fn emit_llvm_for_node<'ctx>(
                                     "",
                                 )
                                 .unwrap()
-                                .as_basic_value_enum(),
+                                .as_any_value_enum(),
                         );
                     }
                 }
@@ -766,7 +807,7 @@ fn emit_llvm_for_node<'ctx>(
                         llvm_builder
                             .build_or(left.into_int_value(), right.into_int_value(), "")
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
                 BinaryOperator::And => {
@@ -775,7 +816,7 @@ fn emit_llvm_for_node<'ctx>(
                         llvm_builder
                             .build_and(left.into_int_value(), right.into_int_value(), "")
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
                 BinaryOperator::Xor => {
@@ -784,7 +825,7 @@ fn emit_llvm_for_node<'ctx>(
                         llvm_builder
                             .build_xor(left.into_int_value(), right.into_int_value(), "")
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
                 BinaryOperator::LSh => {
@@ -793,7 +834,7 @@ fn emit_llvm_for_node<'ctx>(
                         llvm_builder
                             .build_left_shift(left.into_int_value(), right.into_int_value(), "")
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
                 BinaryOperator::RSh => {
@@ -807,7 +848,7 @@ fn emit_llvm_for_node<'ctx>(
                                 "",
                             )
                             .unwrap()
-                            .as_basic_value_enum(),
+                            .as_any_value_enum(),
                     );
                 }
             }
