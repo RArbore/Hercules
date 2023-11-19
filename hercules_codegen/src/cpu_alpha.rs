@@ -854,6 +854,7 @@ fn emit_llvm_for_node<'ctx>(
             }
         }
         Node::ReadProd { prod, index } => {
+            // ReadProd nodes are special in that they may be projection nodes.
             if function.nodes[prod.idx()].is_strictly_control() {
                 let successor = def_use.get_users(id)[0];
                 llvm_builder
@@ -862,6 +863,46 @@ fn emit_llvm_for_node<'ctx>(
             } else {
                 todo!()
             }
+        }
+        Node::ReadArray { array, index } => {
+            let ptr_type = llvm_types[typing[id.idx()].idx()];
+            let gep_ptr = unsafe {
+                llvm_builder
+                    .build_gep(
+                        ptr_type,
+                        values[&array].into_pointer_value(),
+                        &[values[&index].into_int_value()],
+                        "",
+                    )
+                    .unwrap()
+            };
+            values.insert(
+                id,
+                llvm_builder
+                    .build_load(ptr_type, gep_ptr, "")
+                    .unwrap()
+                    .as_any_value_enum(),
+            );
+        }
+        Node::WriteArray { array, index, data } => {
+            let ptr_type = llvm_types[typing[data.idx()].idx()];
+            let gep_ptr = unsafe {
+                llvm_builder
+                    .build_gep(
+                        ptr_type,
+                        values[&array].into_pointer_value(),
+                        &[values[&index].into_int_value()],
+                        "",
+                    )
+                    .unwrap()
+            };
+            values.insert(
+                id,
+                llvm_builder
+                    .build_store(gep_ptr, BasicValueEnum::try_from(values[&data]).unwrap())
+                    .unwrap()
+                    .as_any_value_enum(),
+            );
         }
         _ => todo!(),
     }
