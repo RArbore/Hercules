@@ -20,12 +20,25 @@ pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeI
         let users = def_use.get_users(id);
 
         // First, handle product reads and writes.
-        let reads = users
-            .iter()
-            .filter(|id| function.nodes[id.idx()].is_read_prod());
-        let mut writes = users
-            .iter()
-            .filter(|id| function.nodes[id.idx()].is_write_prod());
+        let reads = users.iter().filter(|user| {
+            if let Node::ReadProd { prod, index: _ } = function.nodes[user.idx()] {
+                prod == id
+            } else {
+                false
+            }
+        });
+        let mut writes = users.iter().filter(|user| {
+            if let Node::WriteProd {
+                prod,
+                index: _,
+                data: _,
+            } = function.nodes[user.idx()]
+            {
+                prod == id
+            } else {
+                false
+            }
+        });
         if let Some(write) = writes.next() {
             for read in reads {
                 antideps.push((*read, *write));
@@ -34,12 +47,25 @@ pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeI
         assert!(writes.next() == None, "Can't form anti-dependencies when there are two independent writes depending on a single product value.");
 
         // Second, handle array reads and writes.
-        let reads = users
-            .iter()
-            .filter(|id| function.nodes[id.idx()].is_read_array());
-        let mut writes = users
-            .iter()
-            .filter(|id| function.nodes[id.idx()].is_write_array());
+        let reads = users.iter().filter(|user| {
+            if let Node::ReadArray { array, index: _ } = function.nodes[user.idx()] {
+                array == id
+            } else {
+                false
+            }
+        });
+        let mut writes = users.iter().filter(|user| {
+            if let Node::WriteArray {
+                array,
+                index: _,
+                data: _,
+            } = function.nodes[user.idx()]
+            {
+                array == id
+            } else {
+                false
+            }
+        });
         if let Some(write) = writes.next() {
             for read in reads {
                 antideps.push((*read, *write));
