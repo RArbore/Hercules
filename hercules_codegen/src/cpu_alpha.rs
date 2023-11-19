@@ -5,6 +5,7 @@ extern crate inkwell;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
+use std::iter::repeat;
 use std::iter::zip;
 
 use self::inkwell::basic_block::*;
@@ -208,6 +209,10 @@ pub fn cpu_alpha_codegen(
             .param_types
             .iter()
             .map(|id| llvm_types[id.idx()].into())
+            .chain(
+                repeat(BasicMetadataTypeEnum::try_from(llvm_context.i64_type()).unwrap())
+                    .take(function.num_dynamic_constants as usize),
+            )
             .collect::<Box<[_]>>();
         let llvm_fn_type = llvm_ret_type.fn_type(&llvm_param_types, false);
         let llvm_fn = llvm_module.add_function(&function.name, llvm_fn_type, None);
@@ -230,6 +235,7 @@ pub fn cpu_alpha_codegen(
         // dependence edges from read to write nodes.
         let mut values = HashMap::new();
         let mut phi_values = HashMap::new();
+        let mut branch_instructions = HashMap::new();
         let mut worklist = VecDeque::from(reverse_postorder.clone());
         while let Some(id) = worklist.pop_front() {
             if !function.nodes[id.idx()].is_phi()
@@ -253,11 +259,14 @@ pub fn cpu_alpha_codegen(
                     id,
                     &mut values,
                     &mut phi_values,
+                    &mut branch_instructions,
                     function,
                     typing,
                     types,
+                    dynamic_constants,
                     bb,
                     def_use,
+                    &llvm_context,
                     &llvm_builder,
                     llvm_fn,
                     &llvm_bbs,
@@ -317,11 +326,14 @@ fn emit_llvm_for_node<'ctx>(
     id: NodeID,
     values: &mut HashMap<NodeID, AnyValueEnum<'ctx>>,
     phi_values: &mut HashMap<NodeID, PhiValue<'ctx>>,
+    branch_instructions: &mut HashMap<BasicBlock<'ctx>, InstructionValue<'ctx>>,
     function: &Function,
     typing: &Vec<TypeID>,
     types: &Vec<Type>,
+    dynamic_constants: &Vec<DynamicConstant>,
     bb: &Vec<NodeID>,
     def_use: &ImmutableDefUseMap,
+    llvm_context: &'ctx Context,
     llvm_builder: &'ctx Builder,
     llvm_fn: FunctionValue<'ctx>,
     llvm_bbs: &HashMap<NodeID, BasicBlock<'ctx>>,
@@ -329,7 +341,11 @@ fn emit_llvm_for_node<'ctx>(
     llvm_constants: &Vec<BasicValueEnum<'ctx>>,
 ) {
     let llvm_bb = llvm_bbs[&bb[id.idx()]];
-    llvm_builder.position_at_end(llvm_bb);
+    if let Some(iv) = branch_instructions.get(&llvm_bb) {
+        llvm_builder.position_before(iv);
+    } else {
+        llvm_builder.position_at_end(llvm_bb);
+    }
     match function.nodes[id.idx()] {
         Node::Start | Node::Region { preds: _ } => {
             let successor = def_use
@@ -338,28 +354,37 @@ fn emit_llvm_for_node<'ctx>(
                 .filter(|id| function.nodes[id.idx()].is_strictly_control())
                 .next()
                 .unwrap();
-            llvm_builder
-                .build_unconditional_branch(llvm_bbs[successor])
-                .unwrap();
+            branch_instructions.insert(
+                llvm_bb,
+                llvm_builder
+                    .build_unconditional_branch(llvm_bbs[successor])
+                    .unwrap(),
+            );
         }
         Node::If { control: _, cond } => {
             let successors = def_use.get_users(id);
             if function.nodes[successors[0].idx()] == (Node::ReadProd { prod: id, index: 0 }) {
-                llvm_builder
-                    .build_conditional_branch(
-                        values[&cond].into_int_value(),
-                        llvm_bbs[&bb[successors[1].idx()]],
-                        llvm_bbs[&bb[successors[0].idx()]],
-                    )
-                    .unwrap();
+                branch_instructions.insert(
+                    llvm_bb,
+                    llvm_builder
+                        .build_conditional_branch(
+                            values[&cond].into_int_value(),
+                            llvm_bbs[&bb[successors[1].idx()]],
+                            llvm_bbs[&bb[successors[0].idx()]],
+                        )
+                        .unwrap(),
+                );
             } else {
-                llvm_builder
-                    .build_conditional_branch(
-                        values[&cond].into_int_value(),
-                        llvm_bbs[&bb[successors[0].idx()]],
-                        llvm_bbs[&bb[successors[1].idx()]],
-                    )
-                    .unwrap();
+                branch_instructions.insert(
+                    llvm_bb,
+                    llvm_builder
+                        .build_conditional_branch(
+                            values[&cond].into_int_value(),
+                            llvm_bbs[&bb[successors[0].idx()]],
+                            llvm_bbs[&bb[successors[1].idx()]],
+                        )
+                        .unwrap(),
+                );
             }
         }
         Node::Phi {
@@ -391,6 +416,26 @@ fn emit_llvm_for_node<'ctx>(
         Node::Constant { id: cons_id } => {
             values.insert(id, llvm_constants[cons_id.idx()].into());
         }
+        Node::DynamicConstant { id: dyn_cons_id } => match dynamic_constants[dyn_cons_id.idx()] {
+            DynamicConstant::Constant(val) => {
+                values.insert(
+                    id,
+                    llvm_context
+                        .i64_type()
+                        .const_int(val as u64, false)
+                        .as_any_value_enum(),
+                );
+            }
+            DynamicConstant::Parameter(num) => {
+                values.insert(
+                    id,
+                    llvm_fn
+                        .get_nth_param((num + function.param_types.len()) as u32)
+                        .unwrap()
+                        .as_any_value_enum(),
+                );
+            }
+        },
         Node::Unary { input, op } => {
             let input = values[&input];
             match op {
@@ -857,9 +902,12 @@ fn emit_llvm_for_node<'ctx>(
             // ReadProd nodes are special in that they may be projection nodes.
             if function.nodes[prod.idx()].is_strictly_control() {
                 let successor = def_use.get_users(id)[0];
-                llvm_builder
-                    .build_unconditional_branch(llvm_bbs[&successor])
-                    .unwrap();
+                branch_instructions.insert(
+                    llvm_bb,
+                    llvm_builder
+                        .build_unconditional_branch(llvm_bbs[&successor])
+                        .unwrap(),
+                );
             } else {
                 todo!()
             }
@@ -896,13 +944,10 @@ fn emit_llvm_for_node<'ctx>(
                     )
                     .unwrap()
             };
-            values.insert(
-                id,
-                llvm_builder
-                    .build_store(gep_ptr, BasicValueEnum::try_from(values[&data]).unwrap())
-                    .unwrap()
-                    .as_any_value_enum(),
-            );
+            llvm_builder
+                .build_store(gep_ptr, BasicValueEnum::try_from(values[&data]).unwrap())
+                .unwrap();
+            values.insert(id, values[&array]);
         }
         _ => todo!(),
     }

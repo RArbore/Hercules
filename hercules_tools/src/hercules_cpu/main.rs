@@ -53,6 +53,13 @@ fn main() {
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
+    let antideps: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
+        .collect();
+
     let bbs: Vec<_> = module
         .functions
         .iter()
@@ -65,15 +72,9 @@ fn main() {
                 &subgraphs[idx],
                 &doms[idx],
                 &fork_join_maps[idx],
+                &antideps[idx],
             )
         })
-        .collect();
-
-    let antideps: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
         .collect();
 
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(
