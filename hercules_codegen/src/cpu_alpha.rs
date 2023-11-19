@@ -263,6 +263,7 @@ pub fn cpu_alpha_codegen(
                     &llvm_builder,
                     llvm_fn,
                     &llvm_bbs,
+                    &llvm_types,
                 );
             }
         }
@@ -286,11 +287,12 @@ fn emit_llvm_for_node<'ctx>(
     llvm_builder: &'ctx Builder,
     llvm_fn: FunctionValue<'ctx>,
     llvm_bbs: &HashMap<NodeID, BasicBlock<'ctx>>,
+    llvm_types: &Vec<BasicTypeEnum<'ctx>>,
 ) {
     let llvm_bb = llvm_bbs[&bb[id.idx()]];
     llvm_builder.position_at_end(llvm_bb);
     match function.nodes[id.idx()] {
-        Node::Start => {
+        Node::Start | Node::Region { preds: _ } => {
             let successor = def_use
                 .get_users(id)
                 .iter()
@@ -299,6 +301,34 @@ fn emit_llvm_for_node<'ctx>(
                 .unwrap();
             llvm_builder
                 .build_unconditional_branch(llvm_bbs[successor])
+                .unwrap();
+        }
+        Node::If { control: _, cond } => {
+            let successors = def_use.get_users(id);
+            if function.nodes[successors[0].idx()] == (Node::ReadProd { prod: id, index: 0 }) {
+                llvm_builder
+                    .build_conditional_branch(
+                        values[&cond].into_int_value(),
+                        llvm_bbs[&bb[successors[0].idx()]],
+                        llvm_bbs[&bb[successors[1].idx()]],
+                    )
+                    .unwrap();
+            } else {
+                llvm_builder
+                    .build_conditional_branch(
+                        values[&cond].into_int_value(),
+                        llvm_bbs[&bb[successors[1].idx()]],
+                        llvm_bbs[&bb[successors[0].idx()]],
+                    )
+                    .unwrap();
+            }
+        }
+        Node::Phi {
+            control: _,
+            data: _,
+        } => {
+            llvm_builder
+                .build_phi(llvm_types[typing[id.idx()].idx()], "")
                 .unwrap();
         }
         Node::Return { control: _, data } => {
