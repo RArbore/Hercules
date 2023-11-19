@@ -242,9 +242,7 @@ pub fn cpu_alpha_codegen(
                             |(read, write)| if id == *write { Some(read) } else { None },
                         ),
                     )
-                    .all(|x| {
-                        function.nodes[x.idx()].is_strictly_control() || values.contains_key(x)
-                    })
+                    .all(|x| function.is_control(*x) || values.contains_key(x))
             {
                 // Skip emitting node if it's not a phi node and if its data
                 // uses are not emitted yet.
@@ -264,6 +262,7 @@ pub fn cpu_alpha_codegen(
                     llvm_fn,
                     &llvm_bbs,
                     &llvm_types,
+                    &llvm_constants,
                 );
             }
         }
@@ -288,6 +287,7 @@ fn emit_llvm_for_node<'ctx>(
     llvm_fn: FunctionValue<'ctx>,
     llvm_bbs: &HashMap<NodeID, BasicBlock<'ctx>>,
     llvm_types: &Vec<BasicTypeEnum<'ctx>>,
+    llvm_constants: &Vec<BasicValueEnum<'ctx>>,
 ) {
     let llvm_bb = llvm_bbs[&bb[id.idx()]];
     llvm_builder.position_at_end(llvm_bb);
@@ -327,9 +327,13 @@ fn emit_llvm_for_node<'ctx>(
             control: _,
             data: _,
         } => {
-            llvm_builder
-                .build_phi(llvm_types[typing[id.idx()].idx()], "")
-                .unwrap();
+            values.insert(
+                id,
+                llvm_builder
+                    .build_phi(llvm_types[typing[id.idx()].idx()], "")
+                    .unwrap()
+                    .as_basic_value(),
+            );
         }
         Node::Return { control: _, data } => {
             llvm_builder.build_return(Some(&values[&data])).unwrap();
@@ -342,6 +346,9 @@ fn emit_llvm_for_node<'ctx>(
                     .unwrap()
                     .as_basic_value_enum(),
             );
+        }
+        Node::Constant { id: cons_id } => {
+            values.insert(id, llvm_constants[cons_id.idx()]);
         }
         Node::Unary { input, op } => {
             let input = values[&input];
@@ -803,6 +810,16 @@ fn emit_llvm_for_node<'ctx>(
                             .as_basic_value_enum(),
                     );
                 }
+            }
+        }
+        Node::ReadProd { prod, index } => {
+            if function.nodes[prod.idx()].is_strictly_control() {
+                let successor = def_use.get_users(id)[0];
+                llvm_builder
+                    .build_unconditional_branch(llvm_bbs[&successor])
+                    .unwrap();
+            } else {
+                todo!()
             }
         }
         _ => todo!(),
