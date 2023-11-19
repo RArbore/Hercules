@@ -72,7 +72,8 @@ fn main() {
     let antideps: Vec<_> = module
         .functions
         .iter()
-        .map(|function| hercules_codegen::antideps::antideps(function))
+        .enumerate()
+        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
         .collect();
 
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(

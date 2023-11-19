@@ -760,6 +760,24 @@ impl Node {
             data: _,
         }
     );
+    define_pattern_predicate!(is_read_prod, Node::ReadProd { prod: _, index: _ });
+    define_pattern_predicate!(
+        is_write_prod,
+        Node::WriteProd {
+            prod: _,
+            index: _,
+            data: _
+        }
+    );
+    define_pattern_predicate!(is_read_array, Node::ReadArray { array: _, index: _ });
+    define_pattern_predicate!(
+        is_write_array,
+        Node::WriteArray {
+            array: _,
+            index: _,
+            data: _
+        }
+    );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
 
     /*
