@@ -909,8 +909,28 @@ fn emit_llvm_for_node<'ctx>(
                         .unwrap(),
                 );
             } else {
-                todo!()
+                values.insert(
+                    id,
+                    llvm_builder
+                        .build_extract_value(values[&prod].into_struct_value(), index as u32, "")
+                        .unwrap()
+                        .as_any_value_enum(),
+                );
             }
+        }
+        Node::WriteProd { prod, index, data } => {
+            values.insert(
+                id,
+                llvm_builder
+                    .build_insert_value(
+                        values[&prod].into_struct_value(),
+                        BasicValueEnum::try_from(values[&data]).unwrap(),
+                        index as u32,
+                        "",
+                    )
+                    .unwrap()
+                    .as_any_value_enum(),
+            );
         }
         Node::ReadArray { array, index } => {
             let ptr_type = llvm_types[typing[id.idx()].idx()];
