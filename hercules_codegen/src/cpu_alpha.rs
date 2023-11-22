@@ -485,6 +485,11 @@ fn emit_llvm_for_node<'ctx>(
             phi_values.insert(id, phi_value);
             values.insert(id, phi_value.as_any_value_enum());
         }
+        Node::ThreadID { control } => {
+            let phi_value = phi_values[&control];
+            values.insert(id, phi_value.as_any_value_enum());
+        }
+        Node::Collect { control: _, data } => {}
         Node::Return { control: _, data } => {
             llvm_builder
                 .build_return(Some(&BasicValueEnum::try_from(values[&data]).unwrap()))
