@@ -340,6 +340,19 @@ fn emit_llvm_for_node<'ctx>(
     llvm_types: &Vec<BasicTypeEnum<'ctx>>,
     llvm_constants: &Vec<BasicValueEnum<'ctx>>,
 ) {
+    // Helper to emit code for dynamic constants.
+    let emit_dynamic_constant =
+        |dyn_cons_id: DynamicConstantID| match dynamic_constants[dyn_cons_id.idx()] {
+            DynamicConstant::Constant(val) => llvm_context
+                .i64_type()
+                .const_int(val as u64, false)
+                .as_any_value_enum(),
+            DynamicConstant::Parameter(num) => llvm_fn
+                .get_nth_param((num + function.param_types.len()) as u32)
+                .unwrap()
+                .as_any_value_enum(),
+        };
+
     let llvm_bb = llvm_bbs[&bb[id.idx()]];
     if let Some(iv) = branch_instructions.get(&llvm_bb) {
         llvm_builder.position_before(iv);
@@ -387,6 +400,79 @@ fn emit_llvm_for_node<'ctx>(
                 );
             }
         }
+        Node::Fork {
+            control: _,
+            factor: _,
+        } => {
+            // Need to create phi node for the loop index.
+            let phi_value = llvm_builder.build_phi(llvm_context.i64_type(), "").unwrap();
+            phi_values.insert(id, phi_value);
+
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+            branch_instructions.insert(
+                llvm_bb,
+                llvm_builder
+                    .build_unconditional_branch(llvm_bbs[successor])
+                    .unwrap(),
+            );
+        }
+        Node::Join { control: _ } => {
+            // Form the bottom of the loop. We need to branch between the
+            // successor and the fork.
+            let fork_id = if let Type::Control(factors) = &types[typing[id.idx()].idx()] {
+                *factors.last().unwrap()
+            } else {
+                panic!()
+            };
+            let phi_value = phi_values[&fork_id];
+            let (fork_predecessor, factor) =
+                if let Node::Fork { control, factor } = &function.nodes[fork_id.idx()] {
+                    (*control, *factor)
+                } else {
+                    panic!()
+                };
+
+            let bound = emit_dynamic_constant(factor);
+            let new_index = llvm_builder
+                .build_int_add(
+                    phi_value.as_any_value_enum().into_int_value(),
+                    llvm_context.i64_type().const_int(1, false),
+                    "",
+                )
+                .unwrap();
+            phi_value.add_incoming(&[
+                (
+                    &llvm_context.i64_type().const_int(0, false),
+                    llvm_bbs[&bb[fork_predecessor.idx()]],
+                ),
+                (&new_index, llvm_bbs[&bb[id.idx()]]),
+            ]);
+
+            let condition = llvm_builder
+                .build_int_compare(IntPredicate::ULT, new_index, bound.into_int_value(), "")
+                .unwrap();
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+            branch_instructions.insert(
+                llvm_bb,
+                llvm_builder
+                    .build_conditional_branch(
+                        condition,
+                        llvm_bbs[&bb[fork_id.idx()]],
+                        llvm_bbs[&bb[successor.idx()]],
+                    )
+                    .unwrap(),
+            );
+        }
         Node::Phi {
             control: _,
             data: _,
@@ -416,26 +502,9 @@ fn emit_llvm_for_node<'ctx>(
         Node::Constant { id: cons_id } => {
             values.insert(id, llvm_constants[cons_id.idx()].into());
         }
-        Node::DynamicConstant { id: dyn_cons_id } => match dynamic_constants[dyn_cons_id.idx()] {
-            DynamicConstant::Constant(val) => {
-                values.insert(
-                    id,
-                    llvm_context
-                        .i64_type()
-                        .const_int(val as u64, false)
-                        .as_any_value_enum(),
-                );
-            }
-            DynamicConstant::Parameter(num) => {
-                values.insert(
-                    id,
-                    llvm_fn
-                        .get_nth_param((num + function.param_types.len()) as u32)
-                        .unwrap()
-                        .as_any_value_enum(),
-                );
-            }
-        },
+        Node::DynamicConstant { id: dyn_cons_id } => {
+            values.insert(id, emit_dynamic_constant(dyn_cons_id));
+        }
         Node::Unary { input, op } => {
             let input = values[&input];
             match op {
