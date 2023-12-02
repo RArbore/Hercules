@@ -113,6 +113,14 @@ impl DomTree {
         }
     }
 
+    pub fn ascend<'a>(&'a self, bottom: NodeID) -> DomChainIterator<'a> {
+        DomChainIterator {
+            dom: self,
+            iter: Some(bottom),
+            top: self.root,
+        }
+    }
+
     pub fn get_underlying_map(&self) -> &HashMap<NodeID, (u32, NodeID)> {
         &self.idom
     }

@@ -87,3 +87,32 @@ pub fn gcm(
 
     bbs
 }
+
+/*
+ * Find fork/join nests that each control node is inside of. Result is a map
+ * from each control node to a list of fork nodes. The fork nodes are listed in
+ * ascending order of nesting.
+ */
+pub fn compute_fork_join_nesting(
+    function: &Function,
+    dom: &DomTree,
+) -> HashMap<NodeID, Vec<NodeID>> {
+    // Step 1: filter control nodes.
+    let control_nodes: Vec<_> = (0..function.nodes.len())
+        .map(NodeID::new)
+        .filter(|id| function.is_control(*id))
+        .collect();
+
+    // Step 2: ascend dominator tree, looking for fork nodes.
+    control_nodes
+        .into_iter()
+        .map(|id| {
+            (
+                id,
+                dom.ascend(id)
+                    .filter(|id| function.nodes[id.idx()].is_fork())
+                    .collect(),
+            )
+        })
+        .collect()
+}
