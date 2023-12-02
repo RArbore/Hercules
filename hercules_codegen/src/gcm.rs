@@ -97,15 +97,10 @@ pub fn compute_fork_join_nesting(
     function: &Function,
     dom: &DomTree,
 ) -> HashMap<NodeID, Vec<NodeID>> {
-    // Step 1: filter control nodes.
-    let control_nodes: Vec<_> = (0..function.nodes.len())
+    // For each control node, ascend dominator tree, looking for fork nodes.
+    (0..function.nodes.len())
         .map(NodeID::new)
         .filter(|id| function.is_control(*id))
-        .collect();
-
-    // Step 2: ascend dominator tree, looking for fork nodes.
-    control_nodes
-        .into_iter()
         .map(|id| {
             (
                 id,
