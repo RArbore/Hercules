@@ -77,6 +77,22 @@ fn main() {
         })
         .collect();
 
+    let array_allocs: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_codegen::array_alloc::logical_array_alloc(
+                function,
+                &typing[idx],
+                &module.types,
+                &fork_join_maps[idx],
+                &bbs[idx],
+                &hercules_codegen::gcm::compute_fork_join_nesting(function, &doms[idx]),
+            )
+        })
+        .collect();
+
     hercules_codegen::cpu_alpha::cpu_alpha_codegen(
         &module,
         &typing,

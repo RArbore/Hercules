@@ -9,11 +9,11 @@ use self::hercules_ir::ir::*;
  * the write node.
  */
 pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
-    // Array and product typed values are not directly computed on. Thus, there
-    // are actually very few nodes that have array or product inputs or output.
-    // As a result, when forming anti-dependencies for a single allocation, we
-    // only need to consider immediate users that are read or write nodes - no
-    // proper dataflow analysis necessary.
+    // Array typed values are not directly computed on. Thus, there are actually
+    // very few nodes that have array inputs or output. As a result, when
+    // forming anti-dependencies for a single allocation, we only need to
+    // consider immediate users that are read or write nodes - no proper
+    // dataflow analysis necessary.
     let mut antideps = vec![];
 
     for id in (0..function.nodes.len()).map(NodeID::new) {

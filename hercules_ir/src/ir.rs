@@ -665,6 +665,14 @@ impl Type {
     pub fn is_primitive(&self) -> bool {
         self.is_bool() || self.is_fixed() || self.is_float()
     }
+
+    pub fn is_array(&self) -> bool {
+        if let Type::Array(_, _) = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Constant {
@@ -988,67 +996,26 @@ impl BinaryOperator {
 /*
  * Rust things to make newtyped IDs usable.
  */
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionID(u32);
 
-impl FunctionID {
-    pub fn new(x: usize) -> Self {
-        FunctionID(x as u32)
-    }
+macro_rules! define_id_type {
+    ($x: ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $x(u32);
 
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
+        impl $x {
+            pub fn new(x: usize) -> Self {
+                $x(x as u32)
+            }
+
+            pub fn idx(&self) -> usize {
+                self.0 as usize
+            }
+        }
+    };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NodeID(u32);
-
-impl NodeID {
-    pub fn new(x: usize) -> Self {
-        NodeID(x as u32)
-    }
-
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ConstantID(u32);
-
-impl ConstantID {
-    pub fn new(x: usize) -> Self {
-        ConstantID(x as u32)
-    }
-
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TypeID(u32);
-
-impl TypeID {
-    pub fn new(x: usize) -> Self {
-        TypeID(x as u32)
-    }
-
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DynamicConstantID(u32);
-
-impl DynamicConstantID {
-    pub fn new(x: usize) -> Self {
-        DynamicConstantID(x as u32)
-    }
-
-    pub fn idx(&self) -> usize {
-        self.0 as usize
-    }
-}
+define_id_type!(FunctionID);
+define_id_type!(NodeID);
+define_id_type!(TypeID);
+define_id_type!(ConstantID);
+define_id_type!(DynamicConstantID);

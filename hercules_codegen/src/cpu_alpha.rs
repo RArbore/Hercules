@@ -92,10 +92,17 @@ pub fn cpu_alpha_codegen(
                     .as_basic_type_enum();
             }
             Type::Array(elem, _) => {
-                let elem_type = llvm_types[elem.idx()];
-                llvm_types[id.idx()] = elem_type
-                    .ptr_type(AddressSpace::default())
-                    .as_basic_type_enum();
+                // Array types need to be flattened - an array of an array of
+                // floats in Hercules IR needs to translate to a single pointer
+                // in LLVM IR.
+                if let Type::Array(_, _) = types[elem.idx()] {
+                    llvm_types[id.idx()] = llvm_types[elem.idx()];
+                } else {
+                    let elem_type = llvm_types[elem.idx()];
+                    llvm_types[id.idx()] = elem_type
+                        .ptr_type(AddressSpace::default())
+                        .as_basic_type_enum();
+                }
             }
             Type::Summation(_) => todo!(),
         }
@@ -421,10 +428,10 @@ fn emit_llvm_for_node<'ctx>(
                     .unwrap(),
             );
         }
-        Node::Join { control: _ } => {
+        Node::Join { control } => {
             // Form the bottom of the loop. We need to branch between the
             // successor and the fork.
-            let fork_id = if let Type::Control(factors) = &types[typing[id.idx()].idx()] {
+            let fork_id = if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
                 *factors.last().unwrap()
             } else {
                 panic!()
