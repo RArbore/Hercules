@@ -675,6 +675,15 @@ impl Type {
     }
 }
 
+pub fn type_extents(mut ty: TypeID, types: &Vec<Type>) -> Vec<DynamicConstantID> {
+    let mut extents = vec![];
+    while let Type::Array(elem, dc) = types[ty.idx()] {
+        extents.push(dc);
+        ty = elem;
+    }
+    extents
+}
+
 impl Constant {
     /*
      * Useful for GVN.

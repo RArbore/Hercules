@@ -76,11 +76,58 @@ pub fn logical_array_alloc(
         }
     }
 
+    // Step 3: determine the size of each array allocation. This is the size of
+    // the array type operated on, possibly in addition to dynamic constant
+    // factors corresponding to uses inside fork / joins. Each node that can
+    // operate on array values, and their corresponding affect on the array
+    // value's size, are listed below.
+    //
+    // Phi: only provides the base array dimensions
+    // Collect: provides the base array dimensions, in addition to dimensions
+    // corresponding to dominating fork / join nests
+    // Parameter: only provides the base array dimensions
+    // Constant: only provides the base array dimensions
+    // Call: TODO
+    // ReadArray: only provides the base array dimensions
+    // WriteArray: provides the base array dimensions, in addition to dimensions
+    // corresponding to each fork / join the node is nested in
+    let mut key_to_value_size = HashMap::new();
     for key in keys {
-        println!(
-            "{:?}, {:?}",
-            array_nodes[key.index() as usize],
-            array_nodes[allocs.find(key).index() as usize]
-        );
+        let value_key = allocs.find(key);
+        let id = array_nodes[key.index() as usize];
+        match function.nodes[id.idx()] {
+            Node::Phi {
+                control: _,
+                data: _,
+            } => {}
+        }
     }
+}
+
+/*
+ * Get the dimensionality of a write. Checks for the dimensions of the array
+ * type, and adds dimensions corresponding to dominating fork / join nests.
+ */
+pub fn write_dimensionality(
+    function: &Function,
+    write: NodeID,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
+    bbs: &Vec<NodeID>,
+    fork_join_nests: &HashMap<NodeID, Vec<NodeID>>,
+) -> Vec<DynamicConstantID> {
+    let mut extents = type_extents(typing[write.idx()], types);
+    extents.reverse();
+
+    let forks = fork_join_nests[&bbs[write.idx()]];
+    for fork in forks {
+        if let Node::Fork { control: _, factor } = function.nodes[fork.idx()] {
+            extents.push(factor);
+        } else {
+            panic!("Fork join nests map contains a non-fork in the value list.");
+        }
+    }
+
+    extents.reverse();
+    extents
 }

@@ -444,6 +444,7 @@ fn emit_llvm_for_node<'ctx>(
                     panic!()
                 };
 
+            // Create a serial loop with a simple index.
             let bound = emit_dynamic_constant(factor);
             let new_index = llvm_builder
                 .build_int_add(
@@ -460,6 +461,7 @@ fn emit_llvm_for_node<'ctx>(
                 (&new_index, llvm_bbs[&bb[id.idx()]]),
             ]);
 
+            // Create branch forming the serial loop.
             let condition = llvm_builder
                 .build_int_compare(IntPredicate::ULT, new_index, bound.into_int_value(), "")
                 .unwrap();
