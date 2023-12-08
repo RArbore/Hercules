@@ -117,6 +117,10 @@ pub fn write_dimensionality(
     fork_join_nests: &HashMap<NodeID, Vec<NodeID>>,
 ) -> Vec<DynamicConstantID> {
     let mut extents = type_extents(typing[write.idx()], types);
+    assert!(
+        extents.len() > 0,
+        "Can't call write_dimensionality with a node that doesn't output an array."
+    );
     extents.reverse();
 
     let forks = fork_join_nests[&bbs[write.idx()]];
