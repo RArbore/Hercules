@@ -91,17 +91,38 @@ pub fn logical_array_alloc(
     // ReadArray: only provides the base array dimensions
     // WriteArray: provides the base array dimensions, in addition to dimensions
     // corresponding to each fork / join the node is nested in
-    let mut key_to_value_size = HashMap::new();
+    let mut key_to_value_size: HashMap<UnitKey, Vec<DynamicConstantID>> = HashMap::new();
     for key in keys {
         let value_key = allocs.find(key);
         let id = array_nodes[key.index() as usize];
+        println!(
+            "{:?} {:?}",
+            array_nodes[key.index() as usize],
+            array_nodes[value_key.index() as usize]
+        );
         match function.nodes[id.idx()] {
             Node::Phi {
                 control: _,
                 data: _,
-            } => {}
+            }
+            | Node::Parameter { index: _ }
+            | Node::Constant { id: _ }
+            | Node::ReadArray { array: _, index: _ } => {
+                // For nodes that don't write to the array, the required size
+                // is just the underlying size of the array.
+                let extents = type_extents(typing[id.idx()], types);
+                if let Some(old_extents) = key_to_value_size.get(&value_key) {
+                    if old_extents.len() < extents.len() {
+                        key_to_value_size.insert(value_key, extents);
+                    }
+                } else {
+                    key_to_value_size.insert(value_key, extents);
+                }
+            }
+            _ => {}
         }
     }
+    println!("{:?}", key_to_value_size);
 }
 
 /*
@@ -123,8 +144,7 @@ pub fn write_dimensionality(
     );
     extents.reverse();
 
-    let forks = fork_join_nests[&bbs[write.idx()]];
-    for fork in forks {
+    for fork in fork_join_nests[&bbs[write.idx()]].iter() {
         if let Node::Fork { control: _, factor } = function.nodes[fork.idx()] {
             extents.push(factor);
         } else {
