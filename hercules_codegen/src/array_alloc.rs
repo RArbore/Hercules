@@ -85,6 +85,7 @@ pub fn logical_array_alloc(
     // Phi: only provides the base array dimensions
     // Collect: provides the base array dimensions, in addition to dimensions
     // corresponding to dominating fork / join nests
+    // Return: provides no array dimensions
     // Parameter: only provides the base array dimensions
     // Constant: only provides the base array dimensions
     // Call: TODO
@@ -95,12 +96,8 @@ pub fn logical_array_alloc(
     for key in keys {
         let value_key = allocs.find(key);
         let id = array_nodes[key.index() as usize];
-        println!(
-            "{:?} {:?}",
-            array_nodes[key.index() as usize],
-            array_nodes[value_key.index() as usize]
-        );
-        match function.nodes[id.idx()] {
+
+        let extents = match function.nodes[id.idx()] {
             Node::Phi {
                 control: _,
                 data: _,
@@ -110,16 +107,48 @@ pub fn logical_array_alloc(
             | Node::ReadArray { array: _, index: _ } => {
                 // For nodes that don't write to the array, the required size
                 // is just the underlying size of the array.
-                let extents = type_extents(typing[id.idx()], types);
-                if let Some(old_extents) = key_to_value_size.get(&value_key) {
-                    if old_extents.len() < extents.len() {
-                        key_to_value_size.insert(value_key, extents);
-                    }
-                } else {
-                    key_to_value_size.insert(value_key, extents);
-                }
+                type_extents(typing[id.idx()], types)
             }
-            _ => {}
+            Node::Collect {
+                control: _,
+                data: _,
+            }
+            | Node::WriteArray {
+                array: _,
+                data: _,
+                index: _,
+            } => {
+                // For nodes that write to the array, the required size depends
+                // on the surrounding fork / join pairs.
+                write_dimensionality(
+                    function,
+                    id,
+                    typing,
+                    types,
+                    fork_join_map,
+                    bbs,
+                    fork_join_nests,
+                )
+            }
+            Node::Return {
+                control: _,
+                data: _,
+            } => {
+                continue;
+            }
+            _ => todo!(),
+        };
+
+        // The largest required size is the correct size. It is assumed that all
+        // sizes calculated above form a total order with respect to sub
+        // vectoring. That is, no two vectors calculated above for the same
+        // array value will contain differing elements at any given position.
+        if let Some(old_extents) = key_to_value_size.get(&value_key) {
+            if old_extents.len() < extents.len() {
+                key_to_value_size.insert(value_key, extents);
+            }
+        } else {
+            key_to_value_size.insert(value_key, extents);
         }
     }
     println!("{:?}", key_to_value_size);
@@ -134,6 +163,7 @@ pub fn write_dimensionality(
     write: NodeID,
     typing: &Vec<TypeID>,
     types: &Vec<Type>,
+    fork_join_map: &HashMap<NodeID, NodeID>,
     bbs: &Vec<NodeID>,
     fork_join_nests: &HashMap<NodeID, Vec<NodeID>>,
 ) -> Vec<DynamicConstantID> {
@@ -146,7 +176,12 @@ pub fn write_dimensionality(
 
     for fork in fork_join_nests[&bbs[write.idx()]].iter() {
         if let Node::Fork { control: _, factor } = function.nodes[fork.idx()] {
-            extents.push(factor);
+            // If this node is a collect, we don't need to add the dimension
+            // from the corresponding fork.
+            if function.nodes[write.idx()].is_collect() && fork_join_map[&fork] != bbs[write.idx()]
+            {
+                extents.push(factor);
+            }
         } else {
             panic!("Fork join nests map contains a non-fork in the value list.");
         }

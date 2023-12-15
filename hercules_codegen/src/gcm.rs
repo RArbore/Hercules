@@ -96,8 +96,11 @@ pub fn gcm(
 pub fn compute_fork_join_nesting(
     function: &Function,
     dom: &DomTree,
+    fork_join_map: &HashMap<NodeID, NodeID>,
 ) -> HashMap<NodeID, Vec<NodeID>> {
-    // For each control node, ascend dominator tree, looking for fork nodes.
+    // For each control node, ascend dominator tree, looking for fork nodes. For
+    // each fork node, make sure each control node isn't strictly dominated by
+    // the corresponding join node.
     (0..function.nodes.len())
         .map(NodeID::new)
         .filter(|id| function.is_control(*id))
@@ -106,6 +109,7 @@ pub fn compute_fork_join_nesting(
                 id,
                 dom.ascend(id)
                     .filter(|id| function.nodes[id.idx()].is_fork())
+                    .filter(|fork_id| !dom.does_prop_dom(fork_join_map[&fork_id], id))
                     .collect(),
             )
         })

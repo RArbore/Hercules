@@ -88,7 +88,11 @@ fn main() {
                 &module.types,
                 &fork_join_maps[idx],
                 &bbs[idx],
-                &hercules_codegen::gcm::compute_fork_join_nesting(function, &doms[idx]),
+                &hercules_codegen::gcm::compute_fork_join_nesting(
+                    function,
+                    &doms[idx],
+                    &fork_join_maps[idx],
+                ),
             )
         })
         .collect();
