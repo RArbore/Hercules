@@ -104,6 +104,7 @@ fn main() {
         &def_uses,
         &bbs,
         &antideps,
+        &array_allocs,
         &std::path::Path::new("test.bc"),
     );
 }

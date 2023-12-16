@@ -37,6 +37,7 @@ pub fn cpu_alpha_codegen(
     def_uses: &Vec<ImmutableDefUseMap>,
     bbs: &Vec<Vec<NodeID>>,
     antideps: &Vec<Vec<(NodeID, NodeID)>>,
+    array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
     path: &std::path::Path,
 ) {
     let hercules_ir::ir::Module {
@@ -92,9 +93,8 @@ pub fn cpu_alpha_codegen(
                     .as_basic_type_enum();
             }
             Type::Array(elem, _) => {
-                // Array types need to be flattened - an array of an array of
-                // floats in Hercules IR needs to translate to a single pointer
-                // in LLVM IR.
+                // Array types need to be flattened - an array of an array in
+                // Hercules IR needs to translate to a single pointer in LLVM.
                 if let Type::Array(_, _) = types[elem.idx()] {
                     llvm_types[id.idx()] = llvm_types[elem.idx()];
                 } else {
@@ -1016,42 +1016,56 @@ fn emit_llvm_for_node<'ctx>(
             );
         }
         Node::ReadArray { array, index } => {
-            let ptr_type = llvm_types[typing[id.idx()].idx()];
-            let gep_ptr = unsafe {
-                llvm_builder
-                    .build_gep(
-                        ptr_type,
-                        values[&array].into_pointer_value(),
-                        &[values[&index].into_int_value()],
-                        "",
-                    )
-                    .unwrap()
-            };
-            values.insert(
-                id,
-                llvm_builder
-                    .build_load(ptr_type, gep_ptr, "")
-                    .unwrap()
-                    .as_any_value_enum(),
-            );
+            let elem_type = element_type(typing[id.idx()], types);
+            let llvm_elem_type = llvm_types[elem_type.idx()];
+            println!("{:?} {:?}", id, llvm_elem_type);
+
+            // If this is the last level of the array type, then do a load.
+            // Otherwise, the output is a pointer to the sub-array.
+            if types[typing[id.idx()].idx()].is_array() {
+                let mut index = values[&index].into_int_value();
+                for dc in type_extents(elem_type, types) {
+                    let dc = emit_dynamic_constant(dc);
+                    index = llvm_builder
+                        .build_int_mul(index, dc.into_int_value(), "")
+                        .unwrap();
+                }
+                values.insert(id, unsafe {
+                    llvm_builder
+                        .build_gep(
+                            llvm_elem_type,
+                            values[&array].into_pointer_value(),
+                            &[index],
+                            "",
+                        )
+                        .unwrap()
+                        .as_any_value_enum()
+                });
+            } else {
+                let gep_ptr = unsafe {
+                    llvm_builder
+                        .build_gep(
+                            llvm_elem_type,
+                            values[&array].into_pointer_value(),
+                            &[values[&index].into_int_value()],
+                            "",
+                        )
+                        .unwrap()
+                };
+                values.insert(
+                    id,
+                    llvm_builder
+                        .build_load(llvm_elem_type, gep_ptr, "")
+                        .unwrap()
+                        .as_any_value_enum(),
+                );
+            }
         }
-        Node::WriteArray { array, index, data } => {
-            let ptr_type = llvm_types[typing[data.idx()].idx()];
-            let gep_ptr = unsafe {
-                llvm_builder
-                    .build_gep(
-                        ptr_type,
-                        values[&array].into_pointer_value(),
-                        &[values[&index].into_int_value()],
-                        "",
-                    )
-                    .unwrap()
-            };
-            llvm_builder
-                .build_store(gep_ptr, BasicValueEnum::try_from(values[&data]).unwrap())
-                .unwrap();
-            values.insert(id, values[&array]);
-        }
+        Node::WriteArray {
+            array: _,
+            index: _,
+            data: _,
+        } => todo!(),
         _ => todo!(),
     }
 }
