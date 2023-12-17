@@ -1116,7 +1116,7 @@ fn emit_llvm_for_node<'ctx>(
             // Otherwise, the output is a pointer to the sub-array.
             if types[typing[id.idx()].idx()].is_array() {
                 let mut index = values[&index].into_int_value();
-                for dc in type_extents(elem_type, types) {
+                for dc in type_extents(typing[id.idx()], types) {
                     let dc = emit_dynamic_constant(dc);
                     index = llvm_builder
                         .build_int_mul(index, dc.into_int_value(), "")
