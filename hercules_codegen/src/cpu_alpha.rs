@@ -223,6 +223,15 @@ pub fn cpu_alpha_codegen(
                 repeat(BasicMetadataTypeEnum::try_from(llvm_context.i64_type()).unwrap())
                     .take(function.num_dynamic_constants as usize),
             )
+            .chain(
+                repeat(
+                    BasicMetadataTypeEnum::try_from(
+                        llvm_context.i8_type().ptr_type(AddressSpace::default()),
+                    )
+                    .unwrap(),
+                )
+                .take(array_allocations.0.len() as usize),
+            )
             .collect::<Box<[_]>>();
         let llvm_fn_type = llvm_ret_type.fn_type(&llvm_param_types, false);
         let llvm_fn = llvm_module.add_function(&function.name, llvm_fn_type, None);
@@ -367,6 +376,25 @@ fn emit_llvm_for_node<'ctx>(
                 .as_any_value_enum(),
         };
 
+    // Helper to get array allocation.
+    let get_array_alloc = |idx: usize| {
+        llvm_fn
+            .get_nth_param(
+                (idx + function.param_types.len() + function.num_dynamic_constants as usize) as u32,
+            )
+            .unwrap()
+            .as_any_value_enum()
+    };
+
+    // Helper to position at the beginning of a basic block.
+    let position_at_beginning = |bb: BasicBlock<'ctx>| {
+        if let Some(first_inst) = bb.get_first_instruction() {
+            llvm_builder.position_before(&first_inst);
+        } else {
+            llvm_builder.position_at_end(bb);
+        }
+    };
+
     let llvm_bb = llvm_bbs[&bb[id.idx()]];
     if let Some(iv) = branch_instructions.get(&llvm_bb) {
         llvm_builder.position_before(iv);
@@ -495,6 +523,7 @@ fn emit_llvm_for_node<'ctx>(
         } => {
             // For some reason, Inkwell doesn't convert phi values to/from the
             // AnyValueEnum type properly, so store phi values in another map.
+            position_at_beginning(llvm_bb);
             let phi_value = llvm_builder
                 .build_phi(llvm_types[typing[id.idx()].idx()], "")
                 .unwrap();
@@ -517,7 +546,8 @@ fn emit_llvm_for_node<'ctx>(
                     .iter()
                     .rev()
                     .map(|fork| phi_values[&fork]);
-                let extents = &array_allocations.0[array_allocations.1[&id]];
+                let alloc_num = array_allocations.1[&id];
+                let extents = &array_allocations.0[alloc_num];
                 let mut write_index = llvm_context.i64_type().const_int(0, false);
                 let mut multiplier = llvm_context.i64_type().const_int(1, false);
                 for (thread_id, extent) in zip(thread_ids, extents.iter().rev()) {
@@ -546,6 +576,20 @@ fn emit_llvm_for_node<'ctx>(
                         )
                         .unwrap();
                 }
+
+                // Emit the write.
+                let array = get_array_alloc(alloc_num);
+                let ptr_type = llvm_types[typing[data.idx()].idx()];
+                let gep_ptr = unsafe {
+                    llvm_builder
+                        .build_gep(ptr_type, array.into_pointer_value(), &[write_index], "")
+                        .unwrap()
+                };
+                llvm_builder
+                    .build_store(gep_ptr, BasicValueEnum::try_from(values[&data]).unwrap())
+                    .unwrap();
+
+                values.insert(id, array);
             } else {
                 values.insert(id, values[&data]);
             }
@@ -1069,7 +1113,6 @@ fn emit_llvm_for_node<'ctx>(
         Node::ReadArray { array, index } => {
             let elem_type = element_type(typing[id.idx()], types);
             let llvm_elem_type = llvm_types[elem_type.idx()];
-            println!("{:?} {:?}", id, llvm_elem_type);
 
             // If this is the last level of the array type, then do a load.
             // Otherwise, the output is a pointer to the sub-array.
