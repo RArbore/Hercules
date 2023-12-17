@@ -77,6 +77,19 @@ fn main() {
         })
         .collect();
 
+    let fork_join_nests: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_codegen::gcm::compute_fork_join_nesting(
+                function,
+                &doms[idx],
+                &fork_join_maps[idx],
+            )
+        })
+        .collect();
+
     let array_allocs: Vec<_> = module
         .functions
         .iter()
@@ -88,11 +101,7 @@ fn main() {
                 &module.types,
                 &fork_join_maps[idx],
                 &bbs[idx],
-                &hercules_codegen::gcm::compute_fork_join_nesting(
-                    function,
-                    &doms[idx],
-                    &fork_join_maps[idx],
-                ),
+                &fork_join_nests[idx],
             )
         })
         .collect();
@@ -105,6 +114,7 @@ fn main() {
         &bbs,
         &antideps,
         &array_allocs,
+        &fork_join_nests,
         &std::path::Path::new("test.bc"),
     );
 }

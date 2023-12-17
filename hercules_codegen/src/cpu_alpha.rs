@@ -38,6 +38,7 @@ pub fn cpu_alpha_codegen(
     bbs: &Vec<Vec<NodeID>>,
     antideps: &Vec<Vec<(NodeID, NodeID)>>,
     array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
+    fork_join_nests: &Vec<HashMap<NodeID, Vec<NodeID>>>,
     path: &std::path::Path,
 ) {
     let hercules_ir::ir::Module {
@@ -209,6 +210,8 @@ pub fn cpu_alpha_codegen(
         let def_use = &def_uses[function_idx];
         let bb = &bbs[function_idx];
         let antideps = &antideps[function_idx];
+        let fork_join_nest = &fork_join_nests[function_idx];
+        let array_allocations = &array_allocations[function_idx];
 
         // Step 4.1: create LLVM function object.
         let llvm_ret_type = llvm_types[function.return_type.idx()];
@@ -273,6 +276,8 @@ pub fn cpu_alpha_codegen(
                     dynamic_constants,
                     bb,
                     def_use,
+                    fork_join_nest,
+                    array_allocations,
                     &llvm_context,
                     &llvm_builder,
                     llvm_fn,
@@ -340,6 +345,8 @@ fn emit_llvm_for_node<'ctx>(
     dynamic_constants: &Vec<DynamicConstant>,
     bb: &Vec<NodeID>,
     def_use: &ImmutableDefUseMap,
+    fork_join_nest: &HashMap<NodeID, Vec<NodeID>>,
+    array_allocations: &(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>),
     llvm_context: &'ctx Context,
     llvm_builder: &'ctx Builder,
     llvm_fn: FunctionValue<'ctx>,
@@ -498,7 +505,51 @@ fn emit_llvm_for_node<'ctx>(
             let phi_value = phi_values[&control];
             values.insert(id, phi_value.as_any_value_enum());
         }
-        Node::Collect { control: _, data } => {}
+        Node::Collect { control, data } => {
+            // Write into destination array only in inner-most collect. Outer
+            // collects become no-ops.
+            let elem_type = typing[data.idx()];
+            if !types[elem_type.idx()].is_array() {
+                // Get all the thread IDs of the nested forks. These are the phi
+                // values corresponding to each fork. We want to iterate from
+                // the outer-most thread ID to the inner-most thread ID.
+                let thread_ids = fork_join_nest[&control]
+                    .iter()
+                    .rev()
+                    .map(|fork| phi_values[&fork]);
+                let extents = &array_allocations.0[array_allocations.1[&id]];
+                let mut write_index = llvm_context.i64_type().const_int(0, false);
+                let mut multiplier = llvm_context.i64_type().const_int(1, false);
+                for (thread_id, extent) in zip(thread_ids, extents.iter().rev()) {
+                    // Add contribution of this index dimension to flat write
+                    // index.
+                    write_index = llvm_builder
+                        .build_int_add(
+                            write_index,
+                            llvm_builder
+                                .build_int_mul(
+                                    multiplier,
+                                    thread_id.as_any_value_enum().into_int_value(),
+                                    "",
+                                )
+                                .unwrap(),
+                            "",
+                        )
+                        .unwrap();
+
+                    // Keep running multiplication of extents seen so far.
+                    multiplier = llvm_builder
+                        .build_int_mul(
+                            multiplier,
+                            emit_dynamic_constant(*extent).into_int_value(),
+                            "",
+                        )
+                        .unwrap();
+                }
+            } else {
+                values.insert(id, values[&data]);
+            }
+        }
         Node::Return { control: _, data } => {
             llvm_builder
                 .build_return(Some(&BasicValueEnum::try_from(values[&data]).unwrap()))
