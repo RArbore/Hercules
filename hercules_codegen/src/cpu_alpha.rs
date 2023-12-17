@@ -540,11 +540,9 @@ fn emit_llvm_for_node<'ctx>(
             let elem_type = typing[data.idx()];
             if !types[elem_type.idx()].is_array() {
                 // Get all the thread IDs of the nested forks. These are the phi
-                // values corresponding to each fork. We want to iterate from
-                // the outer-most thread ID to the inner-most thread ID.
+                // values corresponding to each fork.
                 let thread_ids = fork_join_nest[&control]
                     .iter()
-                    .rev()
                     .map(|fork| phi_values[&fork]);
                 let alloc_num = array_allocations.1[&id];
                 let extents = &array_allocations.0[alloc_num];
