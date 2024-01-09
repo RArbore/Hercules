@@ -29,14 +29,14 @@
 \fancyhf{}
 \chead{}
 \rhead{Front-End Spec}
-\lhead{DRAFT: 2023-09-11}
+\lhead{DRAFT: 2024-01-09}
 
 \renewcommand{\footrulewidth}{1pt}
 \rfoot{\thepage}
 
 \title{Hercules Front-End Spec (Name TBD) \\ \large Language Specification}
 \author{Aaron Councilman, Russel Arbore}
-\date{September 11, 2023}
+\date{January 9, 2024}
 
 \newcommand{\nonterminal}[1]{#1\ }
 \newcommand{\terminal}[1]{\text{`#1'}\ }
@@ -110,7 +110,7 @@ The language also supports C/C++ style line comments and block comments, allowin
     \gramOr \nonterminal{Id} \terminal{:} \nonterminal{Kind} \\
 %
   \nonterminal{Kind} ::&= \terminal{type} \gramOr \terminal{usize}
-    \gramOr \terminal{number} \gramOr \terminal{integer} \\
+    \gramOr \terminal{bool} \gramOr \terminal{number} \gramOr \terminal{integer} \\
 %
   \nonterminal{Type} ::&= \nonterminal{PrimType}
     \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{Type}} \terminal{)} \\
@@ -118,7 +118,7 @@ The language also supports C/C++ style line comments and block comments, allowin
       \gramOption{\terminal{\textless}
         \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
     \gramOr \nonterminal{Type}
-      \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
+      \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{]} \\
 %
   \nonterminal{ConstDecl} ::&= \gramOption{\terminal{pub}}
     \terminal{const} \nonterminal{Id} \gramOption{\terminal{:} \nonterminal{Type}}
@@ -156,23 +156,28 @@ The language also supports C/C++ style line comments and block comments, allowin
      \gramOr \nonterminal{LExpr} \terminal{\textbar\textbar=} \nonterminal{Expr} \terminal{;} \\
     &\gramOr \nonterminal{LExpr} \terminal{\textless\textless=} \nonterminal{Expr} \terminal{;}
      \gramOr \nonterminal{LExpr} \terminal{\textgreater\textgreater=} \nonterminal{Expr} \terminal{;} \\
-    &\gramOr \terminal{if} \terminal{(} \nonterminal{Expr} \terminal{)}
-      \nonterminal{Stmt} \gramOption{\terminal{else} \nonterminal{Stmt}} \\
-    &\gramOr \terminal{match} \terminal{(} \nonterminal{Expr} \terminal{)} \nonterminal{Cases} \\
-    &\gramOr \terminal{for} \terminal{(} \nonterminal{VarBinding} \terminal{=}
-      \nonterminal{Expr} \terminal{to} \nonterminal{Expr}
-      \gramOption{\terminal{by} \nonterminal{Expr}} \terminal{)} \nonterminal{Stmt} \\
-    &\gramOr \terminal{while} \terminal{(} \nonterminal{Expr} \terminal{)}
-      \nonterminal{Stmt} \\
+    &\gramOr \terminal{if} \nonterminal{Expr} \nonterminal{Stmts}
+      \gramOption{\terminal{else} \nonterminal{Stmts}} \\
+    &\gramOr \terminal{match} \nonterminal{Expr} \nonterminal{Cases} \\
+    &\gramOr \terminal{for}
+      \nonterminal{VarBinding} \terminal{=} \nonterminal{Expr}
+      \terminal{to} \nonterminal{Expr}
+      \gramOption{\terminal{by} \nonterminal{Expr}} \nonterminal{Stmts} \\
+    &\gramOr \terminal{while} \nonterminal{Expr} \nonterminal{Stmts} \\
     &\gramOr \terminal{return} \nonterminal{Expr} \terminal{;} \\
-    &\gramOr \terminal{\{} \gramRepeat{\nonterminal{Stmt}} \terminal{\}} \\
+    &\gramOr \terminal{break} \terminal{;}
+     \gramOr \terminal{continue} \terminal{;}
+     \gramOr \nonterminal{Stmts} \\
     &\gramOr \nonterminal{PackageName}
       \gramOption{\terminal{::} \terminal{\textless}
         \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
       \terminal{(} \gramRepeat[\terminal{,}]{\gramOption{\terminal{\&}} \nonterminal{Expr}} \terminal{)} \terminal{;} \\
 %
-  \nonterminal{Cases} ::&= \nonterminal{Case}
-    \gramOr \terminal{\{} \gramRepeat{\nonterminal{Case}} \terminal{\}} \\
+  \nonterminal{Stmts} ::&=
+    \terminal{\{} \gramRepeat{\nonterminal{Stmt}} \terminal{\}} \\
+%
+  \nonterminal{Cases} ::&=
+    \terminal{\{} \gramRepeat{\nonterminal{Case}} \terminal{\}} \\
 %
   \nonterminal{Case} ::&=
     \nonterminal{Patterns} \terminal{=\textgreater} \nonterminal{Stmt} \\
@@ -239,11 +244,13 @@ The language also supports C/C++ style line comments and block comments, allowin
   \gramOr \terminal{(} \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{)} \\
   &\gramOr \nonterminal{PackageName} \gramOption{\terminal{\textless} \gramRepeat[\terminal{,}]{\nonterminal{TypeExpr}} \terminal{\textgreater}}
   \gramOr \nonterminal{TypeExpr} \terminal{[} \gramRepeat[\terminal{,}]{\nonterminal{Expr}} \terminal{]} \\
-  &\gramOr \nonterminal{BoolLit} \gramOr \nonterminal{IntLit} \gramOr \nonterminal{FloatLit}
+  &\gramOr \nonterminal{PackageName} 
+   \gramOr \nonterminal{BoolLit} \gramOr \nonterminal{IntLit} \gramOr \nonterminal{FloatLit}
    \gramOr \terminal{-} \nonterminal{TypeExpr} \\
   &\gramOr \nonterminal{TypeExpr} \terminal{+} \nonterminal{TypeExpr}
    \gramOr \nonterminal{TypeExpr} \terminal{-} \nonterminal{TypeExpr} \\
-  &\gramOr \nonterminal{TypeExpr} \terminal{*} \nonterminal{TypeExpr} \\
+  &\gramOr \nonterminal{TypeExpr} \terminal{*} \nonterminal{TypeExpr}
+   \gramOr \nonterminal{TypeExpr} \terminal{as} \nonterminal{Type} \\
 %
   \nonterminal{PrimType} ::&= \terminal{bool}
     \gramOr \terminal{i8} \gramOr \terminal{u8}
@@ -289,7 +296,7 @@ The grammar specified is ambiguous in a few places, the details of the disambigu
     \end{enumerate}
 \end{enumerate}
 %
-The keywords are: `as', `bool', `by', `else', `f32', `f64', `false', `fn', `for', `i8', `i16', `i32', `i64', `if', `inout', `let', `match', `module', `pub', `return', `size', `struct', `then', `to', `true', `type', `u8', `u16', `u32', `u64', `union', `use', `void', and `while'.
+The keywords are: `as', `bool', `break', `by', `continue', `else', `f32', `f64', `false', `fn', `for', `i8', `i16', `i32', `i64', `if', `inout', `let', `match', `module', `pub', `return', `size', `struct', `then', `to', `true', `type', `u8', `u16', `u32', `u64', `union', `use', `void', and `while'.
 
 \section{Type System}\label{sec:types}
 TODO
