@@ -21,17 +21,35 @@ pub fn gcm(
     control_subgraph: &Subgraph,
     dom: &DomTree,
     fork_join_map: &HashMap<NodeID, NodeID>,
+    antideps: &Vec<(NodeID, NodeID)>,
 ) -> Vec<NodeID> {
     // Step 1: find the immediate control uses and immediate control users of
     // each node.
-    let immediate_control_uses =
+    let mut immediate_control_uses =
         forward_dataflow(function, reverse_postorder, |inputs, node_id| {
             immediate_control_flow(inputs, node_id, function)
         });
-    let immediate_control_users =
+    let mut immediate_control_users =
         backward_dataflow(function, def_use, reverse_postorder, |inputs, node_id| {
             immediate_control_flow(inputs, node_id, function)
         });
+
+    // Reads and writes forming anti dependencies must be put in the same block.
+    for (read, write) in antideps {
+        let meet = UnionNodeSet::meet(
+            &immediate_control_uses[read.idx()],
+            &immediate_control_uses[write.idx()],
+        );
+        immediate_control_uses[read.idx()] = meet.clone();
+        immediate_control_uses[write.idx()] = meet;
+
+        let meet = UnionNodeSet::meet(
+            &immediate_control_users[read.idx()],
+            &immediate_control_users[write.idx()],
+        );
+        immediate_control_users[read.idx()] = meet.clone();
+        immediate_control_users[write.idx()] = meet;
+    }
 
     // Step 2: calculate loop tree of function.
     let loops = loops(&control_subgraph, NodeID::new(0), &dom, fork_join_map);
@@ -68,4 +86,32 @@ pub fn gcm(
         .collect();
 
     bbs
+}
+
+/*
+ * Find fork/join nests that each control node is inside of. Result is a map
+ * from each control node to a list of fork nodes. The fork nodes are listed in
+ * ascending order of nesting.
+ */
+pub fn compute_fork_join_nesting(
+    function: &Function,
+    dom: &DomTree,
+    fork_join_map: &HashMap<NodeID, NodeID>,
+) -> HashMap<NodeID, Vec<NodeID>> {
+    // For each control node, ascend dominator tree, looking for fork nodes. For
+    // each fork node, make sure each control node isn't strictly dominated by
+    // the corresponding join node.
+    (0..function.nodes.len())
+        .map(NodeID::new)
+        .filter(|id| function.is_control(*id))
+        .map(|id| {
+            (
+                id,
+                dom.ascend(id)
+                    .filter(|id| function.nodes[id.idx()].is_fork())
+                    .filter(|fork_id| !dom.does_prop_dom(fork_join_map[&fork_id], id))
+                    .collect(),
+            )
+        })
+        .collect()
 }

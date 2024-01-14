@@ -4,4 +4,7 @@ version = "0.1.0"
 authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
 [dependencies]
+bitvec = "*"
+ena = "*"
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm16-0-prefer-dynamic"] }
 hercules_ir = { path = "../hercules_ir" }

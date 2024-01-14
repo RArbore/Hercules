@@ -11,6 +11,7 @@ use self::hercules_ir::*;
  */
 pub fn write_dot<W: Write>(
     module: &ir::Module,
+    reverse_postorders: &Vec<Vec<NodeID>>,
     typing: &ModuleTyping,
     doms: &Vec<DomTree>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
@@ -20,6 +21,11 @@ pub fn write_dot<W: Write>(
 
     for function_id in (0..module.functions.len()).map(FunctionID::new) {
         let function = &module.functions[function_id.idx()];
+        let reverse_postorder = &reverse_postorders[function_id.idx()];
+        let mut reverse_postorder_node_numbers = vec![0; function.nodes.len()];
+        for (idx, id) in reverse_postorder.iter().enumerate() {
+            reverse_postorder_node_numbers[id.idx()] = idx;
+        }
         write_subgraph_header(function_id, module, w)?;
 
         // Step 1: draw IR graph itself. This includes all IR nodes and all edges
@@ -51,11 +57,24 @@ pub fn write_dot<W: Write>(
                     "dotted"
                 };
 
+                // To have a consistent layout, we will add "back edges" in the
+                // IR graph as backward facing edges in the graphviz output, so
+                // that they don't mess up the layout. There isn't necessarily a
+                // precise definition of a "back edge" in Hercules IR. I've
+                // found what makes for the most clear output graphs is treating
+                // edges to phi nodes as back edges when the phi node appears
+                // before the use in the reverse postorder, and treating a
+                // control edge a back edge when the destination appears before
+                // the source in the reverse postorder.
+                let is_back_edge = reverse_postorder_node_numbers[node_id.idx()]
+                    < reverse_postorder_node_numbers[u.idx()]
+                    && (node.is_phi() || (function.is_control(node_id) && function.is_control(*u)));
                 write_edge(
                     node_id,
                     function_id,
                     *u,
                     function_id,
+                    !is_back_edge,
                     "black",
                     style,
                     module,
@@ -73,6 +92,7 @@ pub fn write_dot<W: Write>(
                 function_id,
                 *parent_id,
                 function_id,
+                true,
                 "darkgreen",
                 "dotted",
                 &module,
@@ -88,6 +108,7 @@ pub fn write_dot<W: Write>(
                 function_id,
                 *fork_id,
                 function_id,
+                true,
                 "darkmagenta",
                 "dotted",
                 &module,
@@ -204,6 +225,7 @@ fn write_edge<W: Write>(
     dst_function_id: FunctionID,
     src_node_id: NodeID,
     src_function_id: FunctionID,
+    forward: bool,
     color: &str,
     style: &str,
     module: &Module,
@@ -211,17 +233,32 @@ fn write_edge<W: Write>(
 ) -> std::fmt::Result {
     let dst_node = &module.functions[dst_function_id.idx()].nodes[dst_node_id.idx()];
     let src_node = &module.functions[src_function_id.idx()].nodes[src_node_id.idx()];
-    write!(
-        w,
-        "{}_{}_{} -> {}_{}_{} [color={}, style=\"{}\"];\n",
-        src_node.lower_case_name(),
-        src_function_id.idx(),
-        src_node_id.idx(),
-        dst_node.lower_case_name(),
-        dst_function_id.idx(),
-        dst_node_id.idx(),
-        color,
-        style,
-    )?;
+    if forward {
+        write!(
+            w,
+            "{}_{}_{} -> {}_{}_{} [color={}, style=\"{}\"];\n",
+            src_node.lower_case_name(),
+            src_function_id.idx(),
+            src_node_id.idx(),
+            dst_node.lower_case_name(),
+            dst_function_id.idx(),
+            dst_node_id.idx(),
+            color,
+            style,
+        )?;
+    } else {
+        write!(
+            w,
+            "{}_{}_{} -> {}_{}_{} [dir=back, color={}, style=\"{}\"];\n",
+            dst_node.lower_case_name(),
+            dst_function_id.idx(),
+            dst_node_id.idx(),
+            src_node.lower_case_name(),
+            src_function_id.idx(),
+            src_node_id.idx(),
+            color,
+            style,
+        )?;
+    }
     Ok(())
 }
