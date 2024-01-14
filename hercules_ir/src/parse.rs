@@ -291,7 +291,6 @@ fn parse_node<'a>(
         // parse them into Unary or Binary node kinds.
         "not" => parse_unary(ir_text, context, UnaryOperator::Not)?,
         "neg" => parse_unary(ir_text, context, UnaryOperator::Neg)?,
-        "bitflip" => parse_unary(ir_text, context, UnaryOperator::Bitflip)?,
         "add" => parse_binary(ir_text, context, BinaryOperator::Add)?,
         "sub" => parse_binary(ir_text, context, BinaryOperator::Sub)?,
         "mul" => parse_binary(ir_text, context, BinaryOperator::Mul)?,

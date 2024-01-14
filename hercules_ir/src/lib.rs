@@ -1,3 +1,5 @@
+#![feature(coroutines, coroutine_trait)]
+
 pub mod build;
 pub mod dataflow;
 pub mod def_use;

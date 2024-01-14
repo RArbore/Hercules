@@ -49,9 +49,16 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (def_uses, reverse_postorders, _typing, subgraphs, doms, _postdoms, fork_join_maps) =
+    let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
+
+    let antideps: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
+        .collect();
 
     let bbs: Vec<_> = module
         .functions
@@ -65,13 +72,49 @@ fn main() {
                 &subgraphs[idx],
                 &doms[idx],
                 &fork_join_maps[idx],
+                &antideps[idx],
             )
-            .iter()
-            .map(|id| id.idx())
-            .enumerate()
-            .collect::<Vec<_>>()
         })
         .collect();
 
-    println!("{:?}", bbs);
+    let fork_join_nests: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_codegen::gcm::compute_fork_join_nesting(
+                function,
+                &doms[idx],
+                &fork_join_maps[idx],
+            )
+        })
+        .collect();
+
+    let array_allocs: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_codegen::array_alloc::logical_array_alloc(
+                function,
+                &typing[idx],
+                &module.types,
+                &fork_join_maps[idx],
+                &bbs[idx],
+                &fork_join_nests[idx],
+            )
+        })
+        .collect();
+
+    hercules_codegen::cpu_alpha::cpu_alpha_codegen(
+        &module,
+        &typing,
+        &reverse_postorders,
+        &def_uses,
+        &bbs,
+        &antideps,
+        &array_allocs,
+        &fork_join_nests,
+        &std::path::Path::new("test.bc"),
+    );
 }

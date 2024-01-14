@@ -57,7 +57,7 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (_def_uses, _reverse_postorders, typing, _subgraphs, doms, _postdoms, fork_join_maps) =
+    let (_def_uses, reverse_postorders, typing, _subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
@@ -68,8 +68,15 @@ fn main() {
         tmp_path.push(format!("hercules_dot_{}.dot", num));
         let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
+        write_dot(
+            &module,
+            &reverse_postorders,
+            &typing,
+            &doms,
+            &fork_join_maps,
+            &mut contents,
+        )
+        .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");
         Command::new("xdot")
@@ -79,8 +86,15 @@ fn main() {
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        write_dot(&module, &typing, &doms, &fork_join_maps, &mut contents)
-            .expect("PANIC: Unable to generate output file contents.");
+        write_dot(
+            &module,
+            &reverse_postorders,
+            &typing,
+            &doms,
+            &fork_join_maps,
+            &mut contents,
+        )
+        .expect("PANIC: Unable to generate output file contents.");
         file.write_all(contents.as_bytes())
             .expect("PANIC: Unable to write output file contents.");
     }
