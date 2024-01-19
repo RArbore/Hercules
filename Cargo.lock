@@ -187,6 +187,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "hercules_cpu"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hercules_codegen",
+ "hercules_ir",
+ "hercules_opt",
+ "rand",
+]
+
+[[package]]
+name = "hercules_dot"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hercules_ir",
+ "hercules_opt",
+ "rand",
+]
+
+[[package]]
 name = "hercules_ir"
 version = "0.1.0"
 dependencies = [
@@ -200,17 +221,6 @@ name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
  "hercules_ir",
-]
-
-[[package]]
-name = "hercules_tools"
-version = "0.1.0"
-dependencies = [
- "clap",
- "hercules_codegen",
- "hercules_ir",
- "hercules_opt",
- "rand",
 ]
 
 [[package]]

@@ -49,7 +49,7 @@ pub fn cpu_alpha_codegen(
     } = module;
 
     // Step 1: initialize LLVM objects.
-    let llvm_context = Context::create();
+    //let llvm_context = Context::create();
     let llvm_module = llvm_context.create_module("");
     let llvm_builder = llvm_context.create_builder();
 

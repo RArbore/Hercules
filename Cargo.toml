@@ -4,5 +4,6 @@ members = [
 	"hercules_codegen",
 	"hercules_ir",
 	"hercules_opt",
-	"hercules_tools"
+	"hercules_tools/hercules_dot",
+	"hercules_tools/hercules_cpu"
 ]
