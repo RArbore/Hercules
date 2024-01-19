@@ -392,45 +392,47 @@ fn typeflow(
                 reverse_type_map,
             ))
         }
-        Node::Collect { control, data: _ } => {
-            if inputs.len() != 2 {
-                return Error(String::from("Collect node must have exactly two inputs."));
+        Node::Reduce {
+            control: _,
+            init: _,
+            reduct: _,
+        } => {
+            if inputs.len() != 3 {
+                return Error(String::from("Reduce node must have exactly two inputs."));
             }
 
-            if let (Concrete(control_id), Concrete(data_id)) = (inputs[0], inputs[1]) {
+            if let (Concrete(control_id), Concrete(init_id), Concrete(reduct_id)) =
+                (inputs[0], inputs[1], inputs[2])
+            {
                 // Check control input is control.
                 if let Type::Control(_) = types[control_id.idx()] {
                 } else {
                     return Error(String::from(
-                        "Collect node's control input must have control type.",
+                        "Reduce node's control input must have control type.",
                     ));
                 }
 
-                // Check data input isn't control.
-                if let Type::Control(_) = types[data_id.idx()] {
+                // Check init input isn't control.
+                if let Type::Control(_) = types[init_id.idx()] {
                     return Error(String::from(
-                        "Collect node's data input must not have control type.",
+                        "Reduce node's initialization input must not have control type.",
                     ));
                 }
 
-                // Unfortunately, the type of the control input doesn't contain
-                // the thread replication factor this collect node is operating
-                // with. We use the join replication factor map side data
-                // structure to store the replication factor each join reduces
-                // over to make this easier.
-                if let Some(factor) = join_factor_map.get(control) {
-                    let array_out_id =
-                        get_type_id(Type::Array(*data_id, *factor), types, reverse_type_map);
-                    Concrete(array_out_id)
-                } else {
-                    // If the join factor map doesn't contain the control
-                    // input, stay optimistic.
-                    Unconstrained
+                // Check reduct input isn't control.
+                if let Type::Control(_) = types[reduct_id.idx()] {
+                    return Error(String::from(
+                        "Reduce node's reduction input must not have control type.",
+                    ));
                 }
+
+                TypeSemilattice::meet(inputs[1], inputs[2])
             } else if inputs[0].is_error() {
                 inputs[0].clone()
-            } else {
+            } else if inputs[1].is_error() {
                 inputs[1].clone()
+            } else {
+                inputs[2].clone()
             }
         }
         Node::Return {

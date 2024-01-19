@@ -140,7 +140,11 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             NodeUses::Phi(uses.into_boxed_slice())
         }
         Node::ThreadID { control } => NodeUses::One([*control]),
-        Node::Collect { control, data } => NodeUses::Two([*control, *data]),
+        Node::Reduce {
+            control,
+            init,
+            reduct,
+        } => NodeUses::Three([*control, *init, *reduct]),
         Node::Return { control, data } => NodeUses::Two([*control, *data]),
         Node::Parameter { index: _ } => NodeUses::One([NodeID::new(0)]),
         Node::Constant { id: _ } => NodeUses::One([NodeID::new(0)]),
@@ -188,7 +192,11 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
             NodeUsesMut::Variable(std::iter::once(control).chain(data.iter_mut()).collect())
         }
         Node::ThreadID { control } => NodeUsesMut::One([control]),
-        Node::Collect { control, data } => NodeUsesMut::Two([control, data]),
+        Node::Reduce {
+            control,
+            init,
+            reduct,
+        } => NodeUsesMut::Three([control, init, reduct]),
         Node::Return { control, data } => NodeUsesMut::Two([control, data]),
         Node::Parameter { index: _ } => NodeUsesMut::Zero,
         Node::Constant { id: _ } => NodeUsesMut::Zero,

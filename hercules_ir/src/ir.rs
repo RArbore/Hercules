@@ -150,9 +150,10 @@ pub enum Node {
     ThreadID {
         control: NodeID,
     },
-    Collect {
+    Reduce {
         control: NodeID,
-        data: NodeID,
+        init: NodeID,
+        reduct: NodeID,
     },
     Return {
         control: NodeID,
@@ -770,10 +771,11 @@ impl Node {
     );
     define_pattern_predicate!(is_thread_id, Node::ThreadID { control: _ });
     define_pattern_predicate!(
-        is_collect,
-        Node::Collect {
+        is_reduce,
+        Node::Reduce {
             control: _,
-            data: _,
+            init: _,
+            reduct: _,
         }
     );
     define_pattern_predicate!(
@@ -836,10 +838,11 @@ impl Node {
                 data: _,
             } => "Phi",
             Node::ThreadID { control: _ } => "ThreadID",
-            Node::Collect {
+            Node::Reduce {
                 control: _,
-                data: _,
-            } => "Collect",
+                init: _,
+                reduct: _,
+            } => "Reduce",
             Node::Return {
                 control: _,
                 data: _,
@@ -901,10 +904,11 @@ impl Node {
                 data: _,
             } => "phi",
             Node::ThreadID { control: _ } => "thread_id",
-            Node::Collect {
+            Node::Reduce {
                 control: _,
-                data: _,
-            } => "collect",
+                init: _,
+                reduct: _,
+            } => "reduce",
             Node::Return {
                 control: _,
                 data: _,

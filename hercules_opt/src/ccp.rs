@@ -415,10 +415,11 @@ fn ccp_flow_function(
         // for the corresponding fork is one.
         Node::ThreadID { control } => inputs[control.idx()].clone(),
         // TODO: At least for now, collect nodes always produce unknown values.
-        // It may be worthwile to add interpretation of constants for collect
-        // nodes, but it would involve plumbing dynamic constant and fork join
-        // pairing information here, and I don't feel like doing that.
-        Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
+        Node::Reduce {
+            control,
+            init: _,
+            reduct: _,
+        } => inputs[control.idx()].clone(),
         Node::Return { control, data } => CCPLattice {
             reachability: inputs[control.idx()].reachability.clone(),
             constant: inputs[data.idx()].constant.clone(),

@@ -198,14 +198,15 @@ fn verify_structure(
                 }
             }
             // A join node must have exactly one control user. Additionally,
-            // it may have many collect users.
+            // it may have many reduce users.
             Node::Join { control: _ } => {
                 let mut found_control = false;
                 for user in users {
                     match function.nodes[user.idx()] {
-                        Node::Collect {
+                        Node::Reduce {
                             control: _,
-                            data: _,
+                            init: _,
+                            reduct: _,
                         } => {}
                         _ => {
                             if function.nodes[user.idx()].is_strictly_control() {
@@ -215,7 +216,7 @@ fn verify_structure(
                                     found_control = true;
                                 }
                             } else {
-                                Err("All join of a start node must be control or Collect nodes.")?;
+                                Err("All uses of a join node must be control or Reduce nodes.")?;
                             }
                         }
                     }
@@ -272,7 +273,11 @@ fn verify_structure(
                 }
             }
             // Collect nodes must depend on a join node.
-            Node::Collect { control, data: _ } => {
+            Node::Reduce {
+                control,
+                init: _,
+                reduct: _,
+            } => {
                 if let Node::Join { control: _ } = function.nodes[control.idx()] {
                 } else {
                     Err("Collect node's control input must be a join node.")?;
@@ -387,9 +392,10 @@ fn verify_dominance_relationships(
             let this_id = if let Node::ThreadID {
                 control: dominated_control,
             }
-            | Node::Collect {
+            | Node::Reduce {
                 control: dominated_control,
-                data: _,
+                init: _,
+                reduct: _,
             } = function.nodes[idx]
             {
                 dominated_control
@@ -426,7 +432,12 @@ fn verify_dominance_relationships(
                 match function.nodes[pred_idx] {
                     // Verify that uses of phis / collect nodes are dominated
                     // by the corresponding region / join nodes, respectively.
-                    Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
+                    Node::Phi { control, data: _ }
+                    | Node::Reduce {
+                        control,
+                        init: _,
+                        reduct: _,
+                    } => {
                         if dom.contains(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",

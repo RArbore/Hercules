@@ -115,7 +115,7 @@ fn parse_module<'a>(ir_text: &'a str, context: Context<'a>) -> nom::IResult<&'a 
         )?;
     let mut context = context.into_inner();
 
-    // functions, as returned by parsing, is in parse order, which may differ
+    // Functions, as returned by parsing, is in parse order, which may differ
     // from the order dictated by FunctionIDs in the function name intern map.
     let mut fixed_functions = vec![
         Function {
@@ -283,7 +283,7 @@ fn parse_node<'a>(
         "join" => parse_join(ir_text, context)?,
         "phi" => parse_phi(ir_text, context)?,
         "thread_id" => parse_thread_id(ir_text, context)?,
-        "collect" => parse_collect(ir_text, context)?,
+        "reduce" => parse_reduce(ir_text, context)?,
         "return" => parse_return(ir_text, context)?,
         "constant" => parse_constant_node(ir_text, context)?,
         "dynamic_constant" => parse_dynamic_constant_node(ir_text, context)?,
@@ -412,14 +412,23 @@ fn parse_thread_id<'a>(
     Ok((ir_text, Node::ThreadID { control }))
 }
 
-fn parse_collect<'a>(
+fn parse_reduce<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (control, data)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
+    let (ir_text, (control, init, reduct)) =
+        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
     let control = context.borrow_mut().get_node_id(control);
-    let data = context.borrow_mut().get_node_id(data);
-    Ok((ir_text, Node::Collect { control, data }))
+    let init = context.borrow_mut().get_node_id(init);
+    let reduct = context.borrow_mut().get_node_id(reduct);
+    Ok((
+        ir_text,
+        Node::Reduce {
+            control,
+            init,
+            reduct,
+        },
+    ))
 }
 
 fn parse_return<'a>(

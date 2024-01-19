@@ -446,8 +446,12 @@ impl NodeBuilder {
         self.node = Node::ThreadID { control };
     }
 
-    pub fn build_collect(&mut self, control: NodeID, data: NodeID) {
-        self.node = Node::Collect { control, data };
+    pub fn build_collect(&mut self, control: NodeID, init: NodeID, reduct: NodeID) {
+        self.node = Node::Reduce {
+            control,
+            init,
+            reduct,
+        };
     }
 
     pub fn build_return(&mut self, control: NodeID, data: NodeID) {

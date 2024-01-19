@@ -316,9 +316,9 @@ impl<'a> Iterator for NodeSetIterator<'a> {
 
 /*
  * Flow function for collecting all of a node's uses of "control outputs". What
- * this flow function does is collect all immediate phi, thread ID, and collect
+ * this flow function does is collect all immediate phi, thread ID, and reduce
  * nodes that every other node depends on through data nodes. Flow is ended at
- * a control node, or at a phi, thread ID, or collect node.
+ * a control, phi, thread ID, or reduce node.
  */
 pub fn control_output_flow(
     inputs: &[&UnionNodeSet],
@@ -332,12 +332,12 @@ pub fn control_output_flow(
     let node = &function.nodes[node_id.idx()];
 
     // Step 2: clear all bits, if applicable.
-    if node.is_strictly_control() || node.is_thread_id() || node.is_collect() || node.is_phi() {
+    if node.is_strictly_control() || node.is_thread_id() || node.is_reduce() || node.is_phi() {
         out = UnionNodeSet::Empty;
     }
 
     // Step 3: set bit for current node, if applicable.
-    if node.is_thread_id() || node.is_collect() || node.is_phi() {
+    if node.is_thread_id() || node.is_reduce() || node.is_phi() {
         let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
         singular.set(node_id.idx(), true);
         out = UnionNodeSet::meet(&out, &UnionNodeSet::Bits(singular));
@@ -350,7 +350,7 @@ pub fn control_output_flow(
  * Flow function for collecting all of a data node's immediate uses / users of
  * control nodes. Useful for code generation. Since this is for immediate uses /
  * users of control nodes, control node uses / users do not propagate through
- * control nodes, or through control output nodes (phis, thread IDs, collects).
+ * control nodes, or through control output nodes (phis, thread IDs, reduces).
  */
 pub fn immediate_control_flow(
     inputs: &[&UnionNodeSet],
@@ -362,7 +362,11 @@ pub fn immediate_control_flow(
     // Step 1: replace node if this is a phi, thread ID, or collect.
     if let Node::Phi { control, data: _ }
     | Node::ThreadID { control }
-    | Node::Collect { control, data: _ } = &function.nodes[node_id.idx()]
+    | Node::Reduce {
+        control,
+        init: _,
+        reduct: _,
+    } = &function.nodes[node_id.idx()]
     {
         node_id = *control;
     } else {
