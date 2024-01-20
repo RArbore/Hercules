@@ -744,58 +744,24 @@ fn ccp_flow_function(
             ),
             constant: ConstantLattice::bottom(),
         },
-        Node::ReadArray { array, index } => {
-            let CCPLattice {
-                reachability: ref array_reachability,
-                constant: ref array_constant,
-            } = inputs[array.idx()];
-            let CCPLattice {
-                reachability: ref index_reachability,
-                constant: ref index_constant,
-            } = inputs[index.idx()];
-
-            let new_constant = if let (
-                ConstantLattice::Constant(array_cons),
-                ConstantLattice::Constant(index_cons),
-            ) = (array_constant, index_constant)
-            {
-                let new_cons = match (array_cons, index_cons) {
-                    (Constant::Array(_, elems), Constant::UnsignedInteger8(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger16(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger32(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger64(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    _ => panic!("Unsupported inputs to ReadArray node. Did typechecking succeed?"),
-                };
-                ConstantLattice::Constant(old_constants[new_cons.idx()].clone())
-            } else if (array_constant.is_top() && !index_constant.is_bottom())
-                || (!array_constant.is_bottom() && index_constant.is_top())
-            {
-                ConstantLattice::top()
-            } else {
-                ConstantLattice::meet(array_constant, index_constant)
-            };
-
-            CCPLattice {
-                reachability: ReachabilityLattice::meet(array_reachability, index_reachability),
-                constant: new_constant,
-            }
-        }
+        // ReadArray is uninterpreted for now.
+        Node::ReadArray { array, index } => CCPLattice {
+            reachability: index
+                .iter()
+                .map(|x| &inputs[x.idx()].reachability)
+                .fold(inputs[array.idx()].reachability.clone(), |a, b| {
+                    ReachabilityLattice::meet(&a, b)
+                }),
+            constant: ConstantLattice::bottom(),
+        },
         // WriteArray is uninterpreted for now.
         Node::WriteArray { array, data, index } => CCPLattice {
-            reachability: ReachabilityLattice::meet(
-                &ReachabilityLattice::meet(
+            reachability: index.iter().map(|x| &inputs[x.idx()].reachability).fold(
+                ReachabilityLattice::meet(
                     &inputs[array.idx()].reachability,
                     &inputs[data.idx()].reachability,
                 ),
-                &inputs[index.idx()].reachability,
+                |a, b| ReachabilityLattice::meet(&a, b),
             ),
             constant: ConstantLattice::bottom(),
         },

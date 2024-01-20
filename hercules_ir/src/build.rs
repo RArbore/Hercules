@@ -262,8 +262,8 @@ impl<'a> Builder<'a> {
         self.create_type_sum(Box::new([a, b, c, d, e, f, g, h]))
     }
 
-    pub fn create_type_array(&mut self, elem: TypeID, dc: DynamicConstantID) -> TypeID {
-        self.intern_type(Type::Array(elem, dc))
+    pub fn create_type_array(&mut self, elem: TypeID, extents: Box<[DynamicConstantID]>) -> TypeID {
+        self.intern_type(Type::Array(elem, extents))
     }
 
     pub fn create_constant_bool(&mut self, val: bool) -> ConstantID {
@@ -355,14 +355,18 @@ impl<'a> Builder<'a> {
         &mut self,
         elem_ty: TypeID,
         cons: Box<[ConstantID]>,
+        extents: Box<[u32]>,
     ) -> BuilderResult<ConstantID> {
         for con in cons.iter() {
             if self.constant_types[con.idx()] != elem_ty {
                 Err("Constant provided to create_constant_array has a different type than the provided element type.")?
             }
         }
-        let dc = self.create_dynamic_constant_constant(cons.len());
-        let ty = self.create_type_array(elem_ty, dc);
+        let extents = extents
+            .iter()
+            .map(|extent| self.create_dynamic_constant_constant(*extent as usize))
+            .collect();
+        let ty = self.create_type_array(elem_ty, extents);
         Ok(self.intern_constant(Constant::Array(ty, cons), ty))
     }
 
@@ -499,11 +503,11 @@ impl NodeBuilder {
         self.node = Node::WriteProd { prod, data, index };
     }
 
-    pub fn build_readarray(&mut self, array: NodeID, index: NodeID) {
+    pub fn build_readarray(&mut self, array: NodeID, index: Box<[NodeID]>) {
         self.node = Node::ReadArray { array, index };
     }
 
-    pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: NodeID) {
+    pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: Box<[NodeID]>) {
         self.node = Node::WriteArray { array, data, index };
     }
 

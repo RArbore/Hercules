@@ -46,13 +46,11 @@ pub struct Function {
  * control type. Hercules IR is based off of the sea-of-nodes IR, the main
  * feature of which being a merged control and data flow graph. Thus, control
  * is a type of value, just like any other type. However, the type system is
- * very restrictive over what can be done with control values. A novel addition
- * in Hercules IR is that a control type is parameterized by a list of thread
+ * very restrictive over what can be done with control values. An addition in
+ * Hercules IR is that a control type is parameterized by a list of thread
  * spawning factors. This is the mechanism in Hercules IR for representing
  * parallelism. Summation types are an IR equivalent of Rust's enum types.
- * These are lowered into tagged unions during scheduling. Array types are one-
- * dimensional. Multi-dimensional arrays are represented by nesting array types.
- * An array extent is represented with a dynamic constant.
+ * These are lowered into tagged unions during scheduling.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -70,7 +68,7 @@ pub enum Type {
     Float64,
     Product(Box<[TypeID]>),
     Summation(Box<[TypeID]>),
-    Array(TypeID, DynamicConstantID),
+    Array(TypeID, Box<[DynamicConstantID]>),
 }
 
 /*
@@ -193,12 +191,12 @@ pub enum Node {
     },
     ReadArray {
         array: NodeID,
-        index: NodeID,
+        index: Box<[NodeID]>,
     },
     WriteArray {
         array: NodeID,
         data: NodeID,
-        index: NodeID,
+        index: Box<[NodeID]>,
     },
     Match {
         control: NodeID,
@@ -323,11 +321,13 @@ impl Module {
                 }
                 write!(w, ")")
             }
-            Type::Array(elem, length) => {
+            Type::Array(elem, extents) => {
                 write!(w, "Array(")?;
                 self.write_type(*elem, w)?;
-                write!(w, ", ")?;
-                self.write_dynamic_constant(*length, w)?;
+                for extent in extents.iter() {
+                    write!(w, ", ")?;
+                    self.write_dynamic_constant(*extent, w)?;
+                }
                 write!(w, ")")
             }
         }?;
@@ -674,15 +674,6 @@ impl Type {
             false
         }
     }
-}
-
-pub fn type_extents(mut ty: TypeID, types: &Vec<Type>) -> Vec<DynamicConstantID> {
-    let mut extents = vec![];
-    while let Type::Array(elem, dc) = types[ty.idx()] {
-        extents.push(dc);
-        ty = elem;
-    }
-    extents
 }
 
 pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {

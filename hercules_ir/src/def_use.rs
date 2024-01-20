@@ -83,7 +83,7 @@ pub enum NodeUses<'a> {
     // Phi nodes are special, and store both a NodeID locally *and* many in a
     // boxed slice. Since these NodeIDs are not stored contiguously, we have to
     // construct a new contiguous slice by copying. Sigh.
-    Phi(Box<[NodeID]>),
+    Owned(Box<[NodeID]>),
 }
 
 /*
@@ -107,7 +107,7 @@ impl<'a> AsRef<[NodeID]> for NodeUses<'a> {
             NodeUses::Two(x) => x,
             NodeUses::Three(x) => x,
             NodeUses::Variable(x) => x,
-            NodeUses::Phi(x) => x,
+            NodeUses::Owned(x) => x,
         }
     }
 }
@@ -137,7 +137,7 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::Phi { control, data } => {
             let mut uses: Vec<NodeID> = Vec::from(&data[..]);
             uses.push(*control);
-            NodeUses::Phi(uses.into_boxed_slice())
+            NodeUses::Owned(uses.into_boxed_slice())
         }
         Node::ThreadID { control } => NodeUses::One([*control]),
         Node::Reduce {
@@ -162,8 +162,17 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             data,
             index: _,
         } => NodeUses::Two([*prod, *data]),
-        Node::ReadArray { array, index } => NodeUses::Two([*array, *index]),
-        Node::WriteArray { array, data, index } => NodeUses::Three([*array, *data, *index]),
+        Node::ReadArray { array, index } => {
+            let mut uses: Vec<NodeID> = Vec::from(&index[..]);
+            uses.push(*array);
+            NodeUses::Owned(uses.into_boxed_slice())
+        }
+        Node::WriteArray { array, data, index } => {
+            let mut uses: Vec<NodeID> = Vec::from(&index[..]);
+            uses.push(*data);
+            uses.push(*array);
+            NodeUses::Owned(uses.into_boxed_slice())
+        }
         Node::Match { control, sum } => NodeUses::Two([*control, *sum]),
         Node::BuildSum {
             data,
@@ -214,8 +223,14 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
             data,
             index: _,
         } => NodeUsesMut::Two([prod, data]),
-        Node::ReadArray { array, index } => NodeUsesMut::Two([array, index]),
-        Node::WriteArray { array, data, index } => NodeUsesMut::Three([array, data, index]),
+        Node::ReadArray { array, index } => {
+            NodeUsesMut::Variable(std::iter::once(array).chain(index.iter_mut()).collect())
+        }
+        Node::WriteArray { array, data, index } => NodeUsesMut::Variable(
+            std::iter::once(array)
+                .chain(std::iter::once(data).chain(index.iter_mut()))
+                .collect(),
+        ),
         Node::Match { control, sum } => NodeUsesMut::Two([control, sum]),
         Node::BuildSum {
             data,

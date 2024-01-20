@@ -563,13 +563,21 @@ fn typeflow(
                 }
                 // Array typechecking also consists of validating the number of constant elements.
                 Constant::Array(id, ref elems) => {
-                    if let Type::Array(_, dc_id) = types[id.idx()] {
-                        if dynamic_constants[dc_id.idx()] == DynamicConstant::Constant(elems.len())
-                        {
-                            Concrete(id)
-                        } else {
-                            Error(String::from("Array constant must have the correct number of constant elements as specified by its type."))
+                    if let Type::Array(_, dc_ids) = &types[id.idx()] {
+                        let mut total_num_elems = 1;
+                        for dc_id in dc_ids.iter() {
+                            total_num_elems *= if let DynamicConstant::Constant(extent) =
+                                dynamic_constants[dc_id.idx()]
+                            {
+                                extent
+                            } else {
+                                return Error(String::from("Array constant type must reference only constant valued dynamic constants."));
+                            };
                         }
+                        if total_num_elems != 1 && total_num_elems != elems.len() {
+                            return Error(String::from("Array constant must have a compatible amount of elements as the extent of the array."));
+                        }
+                        Concrete(id)
                     } else {
                         Error(String::from(
                             "Array constant must store an explicit array type.",

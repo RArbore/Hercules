@@ -567,9 +567,26 @@ fn parse_read_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, index)) = parse_tuple2(parse_identifier, parse_identifier)(ir_text)?;
-    let array = context.borrow_mut().get_node_id(array);
-    let index = context.borrow_mut().get_node_id(index);
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let (ir_text, entries) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        parse_identifier,
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    if entries.len() < 2 {
+        nom::combinator::fail::<_, &str, _>("ReadArray node needs at least 2 arguments.")?;
+    }
+    let array = context.borrow_mut().get_node_id(entries[0]);
+    let index = entries[1..]
+        .iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
     Ok((ir_text, Node::ReadArray { array, index }))
 }
 
@@ -577,11 +594,27 @@ fn parse_write_array<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (array, data, index)) =
-        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
-    let array = context.borrow_mut().get_node_id(array);
-    let data = context.borrow_mut().get_node_id(data);
-    let index = context.borrow_mut().get_node_id(index);
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let (ir_text, entries) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        parse_identifier,
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    if entries.len() < 3 {
+        nom::combinator::fail::<_, &str, _>("WriteArray node needs at least 3 arguments.")?;
+    }
+    let array = context.borrow_mut().get_node_id(entries[0]);
+    let data = context.borrow_mut().get_node_id(entries[1]);
+    let index = entries[2..]
+        .iter()
+        .map(|x| context.borrow_mut().get_node_id(x))
+        .collect();
     Ok((ir_text, Node::WriteArray { array, data, index }))
 }
 
@@ -725,8 +758,8 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
             )),
             |(_, _, _, _, ids, _, _)| Type::Summation(ids.into_boxed_slice()),
         ),
-        // Array types are just a pair between an element type and a dynamic
-        // constant representing its extent.
+        // Array types are just a list of an element type and at least one
+        // dynamic constant representing its extent.
         nom::combinator::map(
             nom::sequence::tuple((
                 nom::bytes::complete::tag("array"),
@@ -737,11 +770,20 @@ fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
                 nom::character::complete::multispace0,
                 nom::character::complete::char(','),
                 nom::character::complete::multispace0,
-                |x| parse_dynamic_constant_id(x, context),
+                nom::multi::separated_list1(
+                    nom::sequence::tuple((
+                        nom::character::complete::multispace0,
+                        nom::character::complete::char(','),
+                        nom::character::complete::multispace0,
+                    )),
+                    |x| parse_dynamic_constant_id(x, context),
+                ),
                 nom::character::complete::multispace0,
                 nom::character::complete::char(')'),
             )),
-            |(_, _, _, _, ty_id, _, _, _, dc_id, _, _)| Type::Array(ty_id, dc_id),
+            |(_, _, _, _, ty_id, _, _, _, dc_ids, _, _)| {
+                Type::Array(ty_id, dc_ids.into_boxed_slice())
+            },
         ),
     ))(ir_text)?;
     Ok((ir_text, ty))
