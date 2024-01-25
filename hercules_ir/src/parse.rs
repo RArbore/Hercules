@@ -279,6 +279,7 @@ fn parse_node<'a>(
     let (ir_text, node) = match node_kind {
         "region" => parse_region(ir_text, context)?,
         "if" => parse_if(ir_text, context)?,
+        "match" => parse_match(ir_text, context)?,
         "fork" => parse_fork(ir_text, context)?,
         "join" => parse_join(ir_text, context)?,
         "phi" => parse_phi(ir_text, context)?,
@@ -308,13 +309,8 @@ fn parse_node<'a>(
         "lsh" => parse_binary(ir_text, context, BinaryOperator::LSh)?,
         "rsh" => parse_binary(ir_text, context, BinaryOperator::RSh)?,
         "call" => parse_call(ir_text, context)?,
-        "read_prod" => parse_read_prod(ir_text, context)?,
-        "write_prod" => parse_write_prod(ir_text, context)?,
-        "read_array" => parse_read_array(ir_text, context)?,
-        "write_array" => parse_write_array(ir_text, context)?,
-        "match" => parse_match(ir_text, context)?,
-        "build_sum" => parse_build_sum(ir_text, context)?,
-        "extract_sum" => parse_extract_sum(ir_text, context)?,
+        "read" => parse_read(ir_text, context)?,
+        "write" => parse_write(ir_text, context)?,
         _ => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
             code: nom::error::ErrorKind::IsNot,
@@ -541,81 +537,147 @@ fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IRes
     ))
 }
 
-fn parse_read_prod<'a>(
+fn parse_index<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (prod, index)) =
-        parse_tuple2(parse_identifier, |x| parse_prim::<usize>(x, "1234567890"))(ir_text)?;
-    let prod = context.borrow_mut().get_node_id(prod);
-    Ok((ir_text, Node::ReadProd { prod, index }))
+) -> nom::IResult<&'a str, Index> {
+    let (ir_text, idx) = nom::branch::alt((
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::bytes::complete::tag("field"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                nom::character::complete::multispace0,
+                |x| parse_prim::<usize>(x, "1234567890"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+                nom::character::complete::multispace0,
+            )),
+            |(_, _, _, _, _, x, _, _, _)| Index::Field(x),
+        ),
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::bytes::complete::tag("variant"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                nom::character::complete::multispace0,
+                |x| parse_prim::<usize>(x, "1234567890"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+                nom::character::complete::multispace0,
+            )),
+            |(_, _, _, _, _, x, _, _, _)| Index::Variant(x),
+        ),
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::bytes::complete::tag("position"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                nom::character::complete::multispace0,
+                nom::multi::separated_list1(
+                    nom::sequence::tuple((
+                        nom::character::complete::multispace0,
+                        nom::character::complete::char(','),
+                        nom::character::complete::multispace0,
+                    )),
+                    parse_identifier,
+                ),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+                nom::character::complete::multispace0,
+            )),
+            |(_, _, _, _, _, x, _, _, _)| {
+                Index::Position(
+                    x.into_iter()
+                        .map(|x| context.borrow_mut().get_node_id(x))
+                        .collect(),
+                )
+            },
+        ),
+        nom::combinator::map(
+            nom::sequence::tuple((
+                nom::character::complete::multispace0,
+                nom::bytes::complete::tag("control"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char('('),
+                nom::character::complete::multispace0,
+                |x| parse_prim::<usize>(x, "1234567890"),
+                nom::character::complete::multispace0,
+                nom::character::complete::char(')'),
+                nom::character::complete::multispace0,
+            )),
+            |(_, _, _, _, _, x, _, _, _)| Index::Control(x),
+        ),
+    ))(ir_text)?;
+    Ok((ir_text, idx))
 }
 
-fn parse_write_prod<'a>(
+fn parse_read<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, collect) = parse_identifier(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, indices) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        |x| parse_index(x, context),
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    let collect = context.borrow_mut().get_node_id(collect);
+    Ok((
+        ir_text,
+        Node::Read {
+            collect,
+            indices: indices.into_boxed_slice(),
+        },
+    ))
+}
+
+fn parse_write<'a>(
     ir_text: &'a str,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (prod, data, index)) = parse_tuple3(parse_identifier, parse_identifier, |x| {
-        parse_prim::<usize>(x, "1234567890")
-    })(ir_text)?;
-    let prod = context.borrow_mut().get_node_id(prod);
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, collect) = parse_identifier(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, data) = parse_identifier(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(',')(ir_text)?.0;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let (ir_text, indices) = nom::multi::separated_list1(
+        nom::sequence::tuple((
+            nom::character::complete::multispace0,
+            nom::character::complete::char(','),
+            nom::character::complete::multispace0,
+        )),
+        |x| parse_index(x, context),
+    )(ir_text)?;
+    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
+    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
+    let collect = context.borrow_mut().get_node_id(collect);
     let data = context.borrow_mut().get_node_id(data);
-    Ok((ir_text, Node::WriteProd { prod, data, index }))
-}
-
-fn parse_read_array<'a>(
-    ir_text: &'a str,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
-    let (ir_text, entries) = nom::multi::separated_list1(
-        nom::sequence::tuple((
-            nom::character::complete::multispace0,
-            nom::character::complete::char(','),
-            nom::character::complete::multispace0,
-        )),
-        parse_identifier,
-    )(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
-    if entries.len() < 2 {
-        nom::combinator::fail::<_, &str, _>("ReadArray node needs at least 2 arguments.")?;
-    }
-    let array = context.borrow_mut().get_node_id(entries[0]);
-    let index = entries[1..]
-        .iter()
-        .map(|x| context.borrow_mut().get_node_id(x))
-        .collect();
-    Ok((ir_text, Node::ReadArray { array, index }))
-}
-
-fn parse_write_array<'a>(
-    ir_text: &'a str,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char('(')(ir_text)?.0;
-    let (ir_text, entries) = nom::multi::separated_list1(
-        nom::sequence::tuple((
-            nom::character::complete::multispace0,
-            nom::character::complete::char(','),
-            nom::character::complete::multispace0,
-        )),
-        parse_identifier,
-    )(ir_text)?;
-    let ir_text = nom::character::complete::multispace0(ir_text)?.0;
-    let ir_text = nom::character::complete::char(')')(ir_text)?.0;
-    if entries.len() < 3 {
-        nom::combinator::fail::<_, &str, _>("WriteArray node needs at least 3 arguments.")?;
-    }
-    let array = context.borrow_mut().get_node_id(entries[0]);
-    let data = context.borrow_mut().get_node_id(entries[1]);
-    let index = entries[2..]
-        .iter()
-        .map(|x| context.borrow_mut().get_node_id(x))
-        .collect();
-    Ok((ir_text, Node::WriteArray { array, data, index }))
+    Ok((
+        ir_text,
+        Node::Write {
+            collect,
+            data,
+            indices: indices.into_boxed_slice(),
+        },
+    ))
 }
 
 fn parse_type_id<'a>(
@@ -636,36 +698,6 @@ fn parse_match<'a>(
     let control = context.borrow_mut().get_node_id(control);
     let sum = context.borrow_mut().get_node_id(sum);
     Ok((ir_text, Node::Match { control, sum }))
-}
-
-fn parse_build_sum<'a>(
-    ir_text: &'a str,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (data, sum_ty, variant)) = parse_tuple3(
-        parse_identifier,
-        |x| parse_type_id(x, context),
-        |x| parse_prim::<usize>(x, "1234567890"),
-    )(ir_text)?;
-    let data = context.borrow_mut().get_node_id(data);
-    Ok((
-        ir_text,
-        Node::BuildSum {
-            data,
-            sum_ty,
-            variant,
-        },
-    ))
-}
-
-fn parse_extract_sum<'a>(
-    ir_text: &'a str,
-    context: &RefCell<Context<'a>>,
-) -> nom::IResult<&'a str, Node> {
-    let (ir_text, (data, variant)) =
-        parse_tuple2(parse_identifier, |x| parse_prim::<usize>(x, "1234567890"))(ir_text)?;
-    let data = context.borrow_mut().get_node_id(data);
-    Ok((ir_text, Node::ExtractSum { data, variant }))
 }
 
 fn parse_type<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Type> {

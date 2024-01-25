@@ -378,6 +378,22 @@ impl<'a> Builder<'a> {
         self.intern_dynamic_constant(DynamicConstant::Parameter(val))
     }
 
+    pub fn create_field_index(&self, idx: usize) -> Index {
+        Index::Field(idx)
+    }
+
+    pub fn create_variant_index(&self, idx: usize) -> Index {
+        Index::Variant(idx)
+    }
+
+    pub fn create_position_index(&self, idx: Box<[NodeID]>) -> Index {
+        Index::Position(idx)
+    }
+
+    pub fn create_control_index(&self, idx: usize) -> Index {
+        Index::Control(idx)
+    }
+
     pub fn create_function(
         &mut self,
         name: &'a str,
@@ -495,35 +511,15 @@ impl NodeBuilder {
         };
     }
 
-    pub fn build_readprod(&mut self, prod: NodeID, index: usize) {
-        self.node = Node::ReadProd { prod, index };
+    pub fn build_read(&mut self, collect: NodeID, indices: Box<[Index]>) {
+        self.node = Node::Read { collect, indices };
     }
 
-    pub fn build_writeprod(&mut self, prod: NodeID, data: NodeID, index: usize) {
-        self.node = Node::WriteProd { prod, data, index };
-    }
-
-    pub fn build_readarray(&mut self, array: NodeID, index: Box<[NodeID]>) {
-        self.node = Node::ReadArray { array, index };
-    }
-
-    pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: Box<[NodeID]>) {
-        self.node = Node::WriteArray { array, data, index };
-    }
-
-    pub fn build_match(&mut self, control: NodeID, sum: NodeID) {
-        self.node = Node::Match { control, sum };
-    }
-
-    pub fn build_buildsum(&mut self, data: NodeID, sum_ty: TypeID, variant: usize) {
-        self.node = Node::BuildSum {
+    pub fn build_write(&mut self, collect: NodeID, data: NodeID, indices: Box<[Index]>) {
+        self.node = Node::Write {
+            collect,
             data,
-            sum_ty,
-            variant,
+            indices,
         };
-    }
-
-    pub fn build_extractsum(&mut self, data: NodeID, variant: usize) {
-        self.node = Node::ExtractSum { data, variant };
     }
 }

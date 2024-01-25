@@ -225,7 +225,7 @@ fn verify_structure(
                     Err("A join node must have exactly one control user.")?;
                 }
             }
-            // Each if node must have exactly two ReadProd users, which
+            // Each if node must have exactly two Read users, which
             // reference differing elements of the node's output product.
             Node::If {
                 control: _,
@@ -235,23 +235,28 @@ fn verify_structure(
                     Err(format!("If node must have 2 users, not {}.", users.len()))?;
                 }
                 if let (
-                    Node::ReadProd {
-                        prod: _,
-                        index: index1,
+                    Node::Read {
+                        collect: _,
+                        indices: indices1,
                     },
-                    Node::ReadProd {
-                        prod: _,
-                        index: index2,
+                    Node::Read {
+                        collect: _,
+                        indices: indices2,
                     },
                 ) = (
                     &function.nodes[users[0].idx()],
                     &function.nodes[users[1].idx()],
                 ) {
-                    if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
-                        Err("If node's user ReadProd nodes must reference different elements of output product.")?;
+                    if indices1.len() != 1
+                        || indices2.len() != 1
+                        || !((indices1[0] == Index::Control(0) && indices2[0] == Index::Control(1))
+                            || (indices1[0] == Index::Control(1)
+                                && indices2[0] == Index::Control(0)))
+                    {
+                        Err("If node's user Read nodes must reference different elements of output product.")?;
                     }
                 } else {
-                    Err("If node's users must both be ReadProd nodes.")?;
+                    Err("If node's users must both be Read nodes.")?;
                 }
             }
             // Phi nodes must depend on a region node.
@@ -296,7 +301,7 @@ fn verify_structure(
                 }
             }
             // Match nodes are similar to if nodes, but have a variable number
-            // of ReadProd users, corresponding to the sum type being matched.
+            // of Read users, corresponding to the sum type being matched.
             Node::Match { control: _, sum } => {
                 let sum_ty = &types[typing[sum.idx()].idx()];
                 if let Type::Summation(tys) = sum_ty {
@@ -310,13 +315,25 @@ fn verify_structure(
                     }
                     let mut users_covered = bitvec![u8, Lsb0; 0; users.len()];
                     for user in users {
-                        if let Node::ReadProd { prod: _, index } = function.nodes[user.idx()] {
-                            assert!(index < users.len(), "ReadProd child of match node reads from bad index, but ran after typecheck succeeded.");
+                        if let Node::Read {
+                            collect: _,
+                            ref indices,
+                        } = function.nodes[user.idx()]
+                        {
+                            if indices.len() != 1 {
+                                Err("Match node's user Read nodes must have a single index.")?;
+                            }
+                            let index = if let Index::Control(index) = indices[0] {
+                                index
+                            } else {
+                                Err("Match node's user Read node must use a control index.")?
+                            };
+                            assert!(index < users.len(), "Read child of match node reads from bad index, but ran after typecheck succeeded.");
                             users_covered.set(index, true);
                         }
                     }
                     if users_covered.count_ones() != users.len() {
-                        Err(format!("Match node's user ReadProd nodes must reference all {} elements of match node's output product, but they only reference {} of them.", users.len(), users_covered.count_ones()))?;
+                        Err(format!("Match node's user Read nodes must reference all {} elements of match node's output product, but they only reference {} of them.", users.len(), users_covered.count_ones()))?;
                     }
                 } else {
                     panic!("Type of match node's sum input is not a summation type, but ran after typecheck succeeded.");

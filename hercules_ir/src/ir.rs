@@ -114,6 +114,23 @@ pub enum DynamicConstant {
 }
 
 /*
+ * Hercules has a single node for reading, Read, and a single node for writing,
+ * Write, that are both used for modifying product, sum, and array structures.
+ * However, each of these types are indexed differently. Thus, these two nodes
+ * operate on an index list, composing indices at different levels in a type
+ * tree. Each type that can be indexed has a unique variant in the index enum.
+ * Read nodes are overloaded to select between control successors of if and
+ * match nodes.
+ */
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Index {
+    Field(usize),
+    Variant(usize),
+    Position(Box<[NodeID]>),
+    Control(usize),
+}
+
+/*
  * Hercules IR is a combination of a possibly cylic control flow graph, and
  * many possibly cyclic data flow graphs. Each node represents some operation on
  * input values (including control), and produces some output value. Operations
@@ -133,6 +150,10 @@ pub enum Node {
     If {
         control: NodeID,
         cond: NodeID,
+    },
+    Match {
+        control: NodeID,
+        sum: NodeID,
     },
     Fork {
         control: NodeID,
@@ -180,36 +201,14 @@ pub enum Node {
         dynamic_constants: Box<[DynamicConstantID]>,
         args: Box<[NodeID]>,
     },
-    ReadProd {
-        prod: NodeID,
-        index: usize,
+    Read {
+        collect: NodeID,
+        indices: Box<[Index]>,
     },
-    WriteProd {
-        prod: NodeID,
+    Write {
+        collect: NodeID,
         data: NodeID,
-        index: usize,
-    },
-    ReadArray {
-        array: NodeID,
-        index: Box<[NodeID]>,
-    },
-    WriteArray {
-        array: NodeID,
-        data: NodeID,
-        index: Box<[NodeID]>,
-    },
-    Match {
-        control: NodeID,
-        sum: NodeID,
-    },
-    BuildSum {
-        data: NodeID,
-        sum_ty: TypeID,
-        variant: usize,
-    },
-    ExtractSum {
-        data: NodeID,
-        variant: usize,
+        indices: Box<[Index]>,
     },
 }
 
@@ -587,31 +586,6 @@ impl Function {
 
         std::mem::swap(&mut new_nodes, &mut self.nodes);
     }
-
-    /*
-     * Checking if a node is control requires surrounding context, so this is a
-     * member of Function, not Node.
-     */
-    pub fn is_control(&self, id: NodeID) -> bool {
-        if self.nodes[id.idx()].is_strictly_control() {
-            return true;
-        }
-
-        if let Node::ReadProd { prod, index: _ } = self.nodes[id.idx()] {
-            return match self.nodes[prod.idx()] {
-                // ReadProd nodes are control nodes if their predecessor is a
-                // legal control node.
-                Node::Match { control: _, sum: _ }
-                | Node::If {
-                    control: _,
-                    cond: _,
-                } => true,
-                _ => false,
-            };
-        }
-
-        false
-    }
 }
 
 impl Type {
@@ -735,6 +709,10 @@ macro_rules! define_pattern_predicate {
     };
 }
 
+impl Index {
+    define_pattern_predicate!(is_control, Index::Control(_));
+}
+
 impl Node {
     define_pattern_predicate!(is_start, Node::Start);
     define_pattern_predicate!(is_region, Node::Region { preds: _ });
@@ -776,28 +754,25 @@ impl Node {
             data: _,
         }
     );
-    define_pattern_predicate!(is_read_prod, Node::ReadProd { prod: _, index: _ });
     define_pattern_predicate!(
-        is_write_prod,
-        Node::WriteProd {
-            prod: _,
-            index: _,
-            data: _
+        is_read,
+        Node::Read {
+            collect: _,
+            indices: _
         }
     );
-    define_pattern_predicate!(is_read_array, Node::ReadArray { array: _, index: _ });
     define_pattern_predicate!(
-        is_write_array,
-        Node::WriteArray {
-            array: _,
-            index: _,
+        is_write,
+        Node::Write {
+            collect: _,
+            indices: _,
             data: _
         }
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
 
     /*
-     * ReadProd nodes can be considered control when following an if or match
+     * Read nodes can be considered control when following an if or match
      * node. However, it is sometimes useful to exclude such nodes when
      * considering control nodes.
      */
@@ -819,6 +794,7 @@ impl Node {
                 control: _,
                 cond: _,
             } => "If",
+            Node::Match { control: _, sum: _ } => "Match",
             Node::Fork {
                 control: _,
                 factor: _,
@@ -852,28 +828,15 @@ impl Node {
                 dynamic_constants: _,
                 args: _,
             } => "Unary",
-            Node::ReadProd { prod: _, index: _ } => "ReadProd",
-            Node::WriteProd {
-                prod: _,
+            Node::Read {
+                collect: _,
+                indices: _,
+            } => "Read",
+            Node::Write {
+                collect: _,
                 data: _,
-                index: _,
-            } => "WriteProd",
-            Node::ReadArray { array: _, index: _ } => "ReadArray",
-            Node::WriteArray {
-                array: _,
-                data: _,
-                index: _,
-            } => "WriteArray",
-            Node::Match { control: _, sum: _ } => "Match",
-            Node::BuildSum {
-                data: _,
-                sum_ty: _,
-                variant: _,
-            } => "BuildSum",
-            Node::ExtractSum {
-                data: _,
-                variant: _,
-            } => "ExtractSum",
+                indices: _,
+            } => "Write",
         }
     }
 
@@ -885,6 +848,7 @@ impl Node {
                 control: _,
                 cond: _,
             } => "if",
+            Node::Match { control: _, sum: _ } => "match",
             Node::Fork {
                 control: _,
                 factor: _,
@@ -918,29 +882,32 @@ impl Node {
                 dynamic_constants: _,
                 args: _,
             } => "call",
-            Node::ReadProd { prod: _, index: _ } => "read_prod",
-            Node::WriteProd {
-                prod: _,
+            Node::Read {
+                collect: _,
+                indices: _,
+            } => "read",
+            Node::Write {
+                collect: _,
                 data: _,
-                index: _,
-            } => "write_prod ",
-            Node::ReadArray { array: _, index: _ } => "read_array",
-            Node::WriteArray {
-                array: _,
-                data: _,
-                index: _,
-            } => "write_array",
-            Node::Match { control: _, sum: _ } => "match",
-            Node::BuildSum {
-                data: _,
-                sum_ty: _,
-                variant: _,
-            } => "build_sum",
-            Node::ExtractSum {
-                data: _,
-                variant: _,
-            } => "extract_sum",
+                indices: _,
+            } => "write",
         }
+    }
+
+    pub fn is_control(&self) -> bool {
+        if self.is_strictly_control() {
+            return true;
+        }
+
+        if let Node::Read {
+            collect: _,
+            indices,
+        } = self
+        {
+            return indices.len() == 1 && indices[0].is_control();
+        }
+
+        false
     }
 }
 

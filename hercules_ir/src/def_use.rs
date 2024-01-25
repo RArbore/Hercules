@@ -132,6 +132,7 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::Start => NodeUses::Zero,
         Node::Region { preds } => NodeUses::Variable(preds),
         Node::If { control, cond } => NodeUses::Two([*control, *cond]),
+        Node::Match { control, sum } => NodeUses::Two([*control, *sum]),
         Node::Fork { control, factor: _ } => NodeUses::One([*control]),
         Node::Join { control } => NodeUses::One([*control]),
         Node::Phi { control, data } => {
@@ -156,30 +157,39 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
             dynamic_constants: _,
             args,
         } => NodeUses::Variable(args),
-        Node::ReadProd { prod, index: _ } => NodeUses::One([*prod]),
-        Node::WriteProd {
-            prod,
-            data,
-            index: _,
-        } => NodeUses::Two([*prod, *data]),
-        Node::ReadArray { array, index } => {
-            let mut uses: Vec<NodeID> = Vec::from(&index[..]);
-            uses.push(*array);
-            NodeUses::Owned(uses.into_boxed_slice())
+        Node::Read { collect, indices } => {
+            let mut uses = vec![];
+            for index in indices.iter() {
+                if let Index::Position(pos) = index {
+                    uses.append(&mut pos.clone().into_vec());
+                }
+            }
+            if uses.len() > 0 {
+                uses.push(*collect);
+                NodeUses::Owned(uses.into_boxed_slice())
+            } else {
+                NodeUses::One([*collect])
+            }
         }
-        Node::WriteArray { array, data, index } => {
-            let mut uses: Vec<NodeID> = Vec::from(&index[..]);
-            uses.push(*data);
-            uses.push(*array);
-            NodeUses::Owned(uses.into_boxed_slice())
-        }
-        Node::Match { control, sum } => NodeUses::Two([*control, *sum]),
-        Node::BuildSum {
+        Node::Write {
+            collect,
+            indices,
             data,
-            sum_ty: _,
-            variant: _,
-        } => NodeUses::One([*data]),
-        Node::ExtractSum { data, variant: _ } => NodeUses::One([*data]),
+        } => {
+            let mut uses = vec![];
+            for index in indices.iter() {
+                if let Index::Position(pos) = index {
+                    uses.append(&mut pos.clone().into_vec());
+                }
+            }
+            if uses.len() > 0 {
+                uses.push(*collect);
+                uses.push(*data);
+                NodeUses::Owned(uses.into_boxed_slice())
+            } else {
+                NodeUses::Two([*collect, *data])
+            }
+        }
     }
 }
 
@@ -195,6 +205,7 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
         Node::Start => NodeUsesMut::Zero,
         Node::Region { preds } => NodeUsesMut::Variable(preds.iter_mut().collect()),
         Node::If { control, cond } => NodeUsesMut::Two([control, cond]),
+        Node::Match { control, sum } => NodeUsesMut::Two([control, sum]),
         Node::Fork { control, factor: _ } => NodeUsesMut::One([control]),
         Node::Join { control } => NodeUsesMut::One([control]),
         Node::Phi { control, data } => {
@@ -217,26 +228,42 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
             dynamic_constants: _,
             args,
         } => NodeUsesMut::Variable(args.iter_mut().collect()),
-        Node::ReadProd { prod, index: _ } => NodeUsesMut::One([prod]),
-        Node::WriteProd {
-            prod,
-            data,
-            index: _,
-        } => NodeUsesMut::Two([prod, data]),
-        Node::ReadArray { array, index } => {
-            NodeUsesMut::Variable(std::iter::once(array).chain(index.iter_mut()).collect())
+        Node::Read { collect, indices } => {
+            let mut uses = vec![];
+            for index in indices.iter_mut() {
+                if let Index::Position(pos) = index {
+                    for d in pos.iter_mut() {
+                        uses.push(d);
+                    }
+                }
+            }
+            if uses.len() > 0 {
+                uses.push(collect);
+                NodeUsesMut::Variable(uses.into_boxed_slice())
+            } else {
+                NodeUsesMut::One([collect])
+            }
         }
-        Node::WriteArray { array, data, index } => NodeUsesMut::Variable(
-            std::iter::once(array)
-                .chain(std::iter::once(data).chain(index.iter_mut()))
-                .collect(),
-        ),
-        Node::Match { control, sum } => NodeUsesMut::Two([control, sum]),
-        Node::BuildSum {
+        Node::Write {
+            collect,
+            indices,
             data,
-            sum_ty: _,
-            variant: _,
-        } => NodeUsesMut::One([data]),
-        Node::ExtractSum { data, variant: _ } => NodeUsesMut::One([data]),
+        } => {
+            let mut uses = vec![];
+            for index in indices.iter_mut() {
+                if let Index::Position(pos) = index {
+                    for d in pos.iter_mut() {
+                        uses.push(d);
+                    }
+                }
+            }
+            if uses.len() > 0 {
+                uses.push(collect);
+                uses.push(data);
+                NodeUsesMut::Variable(uses.into_boxed_slice())
+            } else {
+                NodeUsesMut::Two([collect, data])
+            }
+        }
     }
 }

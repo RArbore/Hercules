@@ -235,5 +235,7 @@ where
  * Get the control subgraph of a function.
  */
 pub fn control_subgraph(function: &Function, def_use: &ImmutableDefUseMap) -> Subgraph {
-    subgraph(function, def_use, |node| function.is_control(node))
+    subgraph(function, def_use, |node| {
+        function.nodes[node.idx()].is_control()
+    })
 }

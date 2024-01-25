@@ -377,15 +377,8 @@ pub fn immediate_control_flow(
     }
     let node = &function.nodes[node_id.idx()];
 
-    // Step 2: figure out if this node is a control node.
-    let control = if let Node::ReadProd { prod, index: _ } = node {
-        function.nodes[prod.idx()].is_strictly_control()
-    } else {
-        node.is_strictly_control()
-    };
-
-    // Step 3: clear all bits and set bit for current node, if applicable.
-    if control {
+    // Step 2: clear all bits and set bit for current node, if applicable.
+    if node.is_control() {
         let mut singular = bitvec![u8, Lsb0; 0; function.nodes.len()];
         singular.set(node_id.idx(), true);
         out = UnionNodeSet::Bits(singular);
