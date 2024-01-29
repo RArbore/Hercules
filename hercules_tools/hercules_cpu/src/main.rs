@@ -103,7 +103,9 @@ fn main() {
         })
         .collect();
 
-    /*hercules_codegen::cpu_alpha::cpu_alpha_codegen(
+    let mut file = File::create("test.ll").unwrap();
+    let mut contents = String::new();
+    hercules_codegen::cpu_beta::cpu_beta_codegen(
         &module,
         &typing,
         &reverse_postorders,
@@ -112,6 +114,7 @@ fn main() {
         &antideps,
         &array_allocs,
         &fork_join_nests,
-        &std::path::Path::new("test.bc"),
-    );*/
+        &mut contents,
+    );
+    file.write_all(contents.as_bytes()).unwrap();
 }
