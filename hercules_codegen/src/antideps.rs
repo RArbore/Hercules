@@ -3,17 +3,18 @@ extern crate hercules_ir;
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::ir::*;
 
+use array_alloc::*;
+
 /*
  * Top level function to assemble anti-dependence edges. Returns a list of pairs
  * of nodes. The first item in the pair is the read node, and the second item is
  * the write node.
  */
 pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
-    // Collection values are not directly computed on. Thus, there are actually
-    // very few nodes that have collection inputs or output. As a result, when
-    // forming anti-dependencies for a single collection, we only need to
-    // consider immediate users that are read or write nodes - no proper
-    // dataflow analysis necessary.
+    // Anti-dependence edges are between a write node and a read node, where
+    // each node uses the same array value. The read must be scheduled before
+    // the write to avoid incorrect compilation.
+    // TODO: use backwards dataflow to track all writes that may affect a value.
     let mut antideps = vec![];
 
     for id in (0..function.nodes.len()).map(NodeID::new) {
@@ -55,4 +56,25 @@ pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeI
     }
 
     antideps
+}
+
+/*
+ * Sometimes, we are only interested in anti-dependence edges involving arrays.
+ */
+pub fn array_antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
+    let edges = antideps(function, def_use);
+    edges
+        .into_iter()
+        .filter(|(read, _)| {
+            if let Node::Read {
+                collect: _,
+                indices,
+            } = function.nodes[read.idx()]
+            {
+                is_array_access(&indices)
+            } else {
+                panic!()
+            }
+        })
+        .collect()
 }

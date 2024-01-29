@@ -212,3 +212,14 @@ pub fn write_dimensionality(
     extents.reverse();
     extents
 }
+
+/*
+ * Determine if a set of indices refers to an array.
+ */
+pub fn is_array_access(indices: &[Index]) -> bool {
+    if let Index::Position(_) = indices[0] {
+        true
+    } else {
+        false
+    }
+}
