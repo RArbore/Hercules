@@ -29,20 +29,15 @@ impl UnifyKey for UnitKey {
 
 /*
  * Top level function to allocate individual arrays for sets of nodes in the IR
- * graph. Doesn't attempt to overlap allocations w/ liveness analysis. Returns
- * a set of nodes per allocation, which are the nodes that use that allocation,
- * along with dimensions specified with dynamic constants. The return value
- * consists of a list of array allocations (described by their dynamic constant
- * size), and a map from nodes involving array values to the number of the array
- * allocation they operate on.
+ * graph. Doesn't attempt to overlap allocations w/ liveness analysis. Returns a
+ * list of allocations, characterized by their size in terms of dynamic
+ * constants, and a map from node IDs involving an array value to the allocation
+ * it operates on.
  */
 pub fn logical_array_alloc(
     function: &Function,
     typing: &Vec<TypeID>,
     types: &Vec<Type>,
-    fork_join_map: &HashMap<NodeID, NodeID>,
-    bbs: &Vec<NodeID>,
-    fork_join_nests: &HashMap<NodeID, Vec<NodeID>>,
 ) -> (Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>) {
     // Step 1: filter nodes that operate on arrays, either on their input or
     // their output.
@@ -61,8 +56,7 @@ pub fn logical_array_alloc(
         std::iter::zip(array_nodes.iter().map(|x| *x), 0..array_nodes.len()).collect();
 
     // Step 2: union find the nodes based on use edges. Every node in each set
-    // should use the same array allocation. The representative node for a set
-    // will be the node with the smallest ID.
+    // should use the same array allocation.
     let mut allocs: UnificationTable<InPlace<UnitKey>> = UnificationTable::new();
     let keys: Vec<_> = (0..array_nodes.len()).map(|_| allocs.new_key(())).collect();
     for node in array_nodes.iter() {
@@ -80,78 +74,24 @@ pub fn logical_array_alloc(
     }
 
     // Step 3: determine the size of each array allocation. This is the size of
-    // the array type operated on, possibly in addition to dynamic constant
-    // factors corresponding to uses inside fork / joins. Each node that can
-    // operate on array values, and their corresponding affect on the array
-    // value's size, are listed below.
-    //
-    // Phi: only provides the base array dimensions
-    // Collect: provides the base array dimensions, in addition to dimensions
-    // corresponding to dominating fork / join nests
-    // Return: provides no array dimensions
-    // Parameter: only provides the base array dimensions
-    // Constant: only provides the base array dimensions
-    // Call: TODO
-    // ReadArray: only provides the base array dimensions
-    // WriteArray: provides the base array dimensions, in addition to dimensions
-    // corresponding to each fork / join the node is nested in
+    // the array type operated on.
     let mut key_to_value_size: HashMap<UnitKey, Vec<DynamicConstantID>> = HashMap::new();
     for key in keys.iter() {
         let value_key = allocs.find(*key);
         let id = array_nodes[key.index() as usize];
 
-        let extents = match function.nodes[id.idx()] {
-            Node::Phi {
-                control: _,
-                data: _,
-            }
-            | Node::Parameter { index: _ }
-            | Node::Constant { id: _ }
-            | Node::ReadArray { array: _, index: _ } => {
-                // For nodes that don't write to the array, the required size
-                // is just the underlying size of the array.
-                type_extents(typing[id.idx()], types)
-            }
-            Node::Collect {
-                control: _,
-                data: _,
-            }
-            | Node::WriteArray {
-                array: _,
-                data: _,
-                index: _,
-            } => {
-                // For nodes that write to the array, the required size depends
-                // on the surrounding fork / join pairs.
-                write_dimensionality(
-                    function,
-                    id,
-                    typing,
-                    types,
-                    fork_join_map,
-                    bbs,
-                    fork_join_nests,
-                )
-            }
-            Node::Return {
-                control: _,
-                data: _,
-            } => {
-                continue;
-            }
-            _ => todo!(),
+        let extents = if let Some(extents) = types[typing[id.idx()].idx()].try_extents() {
+            extents.iter().map(|x| *x).collect()
+        } else {
+            continue;
         };
 
-        // The largest required size is the correct size. It is assumed that all
-        // sizes calculated above form a total order with respect to suffix
-        // vectoring.
+        // This loop iterates over all nodes that interact with array values.
+        // Thus, many iterations will unnecessarily compute the extents of the
+        // same array extent. This is a good opportunity to check our work and
+        // make sure all the extents are consistent.
         if let Some(old_extents) = key_to_value_size.get(&value_key) {
-            assert!(
-                std::iter::zip(old_extents.iter().rev(), extents.iter().rev()).all(|(a, b)| a == b)
-            );
-            if old_extents.len() < extents.len() {
-                key_to_value_size.insert(value_key, extents);
-            }
+            assert!(extents == *old_extents);
         } else {
             key_to_value_size.insert(value_key, extents);
         }
@@ -174,52 +114,4 @@ pub fn logical_array_alloc(
     }
 
     (logical_allocations, node_to_logical_numbers)
-}
-
-/*
- * Get the dimensionality of a write. Checks for the dimensions of the array
- * type, and adds dimensions corresponding to dominating fork / join nests.
- */
-pub fn write_dimensionality(
-    function: &Function,
-    write: NodeID,
-    typing: &Vec<TypeID>,
-    types: &Vec<Type>,
-    fork_join_map: &HashMap<NodeID, NodeID>,
-    bbs: &Vec<NodeID>,
-    fork_join_nests: &HashMap<NodeID, Vec<NodeID>>,
-) -> Vec<DynamicConstantID> {
-    let mut extents = type_extents(typing[write.idx()], types);
-    assert!(
-        extents.len() > 0,
-        "Can't call write_dimensionality with a node that doesn't output an array."
-    );
-    extents.reverse();
-
-    for fork in fork_join_nests[&bbs[write.idx()]].iter() {
-        if let Node::Fork { control: _, factor } = function.nodes[fork.idx()] {
-            // If this node is a collect, we don't need to add the dimension
-            // from the corresponding fork.
-            if function.nodes[write.idx()].is_collect() && fork_join_map[&fork] != bbs[write.idx()]
-            {
-                extents.push(factor);
-            }
-        } else {
-            panic!("Fork join nests map contains a non-fork in the value list.");
-        }
-    }
-
-    extents.reverse();
-    extents
-}
-
-/*
- * Determine if a set of indices refers to an array.
- */
-pub fn is_array_access(indices: &[Index]) -> bool {
-    if let Index::Position(_) = indices[0] {
-        true
-    } else {
-        false
-    }
 }

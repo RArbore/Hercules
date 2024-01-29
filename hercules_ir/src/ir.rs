@@ -648,6 +648,14 @@ impl Type {
             false
         }
     }
+
+    pub fn try_extents(&self) -> Option<&[DynamicConstantID]> {
+        if let Type::Array(_, extents) = self {
+            Some(extents)
+        } else {
+            None
+        }
+    }
 }
 
 pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {
@@ -711,6 +719,14 @@ macro_rules! define_pattern_predicate {
 
 impl Index {
     define_pattern_predicate!(is_control, Index::Control(_));
+
+    pub fn try_position(&self) -> Option<&[NodeID]> {
+        if let Index::Position(indices) = self {
+            Some(&indices)
+        } else {
+            None
+        }
+    }
 }
 
 impl Node {

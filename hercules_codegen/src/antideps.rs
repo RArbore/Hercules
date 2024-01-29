@@ -3,8 +3,6 @@ extern crate hercules_ir;
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::ir::*;
 
-use array_alloc::*;
-
 /*
  * Top level function to assemble anti-dependence edges. Returns a list of pairs
  * of nodes. The first item in the pair is the read node, and the second item is
@@ -68,10 +66,10 @@ pub fn array_antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<
         .filter(|(read, _)| {
             if let Node::Read {
                 collect: _,
-                indices,
+                ref indices,
             } = function.nodes[read.idx()]
             {
-                is_array_access(&indices)
+                indices[0].try_position().is_some()
             } else {
                 panic!()
             }

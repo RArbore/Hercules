@@ -57,7 +57,7 @@ fn main() {
         .functions
         .iter()
         .enumerate()
-        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
+        .map(|(idx, function)| hercules_codegen::antideps::array_antideps(function, &def_uses[idx]))
         .collect();
 
     let bbs: Vec<_> = module
@@ -99,14 +99,11 @@ fn main() {
                 function,
                 &typing[idx],
                 &module.types,
-                &fork_join_maps[idx],
-                &bbs[idx],
-                &fork_join_nests[idx],
             )
         })
         .collect();
 
-    hercules_codegen::cpu_alpha::cpu_alpha_codegen(
+    /*hercules_codegen::cpu_alpha::cpu_alpha_codegen(
         &module,
         &typing,
         &reverse_postorders,
@@ -116,5 +113,5 @@ fn main() {
         &array_allocs,
         &fork_join_nests,
         &std::path::Path::new("test.bc"),
-    );
+    );*/
 }
