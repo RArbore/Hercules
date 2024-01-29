@@ -87,4 +87,30 @@ pub fn cpu_beta_codegen<W: Write>(
             Type::Summation(_) => todo!(),
         }
     }
+
+    // Step 2: render constants into LLVM IR. This is done in a very similar
+    // manner as types.
+    let mut llvm_constants = vec!["".to_string(); types.len()];
+    for id in module.constants_bottom_up() {
+        match &constants[id.idx()] {
+            Constant::Boolean(val) => {
+                llvm_constants[id.idx()] = if *val {
+                    "i1 true".to_string()
+                } else {
+                    "i1 false".to_string()
+                };
+            }
+            Constant::Integer8(val) => llvm_constants[id.idx()] = format!("i8 {}", val),
+            Constant::Integer16(val) => llvm_constants[id.idx()] = format!("i16 {}", val),
+            Constant::Integer32(val) => llvm_constants[id.idx()] = format!("i32 {}", val),
+            Constant::Integer64(val) => llvm_constants[id.idx()] = format!("i64 {}", val),
+            Constant::UnsignedInteger8(val) => llvm_constants[id.idx()] = format!("i8 {}", val),
+            Constant::UnsignedInteger16(val) => llvm_constants[id.idx()] = format!("i16 {}", val),
+            Constant::UnsignedInteger32(val) => llvm_constants[id.idx()] = format!("i32 {}", val),
+            Constant::UnsignedInteger64(val) => llvm_constants[id.idx()] = format!("i64 {}", val),
+            Constant::Float32(val) => llvm_constants[id.idx()] = format!("f32 {}", val),
+            Constant::Float64(val) => llvm_constants[id.idx()] = format!("f64 {}", val),
+            _ => todo!(),
+        }
+    }
 }
