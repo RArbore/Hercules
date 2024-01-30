@@ -137,7 +137,20 @@ pub fn cpu_beta_codegen<W: Write>(
         }
     }
 
-    // Step 3: do codegen for each function.
+    // Step 3: render dynamic constants into LLVM IR.
+    let mut llvm_dynamic_constants = vec!["".to_string(); dynamic_constants.len()];
+    for id in (0..dynamic_constants.len()).map(DynamicConstantID::new) {
+        match &dynamic_constants[id.idx()] {
+            DynamicConstant::Constant(val) => {
+                llvm_dynamic_constants[id.idx()] = format!("i64 {}", val)
+            }
+            DynamicConstant::Parameter(num) => {
+                llvm_dynamic_constants[id.idx()] = format!("i64 %dc{}", num)
+            }
+        }
+    }
+
+    // Step 4: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
         let typing = &typing[function_idx];
@@ -148,7 +161,7 @@ pub fn cpu_beta_codegen<W: Write>(
         let fork_join_nest = &fork_join_nests[function_idx];
         let array_allocations = &array_allocations[function_idx];
 
-        // Step 3.1: emit function signature.
+        // Step 4.1: emit function signature.
         let llvm_ret_type = &llvm_types[function.return_type.idx()];
         let mut llvm_params = function
             .param_types
@@ -166,7 +179,7 @@ pub fn cpu_beta_codegen<W: Write>(
         }
         write!(w, ") {{\n")?;
 
-        // Step 3.2: emit basic blocks. A node represents a basic block if its
+        // Step 4.2: emit basic blocks. A node represents a basic block if its
         // entry in the basic blocks vector points to itself. Each basic block
         // is created as four strings: the block header, the block's phis, the
         // block's data computations, and the block's terminator instruction.
@@ -185,7 +198,7 @@ pub fn cpu_beta_codegen<W: Write>(
             }
         }
 
-        // Step 3.3: emit nodes. Nodes are emitted into basic blocks separately
+        // Step 4.3: emit nodes. Nodes are emitted into basic blocks separately
         // as nodes are not necessarily emitted in order. Assemble worklist of
         // nodes, starting as reverse post order of nodes. For non-phi and non-
         // reduce nodes, only emit once all data uses are emitted. In addition,
@@ -223,12 +236,13 @@ pub fn cpu_beta_codegen<W: Write>(
                     &mut llvm_bbs,
                     &llvm_types,
                     &llvm_constants,
+                    &llvm_dynamic_constants,
                     w,
                 )?;
             }
         }
 
-        // Step 3.4: close function.
+        // Step 4.4: close function.
         write!(w, "}}\n")?;
     }
 
@@ -251,6 +265,7 @@ fn emit_llvm_for_node<W: Write>(
     llvm_bbs: &mut HashMap<NodeID, LLVMBlock>,
     llvm_types: &Vec<String>,
     llvm_constants: &Vec<String>,
+    llvm_dynamic_constants: &Vec<String>,
     w: &mut W,
 ) -> std::fmt::Result {
     Ok(())
