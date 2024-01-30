@@ -25,7 +25,7 @@ pub fn cpu_beta_codegen<W: Write>(
     array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
     fork_join_nests: &Vec<HashMap<NodeID, Vec<NodeID>>>,
     w: &mut W,
-) {
+) -> std::fmt::Result {
     let hercules_ir::ir::Module {
         functions,
         types,
@@ -110,7 +110,67 @@ pub fn cpu_beta_codegen<W: Write>(
             Constant::UnsignedInteger64(val) => llvm_constants[id.idx()] = format!("i64 {}", val),
             Constant::Float32(val) => llvm_constants[id.idx()] = format!("f32 {}", val),
             Constant::Float64(val) => llvm_constants[id.idx()] = format!("f64 {}", val),
-            _ => todo!(),
+            Constant::Product(_, fields) => {
+                let mut iter = fields.iter();
+                if let Some(first) = iter.next() {
+                    llvm_constants[id.idx()] =
+                        iter.fold("{".to_string() + &llvm_constants[first.idx()], |s, f| {
+                            s + ", " + &llvm_constants[f.idx()]
+                        }) + "}";
+                } else {
+                    llvm_constants[id.idx()] = "{}".to_string();
+                }
+            }
+            Constant::Array(_, _) => todo!(),
+            Constant::Summation(_, _, _) => todo!(),
         }
     }
+
+    // Step 3: do codegen for each function.
+    for function_idx in 0..functions.len() {
+        let function = &functions[function_idx];
+        let typing = &typing[function_idx];
+        let reverse_postorder = &reverse_postorders[function_idx];
+        let def_use = &def_uses[function_idx];
+        let bb = &bbs[function_idx];
+        let antideps = &antideps[function_idx];
+        let fork_join_nest = &fork_join_nests[function_idx];
+        let array_allocations = &array_allocations[function_idx];
+
+        // Step 3.1: emit function signature.
+        let llvm_ret_type = &llvm_types[function.return_type.idx()];
+        let mut llvm_params = function
+            .param_types
+            .iter()
+            .enumerate()
+            .map(|(idx, id)| format!("{} %p{}", &llvm_types[id.idx()], idx))
+            .chain((0..function.num_dynamic_constants).map(|idx| format!("i64 %dc{}", idx)))
+            .chain((0..array_allocations.0.len()).map(|idx| format!("ptr %arr{}", idx)));
+        write!(w, "define {} @{}(", llvm_ret_type, function.name)?;
+        if let Some(first) = llvm_params.next() {
+            write!(w, "{}", first)?;
+            for p in llvm_params {
+                write!(w, ", {}", p)?;
+            }
+        }
+        write!(w, ") {{\n")?;
+
+        // Step 3.2: emit basic blocks. A node represents a basic block if its
+        // entry in the basic blocks vector points to itself.
+        let mut llvm_bbs = HashMap::new();
+        for id in (0..function.nodes.len()).map(NodeID::new) {
+            if bb[id.idx()] == id {
+                llvm_bbs.insert(id, format!("bb_{}:\n", id.idx()));
+            }
+        }
+
+        // Step 3.3: emit nodes. Nodes are emitted into basic blocks separately
+        // as nodes are not necessarily emitted in order. Assemble worklist of
+        // nodes, starting as reverse post order of nodes. For non-phi and non-
+        // reduce nodes, only emit once all data uses are emitted. Wait to emit
+        // phi and reduce nodes. In addition, consider additional anti-
+        // dependence edges from read to write nodes.
+    }
+
+    Ok(())
 }

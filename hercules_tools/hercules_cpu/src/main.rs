@@ -115,6 +115,7 @@ fn main() {
         &array_allocs,
         &fork_join_nests,
         &mut contents,
-    );
+    )
+    .unwrap();
     file.write_all(contents.as_bytes()).unwrap();
 }
