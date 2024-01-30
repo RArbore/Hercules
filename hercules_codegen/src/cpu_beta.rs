@@ -1,7 +1,11 @@
+extern crate bitvec;
 extern crate hercules_ir;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt::Write;
+
+use self::bitvec::prelude::*;
 
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::ir::*;
@@ -11,6 +15,13 @@ use self::hercules_ir::ir::*;
  * for many changes in the IR designed to make lowering, optimization, and code
  * generation easier.
  */
+
+struct LLVMBlock {
+    header: String,
+    phis: String,
+    data: String,
+    terminator: String,
+}
 
 /*
  * Top level function to generate code for a module. Emits LLVM IR text.
@@ -156,21 +167,91 @@ pub fn cpu_beta_codegen<W: Write>(
         write!(w, ") {{\n")?;
 
         // Step 3.2: emit basic blocks. A node represents a basic block if its
-        // entry in the basic blocks vector points to itself.
+        // entry in the basic blocks vector points to itself. Each basic block
+        // is created as four strings: the block header, the block's phis, the
+        // block's data computations, and the block's terminator instruction.
         let mut llvm_bbs = HashMap::new();
         for id in (0..function.nodes.len()).map(NodeID::new) {
             if bb[id.idx()] == id {
-                llvm_bbs.insert(id, format!("bb_{}:\n", id.idx()));
+                llvm_bbs.insert(
+                    id,
+                    LLVMBlock {
+                        header: format!("bb_{}:\n", id.idx()),
+                        phis: "".to_string(),
+                        data: "".to_string(),
+                        terminator: "".to_string(),
+                    },
+                );
             }
         }
 
         // Step 3.3: emit nodes. Nodes are emitted into basic blocks separately
         // as nodes are not necessarily emitted in order. Assemble worklist of
         // nodes, starting as reverse post order of nodes. For non-phi and non-
-        // reduce nodes, only emit once all data uses are emitted. Wait to emit
-        // phi and reduce nodes. In addition, consider additional anti-
-        // dependence edges from read to write nodes.
+        // reduce nodes, only emit once all data uses are emitted. In addition,
+        // consider additional anti-dependence edges from read to write nodes.
+        let visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
+        let mut worklist = VecDeque::from(reverse_postorder.clone());
+        while let Some(id) = worklist.pop_front() {
+            if !function.nodes[id.idx()].is_phi()
+                && !get_uses(&function.nodes[id.idx()])
+                    .as_ref()
+                    .into_iter()
+                    .chain(
+                        antideps.iter().filter_map(
+                            |(read, write)| if id == *write { Some(read) } else { None },
+                        ),
+                    )
+                    .all(|x| function.nodes[x.idx()].is_control() || visited[x.idx()])
+            {
+                // Skip emitting node if it's not a phi node and if its data
+                // uses are not emitted yet.
+                worklist.push_back(id);
+            } else {
+                // Once all of the data dependencies for this node are emitted,
+                // this node can be emitted.
+                emit_llvm_for_node(
+                    id,
+                    function,
+                    typing,
+                    types,
+                    dynamic_constants,
+                    bb,
+                    def_use,
+                    fork_join_nest,
+                    array_allocations,
+                    &mut llvm_bbs,
+                    &llvm_types,
+                    &llvm_constants,
+                    w,
+                )?;
+            }
+        }
+
+        // Step 3.4: close function.
+        write!(w, "}}\n")?;
     }
 
+    Ok(())
+}
+
+/*
+ * Emit LLVM implementing a single node.
+ */
+fn emit_llvm_for_node<W: Write>(
+    id: NodeID,
+    function: &Function,
+    typing: &Vec<TypeID>,
+    types: &Vec<Type>,
+    dynamic_constants: &Vec<DynamicConstant>,
+    bb: &Vec<NodeID>,
+    def_use: &ImmutableDefUseMap,
+    fork_join_nest: &HashMap<NodeID, Vec<NodeID>>,
+    array_allocations: &(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>),
+    llvm_bbs: &mut HashMap<NodeID, LLVMBlock>,
+    llvm_types: &Vec<String>,
+    llvm_constants: &Vec<String>,
+    w: &mut W,
+) -> std::fmt::Result {
     Ok(())
 }
