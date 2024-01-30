@@ -16,6 +16,7 @@ use self::hercules_ir::ir::*;
  * generation easier.
  */
 
+#[derive(Debug)]
 struct LLVMBlock {
     header: String,
     phis: String,
@@ -189,7 +190,7 @@ pub fn cpu_beta_codegen<W: Write>(
                 llvm_bbs.insert(
                     id,
                     LLVMBlock {
-                        header: format!("bb_{}:\n", id.idx()),
+                        header: format!("%bb_{}:\n", id.idx()),
                         phis: "".to_string(),
                         data: "".to_string(),
                         terminator: "".to_string(),
@@ -203,8 +204,9 @@ pub fn cpu_beta_codegen<W: Write>(
         // nodes, starting as reverse post order of nodes. For non-phi and non-
         // reduce nodes, only emit once all data uses are emitted. In addition,
         // consider additional anti-dependence edges from read to write nodes.
-        let visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
+        let mut visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
         let mut worklist = VecDeque::from(reverse_postorder.clone());
+        let mut i: i32 = 0;
         while let Some(id) = worklist.pop_front() {
             if !function.nodes[id.idx()].is_phi()
                 && !get_uses(&function.nodes[id.idx()])
@@ -241,9 +243,27 @@ pub fn cpu_beta_codegen<W: Write>(
                 )?;
                 visited.set(id.idx(), true);
             }
+            i += 1;
+            if i > 1000 {
+                break;
+            }
         }
 
-        // Step 4.4: close function.
+        // Step 4.4: put basic blocks in order.
+        for node in reverse_postorder {
+            if bb[node.idx()] == *node {
+                write!(
+                    w,
+                    "{}{}{}{}",
+                    llvm_bbs[node].header,
+                    llvm_bbs[node].phis,
+                    llvm_bbs[node].data,
+                    llvm_bbs[node].terminator
+                )?;
+            }
+        }
+
+        // Step 4.5: close function.
         write!(w, "}}\n")?;
     }
 
@@ -269,9 +289,17 @@ fn emit_llvm_for_node<W: Write>(
     llvm_dynamic_constants: &Vec<String>,
     w: &mut W,
 ) -> std::fmt::Result {
-    // Helper to get the virtual register corresponding to a node.
-    let virtual_register =
-        |id: NodeID| format!("{} %v{}", llvm_types[typing[id.idx()].idx()], id.idx());
+    // Helper to get the virtual register corresponding to a node. Overload to
+    // also emit constants, dynamic constants, and parameters.
+    let virtual_register = |id: NodeID| {
+        if let Node::Parameter { index } = function.nodes[id.idx()] {
+            format!("%p{}", index)
+        } else {
+            format!("%v{}", id.idx())
+        }
+    };
+    let type_of = |id: NodeID| format!("{}", llvm_types[typing[id.idx()].idx()]);
+    let normal_value = |id: NodeID| format!("{} {}", type_of(id), virtual_register(id));
 
     match function.nodes[id.idx()] {
         Node::Start | Node::Region { preds: _ } => {
@@ -281,8 +309,8 @@ fn emit_llvm_for_node<W: Write>(
                 .filter(|id| function.nodes[id.idx()].is_strictly_control())
                 .next()
                 .unwrap();
-            llvm_bbs.get_mut(&id).unwrap().terminator =
-                format!("  br label bb_{}", successor.idx());
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
+                format!("  br label %bb_{}", successor.idx());
         }
         Node::If { control: _, cond } => {
             let successors = def_use.get_users(id);
@@ -291,31 +319,46 @@ fn emit_llvm_for_node<W: Write>(
                 indices,
             } = &function.nodes[successors[0].idx()]
             {
-                if indices[0] == Index::Control(0) {
-                    false
-                } else {
-                    true
-                }
+                indices[0] != Index::Control(0)
             } else {
                 panic!()
             };
-            if rev {
-                llvm_bbs.get_mut(&id).unwrap().terminator = format!(
-                    "  br {}, label bb_{}, label bb_{}",
-                    virtual_register(cond),
-                    successors[0].idx(),
-                    successors[1].idx()
-                );
-            } else {
-                llvm_bbs.get_mut(&id).unwrap().terminator = format!(
-                    "  br {}, label bb_{}, label bb_{}",
-                    virtual_register(cond),
-                    successors[1].idx(),
-                    successors[0].idx()
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator = format!(
+                "  br {}, label %bb_{}, label %bb_{}",
+                normal_value(cond),
+                successors[(!rev) as usize].idx(),
+                successors[rev as usize].idx()
+            );
+        }
+        Node::Phi {
+            control: _,
+            ref data,
+        } => {
+            let pred_ids = get_uses(&function.nodes[bb[id.idx()].idx()]);
+            let mut iter = std::iter::zip(data.iter(), pred_ids.as_ref().iter());
+            let (first_data, first_control) = iter.next().unwrap();
+            let mut phi = format!(
+                "  {} = phi {} [ {}, %bb_{} ]",
+                virtual_register(id),
+                type_of(id),
+                virtual_register(*first_data),
+                bb[first_control.idx()].idx()
+            );
+            for (data, control) in iter {
+                phi += &format!(
+                    ", [ {}, %bb_{} ]",
+                    virtual_register(*data),
+                    bb[control.idx()].idx()
                 );
             }
+            phi += "\n";
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().phis += &phi;
         }
-        _ => todo!(),
+        Node::Return { control: _, data } => {
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
+                format!("  ret {}", normal_value(data));
+        }
+        _ => {}
     }
 
     Ok(())
