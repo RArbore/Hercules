@@ -239,6 +239,7 @@ pub fn cpu_beta_codegen<W: Write>(
                     &llvm_dynamic_constants,
                     w,
                 )?;
+                visited.set(id.idx(), true);
             }
         }
 
@@ -268,5 +269,54 @@ fn emit_llvm_for_node<W: Write>(
     llvm_dynamic_constants: &Vec<String>,
     w: &mut W,
 ) -> std::fmt::Result {
+    // Helper to get the virtual register corresponding to a node.
+    let virtual_register =
+        |id: NodeID| format!("{} %v{}", llvm_types[typing[id.idx()].idx()], id.idx());
+
+    match function.nodes[id.idx()] {
+        Node::Start | Node::Region { preds: _ } => {
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+            llvm_bbs.get_mut(&id).unwrap().terminator =
+                format!("  br label bb_{}", successor.idx());
+        }
+        Node::If { control: _, cond } => {
+            let successors = def_use.get_users(id);
+            let rev = if let Node::Read {
+                collect: _,
+                indices,
+            } = &function.nodes[successors[0].idx()]
+            {
+                if indices[0] == Index::Control(0) {
+                    false
+                } else {
+                    true
+                }
+            } else {
+                panic!()
+            };
+            if rev {
+                llvm_bbs.get_mut(&id).unwrap().terminator = format!(
+                    "  br {}, label bb_{}, label bb_{}",
+                    virtual_register(cond),
+                    successors[0].idx(),
+                    successors[1].idx()
+                );
+            } else {
+                llvm_bbs.get_mut(&id).unwrap().terminator = format!(
+                    "  br {}, label bb_{}, label bb_{}",
+                    virtual_register(cond),
+                    successors[1].idx(),
+                    successors[0].idx()
+                );
+            }
+        }
+        _ => todo!(),
+    }
+
     Ok(())
 }
