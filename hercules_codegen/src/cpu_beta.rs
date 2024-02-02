@@ -536,6 +536,23 @@ fn emit_llvm_for_node<W: Write>(
                         &format!(", i32 {}", index.try_field().unwrap());
                 }
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  {} = load {}, %read.{}.ptr\n",
+                    virtual_register(id),
+                    llvm_types[typing[id.idx()].idx()],
+                    id.idx()
+                );
+            } else {
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  {} = extractvalue {}",
+                    virtual_register(id),
+                    normal_value(collect)
+                );
+                for index in indices.iter() {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                        &format!(", {}", index.try_field().unwrap());
+                }
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
             }
         }
         _ => todo!(),
