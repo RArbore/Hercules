@@ -36,7 +36,7 @@ pub fn cpu_beta_codegen<W: Write>(
     bbs: &Vec<Vec<NodeID>>,
     antideps: &Vec<Vec<(NodeID, NodeID)>>,
     array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
-    fork_join_nests: &Vec<HashMap<NodeID, Vec<NodeID>>>,
+    fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
     w: &mut W,
 ) -> std::fmt::Result {
     let hercules_ir::ir::Module {
@@ -55,7 +55,10 @@ pub fn cpu_beta_codegen<W: Write>(
     for id in module.types_bottom_up() {
         match &types[id.idx()] {
             Type::Control(_) => {
-                llvm_types[id.idx()] = "CONTROL_NOT_AN_LLVM_TYPE".to_string();
+                // Later, we create virtual registers corresponding to fork
+                // nodes of type i64, so we need the "type" of the fork node
+                // to be i64.
+                llvm_types[id.idx()] = "i64".to_string();
             }
             Type::Boolean => {
                 llvm_types[id.idx()] = "i1".to_string();
@@ -158,7 +161,7 @@ pub fn cpu_beta_codegen<W: Write>(
         let def_use = &def_uses[function_idx];
         let bb = &bbs[function_idx];
         let antideps = &antideps[function_idx];
-        let fork_join_nest = &fork_join_nests[function_idx];
+        let fork_join_map = &fork_join_maps[function_idx];
         let array_allocations = &array_allocations[function_idx];
 
         // Step 4.1: emit function signature.
@@ -231,7 +234,7 @@ pub fn cpu_beta_codegen<W: Write>(
                     dynamic_constants,
                     bb,
                     def_use,
-                    fork_join_nest,
+                    fork_join_map,
                     array_allocations,
                     &mut llvm_bbs,
                     &llvm_types,
@@ -275,7 +278,7 @@ fn emit_llvm_for_node<W: Write>(
     dynamic_constants: &Vec<DynamicConstant>,
     bb: &Vec<NodeID>,
     def_use: &ImmutableDefUseMap,
-    fork_join_nest: &HashMap<NodeID, Vec<NodeID>>,
+    fork_join_map: &HashMap<NodeID, NodeID>,
     array_allocations: &(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>),
     llvm_bbs: &mut HashMap<NodeID, LLVMBlock>,
     llvm_types: &Vec<String>,
@@ -284,9 +287,9 @@ fn emit_llvm_for_node<W: Write>(
     w: &mut W,
 ) -> std::fmt::Result {
     // Helper to get the virtual register corresponding to a node. Overload to
-    // also emit constants, dynamic constants, and parameters. Override writes
-    // to use previous non-store pointer, since emitting a store doesn't create
-    // a new pointer virtual register we should use.
+    // also emit constants, dynamic constants, parameters, and thread IDs.
+    // Override writes to use previous non-store pointer, since emitting a store
+    // doesn't create a new pointer virtual register we should use.
     let virtual_register = |mut id: NodeID| {
         while let Node::Write {
             collect,
@@ -298,9 +301,10 @@ fn emit_llvm_for_node<W: Write>(
         }
 
         match function.nodes[id.idx()] {
-            Node::Parameter { index } => format!("%p{}", index),
             Node::Constant { id } => llvm_constants[id.idx()].clone(),
             Node::DynamicConstant { id } => llvm_dynamic_constants[id.idx()].clone(),
+            Node::Parameter { index } => format!("%p{}", index),
+            Node::ThreadID { control } => format!("%v{}", control.idx()),
             _ => format!("%v{}", id.idx()),
         }
     };
@@ -387,6 +391,63 @@ fn emit_llvm_for_node<W: Write>(
                 successors[rev as usize].idx()
             );
         }
+        Node::Fork { control, factor: _ } => {
+            // Calculate the join and successor.
+            let join = fork_join_map[&id];
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+
+            // Need to create phi node for the loop index.
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().phis += &format!(
+                "  {} = phi i64 [ 0, %bb_{} ], [ %fork.{}.inc, %bb_{} ]\n  %fork.{}.inc = add i64 1, {}\n",
+                virtual_register(id),
+                control.idx(),
+                id.idx(),
+                join.idx(),
+                id.idx(),
+                virtual_register(id),
+            );
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
+                format!("  br label %bb_{}\n", successor.idx());
+        }
+        Node::Join { control } => {
+            // Get the fork, its factor, and the successor to this join.
+            let fork_id = if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
+                *factors.last().unwrap()
+            } else {
+                panic!()
+            };
+            let factor = if let Node::Fork { control: _, factor } = &function.nodes[fork_id.idx()] {
+                *factor
+            } else {
+                panic!()
+            };
+            let successor = def_use
+                .get_users(id)
+                .iter()
+                .filter(|id| function.nodes[id.idx()].is_strictly_control())
+                .next()
+                .unwrap();
+
+            // Form the bottom of the loop. We need to branch between the
+            // successor and the fork.
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                "  %join.{}.cond = icmp ult i64 %fork.{}.inc, {}\n",
+                id.idx(),
+                fork_id.idx(),
+                llvm_dynamic_constants[factor.idx()],
+            );
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator = format!(
+                "  br i1 %join.{}.cond, label %bb_{}, label %bb_{}\n",
+                id.idx(),
+                fork_id.idx(),
+                successor.idx(),
+            );
+        }
         Node::Phi {
             control: _,
             ref data,
@@ -411,6 +472,8 @@ fn emit_llvm_for_node<W: Write>(
             phi += "\n";
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().phis += &phi;
         }
+        // No code needs to get emitted for thread ID nodes - the loop index is
+        // emitted in the fork.
         Node::Return { control: _, data } => {
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
                 format!("  ret {}\n", normal_value(data));
@@ -604,7 +667,7 @@ fn emit_llvm_for_node<W: Write>(
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
             }
         }
-        _ => todo!(),
+        _ => {}
     }
 
     Ok(())
