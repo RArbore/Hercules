@@ -37,6 +37,7 @@ pub fn cpu_beta_codegen<W: Write>(
     antideps: &Vec<Vec<(NodeID, NodeID)>>,
     array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
+    fork_join_nests: &Vec<HashMap<NodeID, Vec<NodeID>>>,
     w: &mut W,
 ) -> std::fmt::Result {
     let hercules_ir::ir::Module {
@@ -174,6 +175,7 @@ pub fn cpu_beta_codegen<W: Write>(
         let bb = &bbs[function_idx];
         let antideps = &antideps[function_idx];
         let fork_join_map = &fork_join_maps[function_idx];
+        let fork_join_nest = &fork_join_nests[function_idx];
         let array_allocations = &array_allocations[function_idx];
 
         // Step 4.1: emit function signature.
@@ -247,6 +249,7 @@ pub fn cpu_beta_codegen<W: Write>(
                     bb,
                     def_use,
                     fork_join_map,
+                    fork_join_nest,
                     array_allocations,
                     &mut llvm_bbs,
                     &llvm_types,
@@ -291,6 +294,7 @@ fn emit_llvm_for_node<W: Write>(
     bb: &Vec<NodeID>,
     def_use: &ImmutableDefUseMap,
     fork_join_map: &HashMap<NodeID, NodeID>,
+    fork_join_nest: &HashMap<NodeID, Vec<NodeID>>,
     array_allocations: &(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>),
     llvm_bbs: &mut HashMap<NodeID, LLVMBlock>,
     llvm_types: &Vec<String>,
@@ -301,23 +305,50 @@ fn emit_llvm_for_node<W: Write>(
     // Helper to get the virtual register corresponding to a node. Overload to
     // also emit constants, dynamic constants, parameters, and thread IDs.
     // Override writes to use previous non-store pointer, since emitting a store
-    // doesn't create a new pointer virtual register we should use.
-    let virtual_register = |mut id: NodeID| {
+    // doesn't create a new pointer virtual register we should use. If the user
+    // (current node being emitted) is outside the fork-join nest of a reduce
+    // node, use the reduct input to the reduce node instead - this is needed to
+    // not get a value from the loop one iteration too early.
+    let virtual_register = |mut vid: NodeID| {
+        while let Node::Reduce {
+            control,
+            init: _,
+            reduct,
+        } = &function.nodes[vid.idx()]
+        {
+            // Figure out the fork corresponding to the associated join.
+            let fork_id = if let Node::Join { control } = function.nodes[control.idx()] {
+                if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
+                    *factors.last().unwrap()
+                } else {
+                    panic!()
+                }
+            } else {
+                panic!()
+            };
+
+            if !fork_join_nest[&bb[id.idx()]].contains(&fork_id) {
+                vid = *reduct;
+            } else {
+                break;
+            }
+        }
+
         while let Node::Write {
             collect,
             indices: _,
             data: _,
-        } = &function.nodes[id.idx()]
+        } = &function.nodes[vid.idx()]
         {
-            id = *collect;
+            vid = *collect;
         }
 
-        match function.nodes[id.idx()] {
+        match function.nodes[vid.idx()] {
             Node::Constant { id } => llvm_constants[id.idx()].clone(),
             Node::DynamicConstant { id } => llvm_dynamic_constants[id.idx()].clone(),
             Node::Parameter { index } => format!("%p{}", index),
             Node::ThreadID { control } => format!("%v{}", control.idx()),
-            _ => format!("%v{}", id.idx()),
+            _ => format!("%v{}", vid.idx()),
         }
     };
     let type_of = |id: NodeID| format!("{}", llvm_types[typing[id.idx()].idx()]);
