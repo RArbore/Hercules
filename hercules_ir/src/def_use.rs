@@ -165,7 +165,9 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
                 }
             }
             if uses.len() > 0 {
+                uses.reverse();
                 uses.push(*collect);
+                uses.reverse();
                 NodeUses::Owned(uses.into_boxed_slice())
             } else {
                 NodeUses::One([*collect])
@@ -183,8 +185,10 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
                 }
             }
             if uses.len() > 0 {
-                uses.push(*collect);
+                uses.reverse();
                 uses.push(*data);
+                uses.push(*collect);
+                uses.reverse();
                 NodeUses::Owned(uses.into_boxed_slice())
             } else {
                 NodeUses::Two([*collect, *data])

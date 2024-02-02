@@ -113,16 +113,16 @@ pub fn cpu_beta_codegen<W: Write>(
                     "i1 false".to_string()
                 };
             }
-            Constant::Integer8(val) => llvm_constants[id.idx()] = format!("i8 {}", val),
-            Constant::Integer16(val) => llvm_constants[id.idx()] = format!("i16 {}", val),
-            Constant::Integer32(val) => llvm_constants[id.idx()] = format!("i32 {}", val),
-            Constant::Integer64(val) => llvm_constants[id.idx()] = format!("i64 {}", val),
-            Constant::UnsignedInteger8(val) => llvm_constants[id.idx()] = format!("i8 {}", val),
-            Constant::UnsignedInteger16(val) => llvm_constants[id.idx()] = format!("i16 {}", val),
-            Constant::UnsignedInteger32(val) => llvm_constants[id.idx()] = format!("i32 {}", val),
-            Constant::UnsignedInteger64(val) => llvm_constants[id.idx()] = format!("i64 {}", val),
-            Constant::Float32(val) => llvm_constants[id.idx()] = format!("f32 {}", val),
-            Constant::Float64(val) => llvm_constants[id.idx()] = format!("f64 {}", val),
+            Constant::Integer8(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Integer16(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Integer32(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Integer64(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::UnsignedInteger8(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::UnsignedInteger16(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::UnsignedInteger32(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::UnsignedInteger64(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Float32(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Float64(val) => llvm_constants[id.idx()] = format!("{}", val),
             Constant::Product(_, fields) => {
                 let mut iter = fields.iter();
                 if let Some(first) = iter.next() {
@@ -143,11 +143,9 @@ pub fn cpu_beta_codegen<W: Write>(
     let mut llvm_dynamic_constants = vec!["".to_string(); dynamic_constants.len()];
     for id in (0..dynamic_constants.len()).map(DynamicConstantID::new) {
         match &dynamic_constants[id.idx()] {
-            DynamicConstant::Constant(val) => {
-                llvm_dynamic_constants[id.idx()] = format!("i64 {}", val)
-            }
+            DynamicConstant::Constant(val) => llvm_dynamic_constants[id.idx()] = format!("{}", val),
             DynamicConstant::Parameter(num) => {
-                llvm_dynamic_constants[id.idx()] = format!("i64 %dc{}", num)
+                llvm_dynamic_constants[id.idx()] = format!("%dc{}", num)
             }
         }
     }
@@ -286,12 +284,25 @@ fn emit_llvm_for_node<W: Write>(
     w: &mut W,
 ) -> std::fmt::Result {
     // Helper to get the virtual register corresponding to a node. Overload to
-    // also emit constants, dynamic constants, and parameters.
-    let virtual_register = |id: NodeID| match function.nodes[id.idx()] {
-        Node::Parameter { index } => format!("%p{}", index),
-        Node::Constant { id } => llvm_constants[id.idx()].clone(),
-        Node::DynamicConstant { id } => llvm_dynamic_constants[id.idx()].clone(),
-        _ => format!("%v{}", id.idx()),
+    // also emit constants, dynamic constants, and parameters. Override writes
+    // to use previous non-store pointer, since emitting a store doesn't create
+    // a new pointer virtual register we should use.
+    let virtual_register = |mut id: NodeID| {
+        while let Node::Write {
+            collect,
+            indices: _,
+            data: _,
+        } = &function.nodes[id.idx()]
+        {
+            id = *collect;
+        }
+
+        match function.nodes[id.idx()] {
+            Node::Parameter { index } => format!("%p{}", index),
+            Node::Constant { id } => llvm_constants[id.idx()].clone(),
+            Node::DynamicConstant { id } => llvm_dynamic_constants[id.idx()].clone(),
+            _ => format!("%v{}", id.idx()),
+        }
     };
     let type_of = |id: NodeID| format!("{}", llvm_types[typing[id.idx()].idx()]);
     let normal_value = |id: NodeID| format!("{} {}", type_of(id), virtual_register(id));
@@ -346,6 +357,7 @@ fn emit_llvm_for_node<W: Write>(
         llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
     };
 
+    // Emit code depending on the type of the node.
     match function.nodes[id.idx()] {
         Node::Start | Node::Region { preds: _ } => {
             let successor = def_use
@@ -503,19 +515,15 @@ fn emit_llvm_for_node<W: Write>(
                 BinaryOperator::EQ => {
                     if types[typing[left.idx()].idx()].is_float() {
                         "fcmp oeq"
-                    } else if types[typing[left.idx()].idx()].is_unsigned() {
-                        "icmp ueq"
                     } else {
-                        "icmp seq"
+                        "icmp eq"
                     }
                 }
                 BinaryOperator::NE => {
                     if types[typing[left.idx()].idx()].is_float() {
                         "fcmp one"
-                    } else if types[typing[left.idx()].idx()].is_unsigned() {
-                        "icmp une"
                     } else {
-                        "icmp sne"
+                        "icmp ne"
                     }
                 }
                 BinaryOperator::Or => "or",
@@ -542,25 +550,32 @@ fn emit_llvm_for_node<W: Write>(
             collect,
             ref indices,
         } => {
-            generate_index_code(collect, indices);
-            if types[typing[collect.idx()].idx()].is_array() {
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  {} = load {}, %index.{}.ptr\n",
-                    virtual_register(id),
-                    llvm_types[typing[id.idx()].idx()],
-                    id.idx()
-                );
+            // Read nodes may be projection successors of if or match nodes.
+            if function.nodes[collect.idx()].is_strictly_control() {
+                let successor = def_use.get_users(id)[0];
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
+                    format!("  br label %bb_{}\n", successor.idx());
             } else {
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  {} = extractvalue {}",
-                    virtual_register(id),
-                    normal_value(collect)
-                );
-                for index in indices.iter() {
-                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
-                        &format!(", {}", index.try_field().unwrap());
+                generate_index_code(collect, indices);
+                if types[typing[collect.idx()].idx()].is_array() {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                        "  {} = load {}, ptr %index.{}.ptr\n",
+                        virtual_register(id),
+                        llvm_types[typing[id.idx()].idx()],
+                        id.idx()
+                    );
+                } else {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                        "  {} = extractvalue {}",
+                        virtual_register(id),
+                        normal_value(collect)
+                    );
+                    for index in indices.iter() {
+                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                            &format!(", {}", index.try_field().unwrap());
+                    }
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
                 }
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
             }
         }
         Node::Write {
@@ -570,8 +585,11 @@ fn emit_llvm_for_node<W: Write>(
         } => {
             generate_index_code(collect, indices);
             if types[typing[collect.idx()].idx()].is_array() {
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
-                    &format!("  store {}, %index.{}.ptr\n", normal_value(data), id.idx());
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  store {}, ptr %index.{}.ptr\n",
+                    normal_value(data),
+                    id.idx()
+                );
             } else {
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
                     "  {} = insertvalue {}, {}",
