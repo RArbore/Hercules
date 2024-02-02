@@ -190,7 +190,7 @@ pub fn cpu_beta_codegen<W: Write>(
                 llvm_bbs.insert(
                     id,
                     LLVMBlock {
-                        header: format!("%bb_{}:\n", id.idx()),
+                        header: format!("bb_{}:\n", id.idx()),
                         phis: "".to_string(),
                         data: "".to_string(),
                         terminator: "".to_string(),
@@ -206,9 +206,8 @@ pub fn cpu_beta_codegen<W: Write>(
         // consider additional anti-dependence edges from read to write nodes.
         let mut visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
         let mut worklist = VecDeque::from(reverse_postorder.clone());
-        let mut i: i32 = 0;
         while let Some(id) = worklist.pop_front() {
-            if !function.nodes[id.idx()].is_phi()
+            if !(function.nodes[id.idx()].is_phi() || function.nodes[id.idx()].is_reduce())
                 && !get_uses(&function.nodes[id.idx()])
                     .as_ref()
                     .into_iter()
@@ -219,8 +218,8 @@ pub fn cpu_beta_codegen<W: Write>(
                     )
                     .all(|x| function.nodes[x.idx()].is_control() || visited[x.idx()])
             {
-                // Skip emitting node if it's not a phi node and if its data
-                // uses are not emitted yet.
+                // Skip emitting node if it's not a phi or reducee node and if
+                // its data uses are not emitted yet.
                 worklist.push_back(id);
             } else {
                 // Once all of the data dependencies for this node are emitted,
@@ -242,10 +241,6 @@ pub fn cpu_beta_codegen<W: Write>(
                     w,
                 )?;
                 visited.set(id.idx(), true);
-            }
-            i += 1;
-            if i > 1000 {
-                break;
             }
         }
 
@@ -291,12 +286,11 @@ fn emit_llvm_for_node<W: Write>(
 ) -> std::fmt::Result {
     // Helper to get the virtual register corresponding to a node. Overload to
     // also emit constants, dynamic constants, and parameters.
-    let virtual_register = |id: NodeID| {
-        if let Node::Parameter { index } = function.nodes[id.idx()] {
-            format!("%p{}", index)
-        } else {
-            format!("%v{}", id.idx())
-        }
+    let virtual_register = |id: NodeID| match function.nodes[id.idx()] {
+        Node::Parameter { index } => format!("%p{}", index),
+        Node::Constant { id } => llvm_constants[id.idx()].clone(),
+        Node::DynamicConstant { id } => llvm_dynamic_constants[id.idx()].clone(),
+        _ => format!("%v{}", id.idx()),
     };
     let type_of = |id: NodeID| format!("{}", llvm_types[typing[id.idx()].idx()]);
     let normal_value = |id: NodeID| format!("{} {}", type_of(id), virtual_register(id));
@@ -310,7 +304,7 @@ fn emit_llvm_for_node<W: Write>(
                 .next()
                 .unwrap();
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
-                format!("  br label %bb_{}", successor.idx());
+                format!("  br label %bb_{}\n", successor.idx());
         }
         Node::If { control: _, cond } => {
             let successors = def_use.get_users(id);
@@ -324,7 +318,7 @@ fn emit_llvm_for_node<W: Write>(
                 panic!()
             };
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator = format!(
-                "  br {}, label %bb_{}, label %bb_{}",
+                "  br {}, label %bb_{}, label %bb_{}\n",
                 normal_value(cond),
                 successors[(!rev) as usize].idx(),
                 successors[rev as usize].idx()
@@ -356,7 +350,69 @@ fn emit_llvm_for_node<W: Write>(
         }
         Node::Return { control: _, data } => {
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
-                format!("  ret {}", normal_value(data));
+                format!("  ret {}\n", normal_value(data));
+        }
+        // No code needs to get emitted for parameters, constants, or dynamic
+        // constants - these are just specific virtual registers or constant
+        // values.
+        Node::Parameter { index: _ } => {}
+        Node::Constant { id: _ } => {}
+        Node::DynamicConstant { id: _ } => {}
+        Node::Unary { input, op } => match op {
+            UnaryOperator::Not => todo!(),
+            UnaryOperator::Neg => {
+                if types[typing[input.idx()].idx()].is_float() {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                        "  {} = fneg {}\n",
+                        virtual_register(id),
+                        normal_value(input)
+                    );
+                } else {
+                    todo!()
+                }
+            }
+        },
+        Node::Binary { left, right, op } => {
+            let opcode = match op {
+                BinaryOperator::Add => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fadd"
+                    } else {
+                        "add"
+                    }
+                }
+                BinaryOperator::Sub => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fsub"
+                    } else {
+                        "sub"
+                    }
+                }
+                BinaryOperator::Mul => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fmul"
+                    } else {
+                        "mul"
+                    }
+                }
+                BinaryOperator::Div => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fdiv"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "udiv"
+                    } else {
+                        "sdiv"
+                    }
+                }
+                _ => todo!(),
+            };
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                "  {} = {} {}, {}\n",
+                virtual_register(id),
+                opcode,
+                normal_value(left),
+                virtual_register(right),
+            );
         }
         _ => {}
     }
