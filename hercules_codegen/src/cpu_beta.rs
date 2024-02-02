@@ -4,6 +4,7 @@ extern crate hercules_ir;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Write;
+use std::iter::zip;
 
 use self::bitvec::prelude::*;
 
@@ -91,7 +92,7 @@ pub fn cpu_beta_codegen<W: Write>(
                 }
             }
             Type::Array(_, _) => {
-                // Array types becomes pointers. The elemtn type and dynamic
+                // Array types becomes pointers. The element type and dynamic
                 // constant bounds characterize the access code we generate
                 // later, not the type itself.
                 llvm_types[id.idx()] = "ptr".to_string();
@@ -329,7 +330,7 @@ fn emit_llvm_for_node<W: Write>(
             ref data,
         } => {
             let pred_ids = get_uses(&function.nodes[bb[id.idx()].idx()]);
-            let mut iter = std::iter::zip(data.iter(), pred_ids.as_ref().iter());
+            let mut iter = zip(data.iter(), pred_ids.as_ref().iter());
             let (first_data, first_control) = iter.next().unwrap();
             let mut phi = format!(
                 "  {} = phi {} [ {}, %bb_{} ]",
@@ -404,7 +405,80 @@ fn emit_llvm_for_node<W: Write>(
                         "sdiv"
                     }
                 }
-                _ => todo!(),
+                BinaryOperator::Rem => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "frem"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "urem"
+                    } else {
+                        "srem"
+                    }
+                }
+                BinaryOperator::LT => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp olt"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp ult"
+                    } else {
+                        "icmp slt"
+                    }
+                }
+                BinaryOperator::LTE => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp ole"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp ule"
+                    } else {
+                        "icmp sle"
+                    }
+                }
+                BinaryOperator::GT => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp ogt"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp ugt"
+                    } else {
+                        "icmp sgt"
+                    }
+                }
+                BinaryOperator::GTE => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp oge"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp uge"
+                    } else {
+                        "icmp sge"
+                    }
+                }
+                BinaryOperator::EQ => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp oeq"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp ueq"
+                    } else {
+                        "icmp seq"
+                    }
+                }
+                BinaryOperator::NE => {
+                    if types[typing[left.idx()].idx()].is_float() {
+                        "fcmp one"
+                    } else if types[typing[left.idx()].idx()].is_unsigned() {
+                        "icmp une"
+                    } else {
+                        "icmp sne"
+                    }
+                }
+                BinaryOperator::Or => "or",
+                BinaryOperator::And => "and",
+                BinaryOperator::Xor => "xor",
+                BinaryOperator::LSh => "lsh",
+                BinaryOperator::RSh => {
+                    if types[typing[left.idx()].idx()].is_unsigned() {
+                        "lshr"
+                    } else {
+                        "ashr"
+                    }
+                }
             };
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
                 "  {} = {} {}, {}\n",
@@ -414,7 +488,57 @@ fn emit_llvm_for_node<W: Write>(
                 virtual_register(right),
             );
         }
-        _ => {}
+        Node::Read {
+            collect,
+            ref indices,
+        } => {
+            if let Some(extents) = types[typing[collect.idx()].idx()].try_extents() {
+                let position = indices[0].try_position().unwrap();
+                for (idx, (extent, index_id)) in zip(extents, position).enumerate() {
+                    if idx == 0 {
+                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                            "  %read.{}.acc.add.{} = add {}, {}\n",
+                            id.idx(),
+                            idx,
+                            normal_value(*index_id),
+                            0,
+                        );
+                    } else {
+                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                            "  %read.{}.acc.mul.{} = mul {}, %read.acc.add.{}\n",
+                            id.idx(),
+                            idx,
+                            llvm_dynamic_constants[extent.idx()],
+                            idx - 1,
+                        );
+                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                            "  %read.{}.acc.add.{} = add {}, %read.acc.mul.{}\n",
+                            id.idx(),
+                            idx,
+                            normal_value(*index_id),
+                            idx,
+                        );
+                    }
+                }
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  %read.{}.ptr = getelementptr {}, {}, i64 %read.{}.acc.add.{}",
+                    id.idx(),
+                    llvm_types[types[typing[collect.idx()].idx()]
+                        .try_element_type()
+                        .unwrap()
+                        .idx()],
+                    normal_value(collect),
+                    id.idx(),
+                    extents.len() - 1
+                );
+                for index in &indices[1..] {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                        &format!(", i32 {}", index.try_field().unwrap());
+                }
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
+            }
+        }
+        _ => todo!(),
     }
 
     Ok(())

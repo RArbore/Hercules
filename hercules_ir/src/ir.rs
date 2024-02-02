@@ -649,6 +649,14 @@ impl Type {
         }
     }
 
+    pub fn try_element_type(&self) -> Option<TypeID> {
+        if let Type::Array(elem, _) = self {
+            Some(*elem)
+        } else {
+            None
+        }
+    }
+
     pub fn try_extents(&self) -> Option<&[DynamicConstantID]> {
         if let Type::Array(_, extents) = self {
             Some(extents)
@@ -719,6 +727,14 @@ macro_rules! define_pattern_predicate {
 
 impl Index {
     define_pattern_predicate!(is_control, Index::Control(_));
+
+    pub fn try_field(&self) -> Option<usize> {
+        if let Index::Field(field) = self {
+            Some(*field)
+        } else {
+            None
+        }
+    }
 
     pub fn try_position(&self) -> Option<&[NodeID]> {
         if let Index::Position(indices) = self {
