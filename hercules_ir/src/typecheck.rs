@@ -426,10 +426,8 @@ fn typeflow(
                 TypeSemilattice::meet(inputs[1], inputs[2])
             } else if inputs[0].is_error() {
                 inputs[0].clone()
-            } else if inputs[1].is_error() {
-                inputs[1].clone()
             } else {
-                inputs[2].clone()
+                TypeSemilattice::meet(inputs[1], inputs[2])
             }
         }
         Node::Return {

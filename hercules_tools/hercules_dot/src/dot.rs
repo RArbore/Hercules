@@ -190,12 +190,28 @@ fn write_node<W: Write>(
         Node::Read {
             collect: _,
             indices,
-        } => write!(&mut suffix, "{:?}", indices)?,
+        } => {
+            let mut iter = indices.iter();
+            if let Some(first) = iter.next() {
+                write!(&mut suffix, "{}", first.lower_case_name())?;
+                for next in iter {
+                    write!(&mut suffix, ", {}", next.lower_case_name())?;
+                }
+            }
+        }
         Node::Write {
             collect: _,
             data: _,
             indices,
-        } => write!(&mut suffix, "{:?}", indices)?,
+        } => {
+            let mut iter = indices.iter();
+            if let Some(first) = iter.next() {
+                write!(&mut suffix, "{}", first.lower_case_name())?;
+                for next in iter {
+                    write!(&mut suffix, ", {}", next.lower_case_name())?;
+                }
+            }
+        }
         _ => {}
     };
 

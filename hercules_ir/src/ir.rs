@@ -743,6 +743,15 @@ impl Index {
             None
         }
     }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            Index::Field(_) => "field",
+            Index::Variant(_) => "variant",
+            Index::Position(_) => "position",
+            Index::Control(_) => "control",
+        }
+    }
 }
 
 impl Node {

@@ -188,7 +188,7 @@ fn verify_structure(
                                     found_control = true;
                                 }
                             } else {
-                                Err("All fork of a start node must be control or ThreadID nodes.")?;
+                                Err("All users of a fork node must be control or ThreadID nodes.")?;
                             }
                         }
                     }
@@ -380,7 +380,7 @@ fn verify_dominance_relationships(
     let mut to_check = vec![];
     for idx in 0..function.nodes.len() {
         // If this node is a phi node, we need to handle adding dominance checks
-        // completely differently.
+        // completely differently. Reduce nodes need to be handled similarly.
         if let Node::Phi { control, data } = &function.nodes[idx] {
             // Get the control predecessors of a region.
             let region_preds = if let Node::Region { preds } = &function.nodes[control.idx()] {
@@ -399,20 +399,21 @@ fn verify_dominance_relationships(
                     control_output_dependencies[data_pred.idx()].clone(),
                 ));
             }
+        } else if let Node::Reduce {
+            control: _,
+            init: _,
+            reduct: _,
+        } = &function.nodes[idx]
+        {
+            // TODO: Properly check dominance relations of reduce nodes.
         } else {
             // Having a control output dependency only matters if this node is a
             // control node, or if this node is a control output of a control node.
             // If this node is a control output, then we want to consider the
-            // control node itself. We exclude the case of a phi node here, since
-            // phi nodes can explicitly have non-dominating inputs. We handle phis
-            // separately above.
+            // control node itself. We exclude the case of phi and reduce nodes
+            // here, since these nodes can explicitly have non-dominating inputs.
             let this_id = if let Node::ThreadID {
                 control: dominated_control,
-            }
-            | Node::Reduce {
-                control: dominated_control,
-                init: _,
-                reduct: _,
             } = function.nodes[idx]
             {
                 dominated_control
@@ -447,7 +448,7 @@ fn verify_dominance_relationships(
         for pred_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(pred_idx)) {
                 match function.nodes[pred_idx] {
-                    // Verify that uses of phis / collect nodes are dominated
+                    // Verify that uses of phis / reduce nodes are dominated
                     // by the corresponding region / join nodes, respectively.
                     Node::Phi { control, data: _ }
                     | Node::Reduce {

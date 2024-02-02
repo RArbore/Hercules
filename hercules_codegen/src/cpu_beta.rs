@@ -76,10 +76,10 @@ pub fn cpu_beta_codegen<W: Write>(
                 llvm_types[id.idx()] = "i64".to_string();
             }
             Type::Float32 => {
-                llvm_types[id.idx()] = "f32".to_string();
+                llvm_types[id.idx()] = "float".to_string();
             }
             Type::Float64 => {
-                llvm_types[id.idx()] = "f64".to_string();
+                llvm_types[id.idx()] = "double".to_string();
             }
             // Because we traverse in bottom-up order, we can assume that the
             // LLVM types for children types are already computed.
@@ -124,8 +124,20 @@ pub fn cpu_beta_codegen<W: Write>(
             Constant::UnsignedInteger16(val) => llvm_constants[id.idx()] = format!("{}", val),
             Constant::UnsignedInteger32(val) => llvm_constants[id.idx()] = format!("{}", val),
             Constant::UnsignedInteger64(val) => llvm_constants[id.idx()] = format!("{}", val),
-            Constant::Float32(val) => llvm_constants[id.idx()] = format!("{}", val),
-            Constant::Float64(val) => llvm_constants[id.idx()] = format!("{}", val),
+            Constant::Float32(val) => {
+                llvm_constants[id.idx()] = if val.fract() == 0.0 {
+                    format!("{}.0", val)
+                } else {
+                    format!("{}", val)
+                }
+            }
+            Constant::Float64(val) => {
+                llvm_constants[id.idx()] = if val.fract() == 0.0 {
+                    format!("{}.0", val)
+                } else {
+                    format!("{}", val)
+                }
+            }
             Constant::Product(_, fields) => {
                 let mut iter = fields.iter();
                 if let Some(first) = iter.next() {
@@ -328,17 +340,19 @@ fn emit_llvm_for_node<W: Write>(
                 );
             } else {
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  %index.{}.acc.mul.{} = mul {}, %index.acc.add.{}\n",
+                    "  %index.{}.acc.mul.{} = mul i64 {}, %index.{}.acc.add.{}\n",
                     id.idx(),
                     idx,
                     llvm_dynamic_constants[extent.idx()],
+                    id.idx(),
                     idx - 1,
                 );
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  %index.{}.acc.add.{} = add {}, %index.acc.mul.{}\n",
+                    "  %index.{}.acc.add.{} = add {}, %index.{}.acc.mul.{}\n",
                     id.idx(),
                     idx,
                     normal_value(*index_id),
+                    id.idx(),
                     idx,
                 );
             }
