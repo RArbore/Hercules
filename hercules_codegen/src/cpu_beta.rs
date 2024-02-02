@@ -403,11 +403,14 @@ fn emit_llvm_for_node<W: Write>(
 
             // Need to create phi node for the loop index.
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().phis += &format!(
-                "  {} = phi i64 [ 0, %bb_{} ], [ %fork.{}.inc, %bb_{} ]\n  %fork.{}.inc = add i64 1, {}\n",
+                "  {} = phi i64 [ 0, %bb_{} ], [ %fork.{}.inc, %bb_{} ]\n",
                 virtual_register(id),
                 control.idx(),
                 id.idx(),
                 join.idx(),
+            );
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                "  %fork.{}.inc = add i64 1, {}\n",
                 id.idx(),
                 virtual_register(id),
             );
@@ -474,6 +477,41 @@ fn emit_llvm_for_node<W: Write>(
         }
         // No code needs to get emitted for thread ID nodes - the loop index is
         // emitted in the fork.
+        Node::ThreadID { control: _ } => {}
+        Node::Reduce {
+            control,
+            init,
+            reduct,
+        } => {
+            // Figure out the fork corresponding to the associated join.
+            let fork_id = if let Node::Join { control } = function.nodes[control.idx()] {
+                if let Type::Control(factors) = &types[typing[control.idx()].idx()] {
+                    *factors.last().unwrap()
+                } else {
+                    panic!()
+                }
+            } else {
+                panic!()
+            };
+
+            // Figure out the fork's predecessor.
+            let pred = if let Node::Fork { control, factor: _ } = function.nodes[fork_id.idx()] {
+                control
+            } else {
+                panic!()
+            };
+
+            // Create the phi node for the reduction.
+            llvm_bbs.get_mut(&bb[fork_id.idx()]).unwrap().phis += &format!(
+                "  {} = phi {} [ {}, %bb_{} ], [ {}, %bb_{} ]\n",
+                virtual_register(id),
+                type_of(id),
+                virtual_register(init),
+                pred.idx(),
+                virtual_register(reduct),
+                control.idx(),
+            );
+        }
         Node::Return { control: _, data } => {
             llvm_bbs.get_mut(&bb[id.idx()]).unwrap().terminator =
                 format!("  ret {}\n", normal_value(data));
@@ -667,7 +705,7 @@ fn emit_llvm_for_node<W: Write>(
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
             }
         }
-        _ => {}
+        _ => todo!(),
     }
 
     Ok(())
