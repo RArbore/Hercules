@@ -296,6 +296,56 @@ fn emit_llvm_for_node<W: Write>(
     let type_of = |id: NodeID| format!("{}", llvm_types[typing[id.idx()].idx()]);
     let normal_value = |id: NodeID| format!("{} {}", type_of(id), virtual_register(id));
 
+    // Helper to emit code to index into an aggregate, and return a pointer to
+    // the indexed element. This only works when the first aggregate is an
+    // array.
+    let mut generate_index_code = |collect: NodeID, indices: &[Index]| {
+        let extents = types[typing[collect.idx()].idx()].try_extents().unwrap();
+        let position = indices[0].try_position().unwrap();
+        for (idx, (extent, index_id)) in zip(extents, position).enumerate() {
+            if idx == 0 {
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  %index.{}.acc.add.{} = add {}, {}\n",
+                    id.idx(),
+                    idx,
+                    normal_value(*index_id),
+                    0,
+                );
+            } else {
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  %index.{}.acc.mul.{} = mul {}, %index.acc.add.{}\n",
+                    id.idx(),
+                    idx,
+                    llvm_dynamic_constants[extent.idx()],
+                    idx - 1,
+                );
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  %index.{}.acc.add.{} = add {}, %index.acc.mul.{}\n",
+                    id.idx(),
+                    idx,
+                    normal_value(*index_id),
+                    idx,
+                );
+            }
+        }
+        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+            "  %index.{}.ptr = getelementptr {}, {}, i64 %index.{}.acc.add.{}",
+            id.idx(),
+            llvm_types[types[typing[collect.idx()].idx()]
+                .try_element_type()
+                .unwrap()
+                .idx()],
+            normal_value(collect),
+            id.idx(),
+            extents.len() - 1
+        );
+        for index in &indices[1..] {
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                &format!(", i32 {}", index.try_field().unwrap());
+        }
+        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
+    };
+
     match function.nodes[id.idx()] {
         Node::Start | Node::Region { preds: _ } => {
             let successor = def_use
@@ -492,52 +542,10 @@ fn emit_llvm_for_node<W: Write>(
             collect,
             ref indices,
         } => {
-            if let Some(extents) = types[typing[collect.idx()].idx()].try_extents() {
-                let position = indices[0].try_position().unwrap();
-                for (idx, (extent, index_id)) in zip(extents, position).enumerate() {
-                    if idx == 0 {
-                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                            "  %read.{}.acc.add.{} = add {}, {}\n",
-                            id.idx(),
-                            idx,
-                            normal_value(*index_id),
-                            0,
-                        );
-                    } else {
-                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                            "  %read.{}.acc.mul.{} = mul {}, %read.acc.add.{}\n",
-                            id.idx(),
-                            idx,
-                            llvm_dynamic_constants[extent.idx()],
-                            idx - 1,
-                        );
-                        llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                            "  %read.{}.acc.add.{} = add {}, %read.acc.mul.{}\n",
-                            id.idx(),
-                            idx,
-                            normal_value(*index_id),
-                            idx,
-                        );
-                    }
-                }
+            generate_index_code(collect, indices);
+            if types[typing[collect.idx()].idx()].is_array() {
                 llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  %read.{}.ptr = getelementptr {}, {}, i64 %read.{}.acc.add.{}",
-                    id.idx(),
-                    llvm_types[types[typing[collect.idx()].idx()]
-                        .try_element_type()
-                        .unwrap()
-                        .idx()],
-                    normal_value(collect),
-                    id.idx(),
-                    extents.len() - 1
-                );
-                for index in &indices[1..] {
-                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
-                        &format!(", i32 {}", index.try_field().unwrap());
-                }
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
-                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
-                    "  {} = load {}, %read.{}.ptr\n",
+                    "  {} = load {}, %index.{}.ptr\n",
                     virtual_register(id),
                     llvm_types[typing[id.idx()].idx()],
                     id.idx()
@@ -547,6 +555,29 @@ fn emit_llvm_for_node<W: Write>(
                     "  {} = extractvalue {}",
                     virtual_register(id),
                     normal_value(collect)
+                );
+                for index in indices.iter() {
+                    llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                        &format!(", {}", index.try_field().unwrap());
+                }
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += "\n";
+            }
+        }
+        Node::Write {
+            collect,
+            ref indices,
+            data,
+        } => {
+            generate_index_code(collect, indices);
+            if types[typing[collect.idx()].idx()].is_array() {
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
+                    &format!("  store {}, %index.{}.ptr\n", normal_value(data), id.idx());
+            } else {
+                llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                    "  {} = insertvalue {}, {}",
+                    virtual_register(id),
+                    normal_value(collect),
+                    normal_value(data)
                 );
                 for index in indices.iter() {
                     llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data +=
