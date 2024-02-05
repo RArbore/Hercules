@@ -35,7 +35,6 @@ pub fn cpu_beta_codegen<W: Write>(
     def_uses: &Vec<ImmutableDefUseMap>,
     bbs: &Vec<Vec<NodeID>>,
     antideps: &Vec<Vec<(NodeID, NodeID)>>,
-    array_allocations: &Vec<(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>)>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
     fork_join_nests: &Vec<HashMap<NodeID, Vec<NodeID>>>,
     w: &mut W,
@@ -112,9 +111,9 @@ pub fn cpu_beta_codegen<W: Write>(
         match &constants[id.idx()] {
             Constant::Boolean(val) => {
                 llvm_constants[id.idx()] = if *val {
-                    "i1 true".to_string()
+                    "true".to_string()
                 } else {
-                    "i1 false".to_string()
+                    "false".to_string()
                 };
             }
             Constant::Integer8(val) => llvm_constants[id.idx()] = format!("{}", val),
@@ -150,7 +149,7 @@ pub fn cpu_beta_codegen<W: Write>(
                     llvm_constants[id.idx()] = "{}".to_string();
                 }
             }
-            Constant::Array(_, _) => todo!(),
+            Constant::Array(_, _) => llvm_constants[id.idx()] = format!("%arr.{}", id.idx()),
             Constant::Summation(_, _, _) => todo!(),
         }
     }
@@ -176,7 +175,6 @@ pub fn cpu_beta_codegen<W: Write>(
         let antideps = &antideps[function_idx];
         let fork_join_map = &fork_join_maps[function_idx];
         let fork_join_nest = &fork_join_nests[function_idx];
-        let array_allocations = &array_allocations[function_idx];
 
         // Step 4.1: emit function signature.
         let llvm_ret_type = &llvm_types[function.return_type.idx()];
@@ -186,7 +184,11 @@ pub fn cpu_beta_codegen<W: Write>(
             .enumerate()
             .map(|(idx, id)| format!("{} %p{}", &llvm_types[id.idx()], idx))
             .chain((0..function.num_dynamic_constants).map(|idx| format!("i64 %dc{}", idx)))
-            .chain((0..array_allocations.0.len()).map(|idx| format!("ptr %arr{}", idx)));
+            .chain(
+                (0..constants.len())
+                    .filter(|idx| constants[*idx].is_array())
+                    .map(|idx| format!("%arr.{}", idx)),
+            );
         write!(w, "define {} @{}(", llvm_ret_type, function.name)?;
         if let Some(first) = llvm_params.next() {
             write!(w, "{}", first)?;
@@ -250,12 +252,10 @@ pub fn cpu_beta_codegen<W: Write>(
                     def_use,
                     fork_join_map,
                     fork_join_nest,
-                    array_allocations,
                     &mut llvm_bbs,
                     &llvm_types,
                     &llvm_constants,
                     &llvm_dynamic_constants,
-                    w,
                 )?;
                 visited.set(id.idx(), true);
             }
@@ -285,7 +285,7 @@ pub fn cpu_beta_codegen<W: Write>(
 /*
  * Emit LLVM implementing a single node.
  */
-fn emit_llvm_for_node<W: Write>(
+fn emit_llvm_for_node(
     id: NodeID,
     function: &Function,
     typing: &Vec<TypeID>,
@@ -295,12 +295,10 @@ fn emit_llvm_for_node<W: Write>(
     def_use: &ImmutableDefUseMap,
     fork_join_map: &HashMap<NodeID, NodeID>,
     fork_join_nest: &HashMap<NodeID, Vec<NodeID>>,
-    array_allocations: &(Vec<Vec<DynamicConstantID>>, HashMap<NodeID, usize>),
     llvm_bbs: &mut HashMap<NodeID, LLVMBlock>,
     llvm_types: &Vec<String>,
     llvm_constants: &Vec<String>,
     llvm_dynamic_constants: &Vec<String>,
-    w: &mut W,
 ) -> std::fmt::Result {
     // Helper to get the virtual register corresponding to a node. Overload to
     // also emit constants, dynamic constants, parameters, and thread IDs.

@@ -90,19 +90,6 @@ fn main() {
         })
         .collect();
 
-    let array_allocs: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_codegen::array_alloc::logical_array_alloc(
-                function,
-                &typing[idx],
-                &module.types,
-            )
-        })
-        .collect();
-
     let mut file = File::create("test.ll").unwrap();
     let mut contents = String::new();
     hercules_codegen::cpu_beta::cpu_beta_codegen(
@@ -112,7 +99,6 @@ fn main() {
         &def_uses,
         &bbs,
         &antideps,
-        &array_allocs,
         &fork_join_maps,
         &fork_join_nests,
         &mut contents,

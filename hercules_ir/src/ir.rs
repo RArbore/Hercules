@@ -674,6 +674,14 @@ pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {
 }
 
 impl Constant {
+    pub fn is_array(&self) -> bool {
+        if let Constant::Array(_, _) = self {
+            true
+        } else {
+            false
+        }
+    }
+
     /*
      * Useful for GVN.
      */
