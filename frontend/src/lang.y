@@ -77,6 +77,7 @@ TypeVar -> Result<TypeVar, ()>
 Kind -> Result<Kind, ()>
   : 'type'    { Ok(Kind::Type) }
   | 'usize'   { Ok(Kind::USize) }
+  | 'bool'    { Ok(Kind::Bool) }
   | 'number'  { Ok(Kind::Number) }
   | 'integer' { Ok(Kind::Integer) }
   ;
@@ -115,7 +116,7 @@ Type -> Result<Type, ()>
         { Ok(Type::NamedType{ span : $span, name : $1?, args : vec![] }) }
   | PackageName '::' '<' TypeExprs '>'
         { Ok(Type::NamedType{ span : $span, name : $1?, args : $4? }) }
-  | Type '[' Exprs ']'
+  | Type '[' TypeExprs ']'
         { Ok(Type::ArrayType{ span : $span, elem : Box::new($1?), dims : $3? }) }
   ;
 Types -> Result<Vec<Type>, ()>
@@ -153,17 +154,17 @@ ConstDecl -> Result<Top, ()>
   ;
 
 FuncDecl -> Result<Top, ()>
-  : PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmt
+  : PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $1?, attr : None, name : span_of_tok($3)?,
                           ty_vars : $4?, args : $6?, ty : None, body : $8? }) }
-  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmt
+  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
                           name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : None,
                           body : $9? }) }
-  | PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmt
+  | PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $1?, attr : None, name : span_of_tok($3)?,
                           ty_vars : $4?, args : $6?, ty : Some($9?), body : $10? }) }
-  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmt
+  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
                           name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : Some($10?),
                           body : $11? }) }
@@ -264,38 +265,43 @@ Stmt -> Result<Stmt, ()>
   | LExpr '>>=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::RShift,
                              assign_span : span_of_tok($2)?, rhs : $3? }) }
-  | 'if' '(' Expr ')' Stmt
-      { Ok(Stmt::IfStmt{ span : $span, cond : $3?, thn : Box::new($5?), els : None }) }
-  | 'if' '(' Expr ')' Stmt 'else' Stmt
-      { Ok(Stmt::IfStmt{ span : $span, cond : $3?, thn : Box::new($5?),
-                         els : Some(Box::new($7?)) }) }
-  | 'match' '(' Expr ')' Cases
-      { Ok(Stmt::MatchStmt{ span : $span, expr : $3?, body : $5? }) }
-  | 'for' '(' VarBind '=' Expr 'to' Expr ')' Stmt
-      { Ok(Stmt::ForStmt{ span : $span, var : $3?, init : $5?, bound : $7?, step : None,
+  | 'if' Expr Stmts
+      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?), els : None }) }
+  | 'if' Expr Stmts 'else' Stmts
+      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
+                         els : Some(Box::new($5?)) }) }
+  | 'match' Expr Cases
+      { Ok(Stmt::MatchStmt{ span : $span, expr : $2?, body : $3? }) }
+  | 'for' VarBind '=' Expr 'to' Expr Stmts
+      { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : None,
+                          body : Box::new($7?) }) }
+  | 'for' VarBind '=' Expr 'to' Expr 'by' Expr Stmts
+      { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : Some($8?),
                           body : Box::new($9?) }) }
-  | 'for' '(' VarBind '=' Expr 'to' Expr 'by' Expr ')' Stmt
-      { Ok(Stmt::ForStmt{ span : $span, var : $3?, init : $5?, bound : $7?, step : Some($9?),
-                          body : Box::new($11?) }) }
-  | 'while' '(' Expr ')' Stmt
-      { Ok(Stmt::WhileStmt{ span : $span, cond : $3?, body : Box::new($5?) }) }
+  | 'while' Expr Stmts
+      { Ok(Stmt::WhileStmt{ span : $span, cond : $2?, body : Box::new($3?) }) }
   | 'return' Expr ';'
       { Ok(Stmt::ReturnStmt{ span : $span, expr : $2?}) }
-  | '{' Stmts '}'
-      { Ok(Stmt::BlockStmt{ span : $span, body : $2? }) }
+  | 'break' ';'
+      { Ok(Stmt::BreakStmt{ span : $span }) }
+  | 'continue' ';'
+      { Ok(Stmt::ContinueStmt{ span : $span }) }
+  | Stmts
+      { $1 }
   | PackageName '(' Params ')' ';'
       { Ok(Stmt::CallStmt{ span : $span, name : $1?, ty_args : vec![], args : $3? }) }
   | PackageName '::' '<' TypeExprs '>' '(' Params ')' ';'
       { Ok(Stmt::CallStmt{ span : $span, name : $1?, ty_args : $4?, args : $7? }) }
   ;
-Stmts -> Result<Vec<Stmt>, ()>
-  :             { Ok(vec![]) }
-  | Stmts Stmt  { flatten($1, $2) }
+Stmts -> Result<Stmt, ()>
+  : '{' StmtList '}'  { Ok(Stmt::BlockStmt{ span : $span, body : $2? }) };
+StmtList -> Result<Vec<Stmt>, ()>
+  :                { Ok(vec![]) }
+  | StmtList Stmt  { flatten($1, $2) }
   ;
 
 Cases -> Result<Vec<Case>, ()>
-  : Case              { Ok(vec![]) }
-  | '{' CaseList '}'  { $2 }
+  : '{' CaseList '}'  { $2 }
   ;
 CaseList -> Result<Vec<Case>, ()>
   : Case          { Ok(vec![$1?]) }
@@ -446,13 +452,13 @@ TypeExprsS -> Result<Vec<TypeExpr>, ()>
 TypeExpr -> Result<TypeExpr, ()>
   : PrimType
       { Ok(TypeExpr::PrimType{ span : $span, typ : $1? }) }
-  | '(' Types ')'
+  | '(' TypeExprs ')'
       { Ok(TypeExpr::TupleType{ span : $span, tys : $2? }) }
   | PackageName
       { Ok(TypeExpr::NamedTypeExpr{ span : $span, name : $1?, args : vec![]}) }
   | PackageName '::' '<' TypeExprs '>'
       { Ok(TypeExpr::NamedTypeExpr{ span : $span, name : $1?, args : $4? }) }
-  | TypeExpr '[' Exprs ']'
+  | TypeExpr '[' TypeExprs ']'
       { Ok(TypeExpr::ArrayTypeExpr{ span : $span, elem : Box::new($1?), dims : $3? }) }
   | 'true'
       { Ok(TypeExpr::BoolLiteral{ span : $span, val : true}) }
@@ -469,6 +475,8 @@ TypeExpr -> Result<TypeExpr, ()>
       { Ok(TypeExpr::Sub{ span : $span, lhs : Box::new($1?), rhs : Box::new($3?) }) }
   | TypeExpr '*' TypeExpr
       { Ok(TypeExpr::Mul{ span : $span, lhs : Box::new($1?), rhs : Box::new($3?) }) }
+  | TypeExpr 'as' Type
+      { Ok(TypeExpr::Cast{ span : $span, val : Box::new($1?), typ : $3? }) }
   ;
 
 Unmatched -> (): 'UNMATCHED' { };
@@ -496,18 +504,18 @@ pub type Id = Span;
 pub type PackageName = Vec<Span>;
 pub type ImportName  = (PackageName, Option<Span>); // option is the wildcard *
 
-#[derive(Debug)]
-pub enum Kind { Type, USize, Number, Integer }
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
+pub enum Kind { Type, USize, Bool, Number, Integer }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Primitive { Bool, I8, U8, I16, U16, I32, U32, I64, U64, USize, F32, F64, Void }
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum AssignOp { None, Add, Sub, Mul, Div, Mod, BitAnd, BitOr, Xor, LogAnd, LogOr,
                     LShift, RShift }
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum IntBase { Binary, Octal, Decimal, Hexadecimal }
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum UnaryOp { Negation, BitwiseNot, LogicalNot }
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum BinaryOp { Add, Sub, Mul, Div, Mod, BitAnd, LogAnd, BitOr, LogOr, Xor,
                     Lt, Le, Gt, Ge, Eq, Neq, LShift, RShift }
 
@@ -543,7 +551,7 @@ pub enum Type {
   PrimType  { span : Span, typ : Primitive },
   TupleType { span : Span, tys : Vec<Type> },
   NamedType { span : Span, name : PackageName, args : Vec<TypeExpr> },
-  ArrayType { span : Span, elem : Box<Type>, dims : Vec<Expr> },
+  ArrayType { span : Span, elem : Box<Type>, dims : Vec<TypeExpr> },
 }
 
 #[derive(Debug)]
@@ -557,9 +565,11 @@ pub enum Stmt {
                body : Box<Stmt> },
   WhileStmt  { span : Span, cond : Expr, body : Box<Stmt> },
   ReturnStmt { span : Span, expr : Expr },
-  BlockStmt  { span : Span, body : Vec<Stmt> },
-  CallStmt   { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
-               args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
+  BreakStmt  { span : Span },
+  ContinueStmt { span : Span },
+  BlockStmt    { span : Span, body : Vec<Stmt> },
+  CallStmt     { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
+                 args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
 }
 
 #[derive(Debug)]
@@ -610,13 +620,14 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum TypeExpr {
   PrimType        { span : Span, typ : Primitive },
-  TupleType       { span : Span, tys : Vec<Type> },
+  TupleType       { span : Span, tys : Vec<TypeExpr> },
   NamedTypeExpr   { span : Span, name : PackageName, args : Vec<TypeExpr> },
-  ArrayTypeExpr   { span : Span, elem : Box<TypeExpr>, dims : Vec<Expr> },
+  ArrayTypeExpr   { span : Span, elem : Box<TypeExpr>, dims : Vec<TypeExpr> },
   BoolLiteral     { span : Span, val : bool },
   IntLiteral      { span : Span, base : IntBase },
   Negative        { span : Span, expr : Box<TypeExpr> },
   Add             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
   Sub             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
   Mul             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
+  Cast            { span : Span, val : Box<TypeExpr>, typ : Type },
 }
