@@ -57,7 +57,14 @@ fn main() {
         .functions
         .iter()
         .enumerate()
-        .map(|(idx, function)| hercules_codegen::antideps::array_antideps(function, &def_uses[idx]))
+        .map(|(idx, function)| {
+            hercules_codegen::antideps::array_antideps(
+                function,
+                &def_uses[idx],
+                &module.types,
+                &typing[idx],
+            )
+        })
         .collect();
 
     let bbs: Vec<_> = module

@@ -8,14 +8,18 @@ use self::hercules_ir::ir::*;
  * of nodes. The first item in the pair is the read node, and the second item is
  * the write node.
  */
-pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
+pub fn antideps<I: Iterator<Item = NodeID>>(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    nodes: I,
+) -> Vec<(NodeID, NodeID)> {
     // Anti-dependence edges are between a write node and a read node, where
     // each node uses the same array value. The read must be scheduled before
     // the write to avoid incorrect compilation.
     // TODO: use backwards dataflow to track all writes that may affect a value.
     let mut antideps = vec![];
 
-    for id in (0..function.nodes.len()).map(NodeID::new) {
+    for id in nodes {
         // Collect the reads and writes to / from this collection.
         let users = def_use.get_users(id);
         let reads = users.iter().filter(|user| {
@@ -49,7 +53,7 @@ pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeI
             }
         }
 
-        // TODO: Multiple write uses should clone to collection for N - 1 of the writes.
+        // TODO: Multiple write uses should clone the collection for N - 1 of the writes.
         assert!(writes.next() == None, "Can't form anti-dependencies when there are two independent writes depending on a single collection value.");
     }
 
@@ -59,20 +63,17 @@ pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeI
 /*
  * Sometimes, we are only interested in anti-dependence edges involving arrays.
  */
-pub fn array_antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
-    let edges = antideps(function, def_use);
-    edges
-        .into_iter()
-        .filter(|(read, _)| {
-            if let Node::Read {
-                collect: _,
-                ref indices,
-            } = function.nodes[read.idx()]
-            {
-                indices[0].try_position().is_some()
-            } else {
-                panic!()
-            }
-        })
-        .collect()
+pub fn array_antideps(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    types: &Vec<Type>,
+    typing: &Vec<TypeID>,
+) -> Vec<(NodeID, NodeID)> {
+    antideps(
+        function,
+        def_use,
+        (0..function.nodes.len())
+            .map(NodeID::new)
+            .filter(|id| types[typing[id.idx()].idx()].is_array()),
+    )
 }
