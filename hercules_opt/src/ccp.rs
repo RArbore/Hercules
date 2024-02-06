@@ -271,14 +271,14 @@ pub fn ccp(
             // The reachable users iterator will contain one user if we need to
             // remove this branch node.
             if let None = reachable_users.next() {
-                // The user is a ReadProd node, which in turn has one user.
+                // The user is a Read node, which in turn has one user.
                 assert!(
                     def_use.get_users(*the_reachable_user).len() == 1,
-                    "Control ReadProd node doesn't have exactly one user."
+                    "Control Read node doesn't have exactly one user."
                 );
                 let target = def_use.get_users(*the_reachable_user)[0];
 
-                // For each use in the target of the reachable ReadProd, turn it
+                // For each use in the target of the reachable Read, turn it
                 // into a use of the node proceeding this branch node.
                 for u in get_uses_mut(&mut function.nodes[target.idx()]).as_mut() {
                     if **u == *the_reachable_user {
@@ -287,7 +287,7 @@ pub fn ccp(
                 }
 
                 // Remove this branch node, since it is malformed. Also remove
-                // all successor ReadProd nodes.
+                // all successor Read nodes.
                 function.nodes[branch_id.idx()] = Node::Start;
                 for user in users {
                     function.nodes[user.idx()] = Node::Start;
@@ -379,9 +379,10 @@ fn ccp_flow_function(
         Node::Region { preds } => preds.iter().fold(CCPLattice::top(), |val, id| {
             CCPLattice::meet(&val, &inputs[id.idx()])
         }),
-        // If node has only one output, so doesn't directly handle crossover of
-        // reachability and constant propagation. ReadProd handles that.
+        // If node has only one output, if doesn't directly handle crossover of
+        // reachability and constant propagation. Read handles that.
         Node::If { control, cond: _ } => inputs[control.idx()].clone(),
+        Node::Match { control, sum: _ } => inputs[control.idx()].clone(),
         Node::Fork { control, factor: _ } => inputs[control.idx()].clone(),
         Node::Join { control } => inputs[control.idx()].clone(),
         // Phi nodes must look at the reachability of the inputs to its
@@ -415,10 +416,11 @@ fn ccp_flow_function(
         // for the corresponding fork is one.
         Node::ThreadID { control } => inputs[control.idx()].clone(),
         // TODO: At least for now, collect nodes always produce unknown values.
-        // It may be worthwile to add interpretation of constants for collect
-        // nodes, but it would involve plumbing dynamic constant and fork join
-        // pairing information here, and I don't feel like doing that.
-        Node::Collect { control, data: _ } => inputs[control.idx()].clone(),
+        Node::Reduce {
+            control,
+            init: _,
+            reduct: _,
+        } => inputs[control.idx()].clone(),
         Node::Return { control, data } => CCPLattice {
             reachability: inputs[control.idx()].reachability.clone(),
             constant: inputs[data.idx()].constant.clone(),
@@ -645,22 +647,22 @@ fn ccp_flow_function(
             }),
             constant: ConstantLattice::bottom(),
         },
-        // ReadProd handles reachability when following an if or match.
-        Node::ReadProd { prod, index } => match &function.nodes[prod.idx()] {
+        // Read handles reachability when following an if or match.
+        Node::Read { collect, indices } => match &function.nodes[collect.idx()] {
             Node::If { control: _, cond } => {
                 let cond_constant = &inputs[cond.idx()].constant;
-                let if_reachability = &inputs[prod.idx()].reachability;
-                let if_constant = &inputs[prod.idx()].constant;
+                let if_reachability = &inputs[collect.idx()].reachability;
+                let if_constant = &inputs[collect.idx()].constant;
 
                 let new_reachability = if cond_constant.is_top() {
                     ReachabilityLattice::top()
                 } else if let ConstantLattice::Constant(cons) = cond_constant {
                     if let Constant::Boolean(val) = cons {
-                        if *val && *index == 0 {
+                        if *val && indices[0] == Index::Control(0) {
                             // If condition is true and this is the false
                             // branch, then unreachable.
                             ReachabilityLattice::top()
-                        } else if !val && *index == 1 {
+                        } else if !val && indices[0] == Index::Control(1) {
                             // If condition is true and this is the true branch,
                             // then unreachable.
                             ReachabilityLattice::top()
@@ -668,7 +670,7 @@ fn ccp_flow_function(
                             if_reachability.clone()
                         }
                     } else {
-                        panic!("Attempted to interpret ReadProd node, where corresponding if node has a non-boolean constant input. Did typechecking succeed?")
+                        panic!("Attempted to interpret Read node, where corresponding if node has a non-boolean constant input. Did typechecking succeed?")
                     }
                 } else {
                     if_reachability.clone()
@@ -681,14 +683,14 @@ fn ccp_flow_function(
             }
             Node::Match { control: _, sum } => {
                 let sum_constant = &inputs[sum.idx()].constant;
-                let if_reachability = &inputs[prod.idx()].reachability;
-                let if_constant = &inputs[prod.idx()].constant;
+                let if_reachability = &inputs[collect.idx()].reachability;
+                let if_constant = &inputs[collect.idx()].constant;
 
                 let new_reachability = if sum_constant.is_top() {
                     ReachabilityLattice::top()
                 } else if let ConstantLattice::Constant(cons) = sum_constant {
                     if let Constant::Summation(_, variant, _) = cons {
-                        if *variant as usize != *index {
+                        if Index::Control(*variant as usize) != indices[0] {
                             // If match variant is not the same as this branch,
                             // then unreachable.
                             ReachabilityLattice::top()
@@ -696,7 +698,7 @@ fn ccp_flow_function(
                             if_reachability.clone()
                         }
                     } else {
-                        panic!("Attempted to interpret ReadProd node, where corresponding match node has a non-summation constant input. Did typechecking succeed?")
+                        panic!("Attempted to interpret Read node, where corresponding match node has a non-summation constant input. Did typechecking succeed?")
                     }
                 } else {
                     if_reachability.clone()
@@ -707,98 +709,35 @@ fn ccp_flow_function(
                     constant: if_constant.clone(),
                 }
             }
-            _ => {
-                let CCPLattice {
-                    ref reachability,
-                    ref constant,
-                } = inputs[prod.idx()];
-
-                let new_constant = if let ConstantLattice::Constant(cons) = constant {
-                    let new_cons = if let Constant::Product(_, fields) = cons {
-                        // Index into product constant to get result constant.
-                        old_constants[fields[*index].idx()].clone()
-                    } else {
-                        panic!("Attempted to interpret ReadProd on non-product constant. Did typechecking succeed?")
-                    };
-                    ConstantLattice::Constant(new_cons)
-                } else {
-                    constant.clone()
-                };
-
-                CCPLattice {
-                    reachability: reachability.clone(),
-                    constant: new_constant,
+            _ => CCPLattice {
+                reachability: inputs[collect.idx()].reachability.clone(),
+                constant: ConstantLattice::bottom(),
+            },
+        },
+        // Write is uninterpreted for now.
+        Node::Write {
+            collect,
+            data,
+            indices,
+        } => {
+            let mut reachability = ReachabilityLattice::meet(
+                &inputs[collect.idx()].reachability,
+                &inputs[data.idx()].reachability,
+            );
+            for index in indices.iter() {
+                if let Index::Position(positions) = index {
+                    for position in positions.iter() {
+                        reachability = ReachabilityLattice::meet(
+                            &reachability,
+                            &inputs[position.idx()].reachability,
+                        );
+                    }
                 }
             }
-        },
-        // WriteProd is uninterpreted for now.
-        Node::WriteProd {
-            prod,
-            data,
-            index: _,
-        } => CCPLattice {
-            reachability: ReachabilityLattice::meet(
-                &inputs[prod.idx()].reachability,
-                &inputs[data.idx()].reachability,
-            ),
-            constant: ConstantLattice::bottom(),
-        },
-        Node::ReadArray { array, index } => {
-            let CCPLattice {
-                reachability: ref array_reachability,
-                constant: ref array_constant,
-            } = inputs[array.idx()];
-            let CCPLattice {
-                reachability: ref index_reachability,
-                constant: ref index_constant,
-            } = inputs[index.idx()];
-
-            let new_constant = if let (
-                ConstantLattice::Constant(array_cons),
-                ConstantLattice::Constant(index_cons),
-            ) = (array_constant, index_constant)
-            {
-                let new_cons = match (array_cons, index_cons) {
-                    (Constant::Array(_, elems), Constant::UnsignedInteger8(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger16(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger32(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    (Constant::Array(_, elems), Constant::UnsignedInteger64(idx)) => {
-                        elems[*idx as usize]
-                    }
-                    _ => panic!("Unsupported inputs to ReadArray node. Did typechecking succeed?"),
-                };
-                ConstantLattice::Constant(old_constants[new_cons.idx()].clone())
-            } else if (array_constant.is_top() && !index_constant.is_bottom())
-                || (!array_constant.is_bottom() && index_constant.is_top())
-            {
-                ConstantLattice::top()
-            } else {
-                ConstantLattice::meet(array_constant, index_constant)
-            };
-
             CCPLattice {
-                reachability: ReachabilityLattice::meet(array_reachability, index_reachability),
-                constant: new_constant,
+                reachability,
+                constant: ConstantLattice::bottom(),
             }
         }
-        // WriteArray is uninterpreted for now.
-        Node::WriteArray { array, data, index } => CCPLattice {
-            reachability: ReachabilityLattice::meet(
-                &ReachabilityLattice::meet(
-                    &inputs[array.idx()].reachability,
-                    &inputs[data.idx()].reachability,
-                ),
-                &inputs[index.idx()].reachability,
-            ),
-            constant: ConstantLattice::bottom(),
-        },
-        Node::Match { control, sum: _ } => inputs[control.idx()].clone(),
-        _ => CCPLattice::bottom(),
     }
 }

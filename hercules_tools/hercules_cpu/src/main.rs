@@ -57,7 +57,14 @@ fn main() {
         .functions
         .iter()
         .enumerate()
-        .map(|(idx, function)| hercules_codegen::antideps::antideps(function, &def_uses[idx]))
+        .map(|(idx, function)| {
+            hercules_cg::antideps::array_antideps(
+                function,
+                &def_uses[idx],
+                &module.types,
+                &typing[idx],
+            )
+        })
         .collect();
 
     let bbs: Vec<_> = module
@@ -65,7 +72,7 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_codegen::gcm::gcm(
+            hercules_cg::gcm::gcm(
                 function,
                 &def_uses[idx],
                 &reverse_postorders[idx],
@@ -82,39 +89,23 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_codegen::gcm::compute_fork_join_nesting(
-                function,
-                &doms[idx],
-                &fork_join_maps[idx],
-            )
+            hercules_cg::gcm::compute_fork_join_nesting(function, &doms[idx], &fork_join_maps[idx])
         })
         .collect();
 
-    let array_allocs: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_codegen::array_alloc::logical_array_alloc(
-                function,
-                &typing[idx],
-                &module.types,
-                &fork_join_maps[idx],
-                &bbs[idx],
-                &fork_join_nests[idx],
-            )
-        })
-        .collect();
-
-    hercules_codegen::cpu_alpha::cpu_alpha_codegen(
+    let mut file = File::create("test.ll").unwrap();
+    let mut contents = String::new();
+    hercules_cg::cpu_beta::cpu_beta_codegen(
         &module,
         &typing,
         &reverse_postorders,
         &def_uses,
         &bbs,
         &antideps,
-        &array_allocs,
+        &fork_join_maps,
         &fork_join_nests,
-        &std::path::Path::new("test.bc"),
-    );
+        &mut contents,
+    )
+    .unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
 }

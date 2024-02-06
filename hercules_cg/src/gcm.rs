@@ -103,7 +103,7 @@ pub fn compute_fork_join_nesting(
     // the corresponding join node.
     (0..function.nodes.len())
         .map(NodeID::new)
-        .filter(|id| function.is_control(*id))
+        .filter(|id| function.nodes[id.idx()].is_control())
         .map(|id| {
             (
                 id,

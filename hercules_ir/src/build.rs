@@ -262,8 +262,8 @@ impl<'a> Builder<'a> {
         self.create_type_sum(Box::new([a, b, c, d, e, f, g, h]))
     }
 
-    pub fn create_type_array(&mut self, elem: TypeID, dc: DynamicConstantID) -> TypeID {
-        self.intern_type(Type::Array(elem, dc))
+    pub fn create_type_array(&mut self, elem: TypeID, extents: Box<[DynamicConstantID]>) -> TypeID {
+        self.intern_type(Type::Array(elem, extents))
     }
 
     pub fn create_constant_bool(&mut self, val: bool) -> ConstantID {
@@ -355,14 +355,18 @@ impl<'a> Builder<'a> {
         &mut self,
         elem_ty: TypeID,
         cons: Box<[ConstantID]>,
+        extents: Box<[u32]>,
     ) -> BuilderResult<ConstantID> {
         for con in cons.iter() {
             if self.constant_types[con.idx()] != elem_ty {
                 Err("Constant provided to create_constant_array has a different type than the provided element type.")?
             }
         }
-        let dc = self.create_dynamic_constant_constant(cons.len());
-        let ty = self.create_type_array(elem_ty, dc);
+        let extents = extents
+            .iter()
+            .map(|extent| self.create_dynamic_constant_constant(*extent as usize))
+            .collect();
+        let ty = self.create_type_array(elem_ty, extents);
         Ok(self.intern_constant(Constant::Array(ty, cons), ty))
     }
 
@@ -372,6 +376,22 @@ impl<'a> Builder<'a> {
 
     pub fn create_dynamic_constant_parameter(&mut self, val: usize) -> DynamicConstantID {
         self.intern_dynamic_constant(DynamicConstant::Parameter(val))
+    }
+
+    pub fn create_field_index(&self, idx: usize) -> Index {
+        Index::Field(idx)
+    }
+
+    pub fn create_variant_index(&self, idx: usize) -> Index {
+        Index::Variant(idx)
+    }
+
+    pub fn create_position_index(&self, idx: Box<[NodeID]>) -> Index {
+        Index::Position(idx)
+    }
+
+    pub fn create_control_index(&self, idx: usize) -> Index {
+        Index::Control(idx)
     }
 
     pub fn create_function(
@@ -446,8 +466,12 @@ impl NodeBuilder {
         self.node = Node::ThreadID { control };
     }
 
-    pub fn build_collect(&mut self, control: NodeID, data: NodeID) {
-        self.node = Node::Collect { control, data };
+    pub fn build_collect(&mut self, control: NodeID, init: NodeID, reduct: NodeID) {
+        self.node = Node::Reduce {
+            control,
+            init,
+            reduct,
+        };
     }
 
     pub fn build_return(&mut self, control: NodeID, data: NodeID) {
@@ -487,35 +511,15 @@ impl NodeBuilder {
         };
     }
 
-    pub fn build_readprod(&mut self, prod: NodeID, index: usize) {
-        self.node = Node::ReadProd { prod, index };
+    pub fn build_read(&mut self, collect: NodeID, indices: Box<[Index]>) {
+        self.node = Node::Read { collect, indices };
     }
 
-    pub fn build_writeprod(&mut self, prod: NodeID, data: NodeID, index: usize) {
-        self.node = Node::WriteProd { prod, data, index };
-    }
-
-    pub fn build_readarray(&mut self, array: NodeID, index: NodeID) {
-        self.node = Node::ReadArray { array, index };
-    }
-
-    pub fn build_writearray(&mut self, array: NodeID, data: NodeID, index: NodeID) {
-        self.node = Node::WriteArray { array, data, index };
-    }
-
-    pub fn build_match(&mut self, control: NodeID, sum: NodeID) {
-        self.node = Node::Match { control, sum };
-    }
-
-    pub fn build_buildsum(&mut self, data: NodeID, sum_ty: TypeID, variant: usize) {
-        self.node = Node::BuildSum {
+    pub fn build_write(&mut self, collect: NodeID, data: NodeID, indices: Box<[Index]>) {
+        self.node = Node::Write {
+            collect,
             data,
-            sum_ty,
-            variant,
+            indices,
         };
-    }
-
-    pub fn build_extractsum(&mut self, data: NodeID, variant: usize) {
-        self.node = Node::ExtractSum { data, variant };
     }
 }

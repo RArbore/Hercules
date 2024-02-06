@@ -68,7 +68,9 @@ pub fn write_dot<W: Write>(
                 // the source in the reverse postorder.
                 let is_back_edge = reverse_postorder_node_numbers[node_id.idx()]
                     < reverse_postorder_node_numbers[u.idx()]
-                    && (node.is_phi() || (function.is_control(node_id) && function.is_control(*u)));
+                    && (node.is_phi()
+                        || (function.nodes[node_id.idx()].is_control()
+                            && function.nodes[u.idx()].is_control()));
                 write_edge(
                     node_id,
                     function_id,
@@ -185,18 +187,31 @@ fn write_node<W: Write>(
                 module.write_dynamic_constant(*dc_id, &mut suffix)?;
             }
         }
-        Node::ReadProd { prod: _, index } => write!(&mut suffix, "{}", index)?,
-        Node::WriteProd {
-            prod: _,
+        Node::Read {
+            collect: _,
+            indices,
+        } => {
+            let mut iter = indices.iter();
+            if let Some(first) = iter.next() {
+                write!(&mut suffix, "{}", first.lower_case_name())?;
+                for next in iter {
+                    write!(&mut suffix, ", {}", next.lower_case_name())?;
+                }
+            }
+        }
+        Node::Write {
+            collect: _,
             data: _,
-            index,
-        } => write!(&mut suffix, "{}", index)?,
-        Node::BuildSum {
-            data: _,
-            sum_ty: _,
-            variant,
-        } => write!(&mut suffix, "{}", variant)?,
-        Node::ExtractSum { data: _, variant } => write!(&mut suffix, "{}", variant)?,
+            indices,
+        } => {
+            let mut iter = indices.iter();
+            if let Some(first) = iter.next() {
+                write!(&mut suffix, "{}", first.lower_case_name())?;
+                for next in iter {
+                    write!(&mut suffix, ", {}", next.lower_case_name())?;
+                }
+            }
+        }
         _ => {}
     };
 

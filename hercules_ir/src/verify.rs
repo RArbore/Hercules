@@ -188,7 +188,7 @@ fn verify_structure(
                                     found_control = true;
                                 }
                             } else {
-                                Err("All fork of a start node must be control or ThreadID nodes.")?;
+                                Err("All users of a fork node must be control or ThreadID nodes.")?;
                             }
                         }
                     }
@@ -198,14 +198,15 @@ fn verify_structure(
                 }
             }
             // A join node must have exactly one control user. Additionally,
-            // it may have many collect users.
+            // it may have many reduce users.
             Node::Join { control: _ } => {
                 let mut found_control = false;
                 for user in users {
                     match function.nodes[user.idx()] {
-                        Node::Collect {
+                        Node::Reduce {
                             control: _,
-                            data: _,
+                            init: _,
+                            reduct: _,
                         } => {}
                         _ => {
                             if function.nodes[user.idx()].is_strictly_control() {
@@ -215,7 +216,7 @@ fn verify_structure(
                                     found_control = true;
                                 }
                             } else {
-                                Err("All join of a start node must be control or Collect nodes.")?;
+                                Err("All uses of a join node must be control or Reduce nodes.")?;
                             }
                         }
                     }
@@ -224,7 +225,7 @@ fn verify_structure(
                     Err("A join node must have exactly one control user.")?;
                 }
             }
-            // Each if node must have exactly two ReadProd users, which
+            // Each if node must have exactly two Read users, which
             // reference differing elements of the node's output product.
             Node::If {
                 control: _,
@@ -234,23 +235,28 @@ fn verify_structure(
                     Err(format!("If node must have 2 users, not {}.", users.len()))?;
                 }
                 if let (
-                    Node::ReadProd {
-                        prod: _,
-                        index: index1,
+                    Node::Read {
+                        collect: _,
+                        indices: indices1,
                     },
-                    Node::ReadProd {
-                        prod: _,
-                        index: index2,
+                    Node::Read {
+                        collect: _,
+                        indices: indices2,
                     },
                 ) = (
                     &function.nodes[users[0].idx()],
                     &function.nodes[users[1].idx()],
                 ) {
-                    if !((*index1 == 0 && *index2 == 1) || (*index1 == 1 && *index2 == 0)) {
-                        Err("If node's user ReadProd nodes must reference different elements of output product.")?;
+                    if indices1.len() != 1
+                        || indices2.len() != 1
+                        || !((indices1[0] == Index::Control(0) && indices2[0] == Index::Control(1))
+                            || (indices1[0] == Index::Control(1)
+                                && indices2[0] == Index::Control(0)))
+                    {
+                        Err("If node's user Read nodes must reference different elements of output product.")?;
                     }
                 } else {
-                    Err("If node's users must both be ReadProd nodes.")?;
+                    Err("If node's users must both be Read nodes.")?;
                 }
             }
             // Phi nodes must depend on a region node.
@@ -272,7 +278,11 @@ fn verify_structure(
                 }
             }
             // Collect nodes must depend on a join node.
-            Node::Collect { control, data: _ } => {
+            Node::Reduce {
+                control,
+                init: _,
+                reduct: _,
+            } => {
                 if let Node::Join { control: _ } = function.nodes[control.idx()] {
                 } else {
                     Err("Collect node's control input must be a join node.")?;
@@ -291,7 +301,7 @@ fn verify_structure(
                 }
             }
             // Match nodes are similar to if nodes, but have a variable number
-            // of ReadProd users, corresponding to the sum type being matched.
+            // of Read users, corresponding to the sum type being matched.
             Node::Match { control: _, sum } => {
                 let sum_ty = &types[typing[sum.idx()].idx()];
                 if let Type::Summation(tys) = sum_ty {
@@ -305,13 +315,25 @@ fn verify_structure(
                     }
                     let mut users_covered = bitvec![u8, Lsb0; 0; users.len()];
                     for user in users {
-                        if let Node::ReadProd { prod: _, index } = function.nodes[user.idx()] {
-                            assert!(index < users.len(), "ReadProd child of match node reads from bad index, but ran after typecheck succeeded.");
+                        if let Node::Read {
+                            collect: _,
+                            ref indices,
+                        } = function.nodes[user.idx()]
+                        {
+                            if indices.len() != 1 {
+                                Err("Match node's user Read nodes must have a single index.")?;
+                            }
+                            let index = if let Index::Control(index) = indices[0] {
+                                index
+                            } else {
+                                Err("Match node's user Read node must use a control index.")?
+                            };
+                            assert!(index < users.len(), "Read child of match node reads from bad index, but ran after typecheck succeeded.");
                             users_covered.set(index, true);
                         }
                     }
                     if users_covered.count_ones() != users.len() {
-                        Err(format!("Match node's user ReadProd nodes must reference all {} elements of match node's output product, but they only reference {} of them.", users.len(), users_covered.count_ones()))?;
+                        Err(format!("Match node's user Read nodes must reference all {} elements of match node's output product, but they only reference {} of them.", users.len(), users_covered.count_ones()))?;
                     }
                 } else {
                     panic!("Type of match node's sum input is not a summation type, but ran after typecheck succeeded.");
@@ -358,7 +380,7 @@ fn verify_dominance_relationships(
     let mut to_check = vec![];
     for idx in 0..function.nodes.len() {
         // If this node is a phi node, we need to handle adding dominance checks
-        // completely differently.
+        // completely differently. Reduce nodes need to be handled similarly.
         if let Node::Phi { control, data } = &function.nodes[idx] {
             // Get the control predecessors of a region.
             let region_preds = if let Node::Region { preds } = &function.nodes[control.idx()] {
@@ -377,19 +399,21 @@ fn verify_dominance_relationships(
                     control_output_dependencies[data_pred.idx()].clone(),
                 ));
             }
+        } else if let Node::Reduce {
+            control: _,
+            init: _,
+            reduct: _,
+        } = &function.nodes[idx]
+        {
+            // TODO: Properly check dominance relations of reduce nodes.
         } else {
             // Having a control output dependency only matters if this node is a
             // control node, or if this node is a control output of a control node.
             // If this node is a control output, then we want to consider the
-            // control node itself. We exclude the case of a phi node here, since
-            // phi nodes can explicitly have non-dominating inputs. We handle phis
-            // separately above.
+            // control node itself. We exclude the case of phi and reduce nodes
+            // here, since these nodes can explicitly have non-dominating inputs.
             let this_id = if let Node::ThreadID {
                 control: dominated_control,
-            }
-            | Node::Collect {
-                control: dominated_control,
-                data: _,
             } = function.nodes[idx]
             {
                 dominated_control
@@ -424,9 +448,14 @@ fn verify_dominance_relationships(
         for pred_idx in 0..function.nodes.len() {
             if dependencies.is_set(NodeID::new(pred_idx)) {
                 match function.nodes[pred_idx] {
-                    // Verify that uses of phis / collect nodes are dominated
+                    // Verify that uses of phis / reduce nodes are dominated
                     // by the corresponding region / join nodes, respectively.
-                    Node::Phi { control, data: _ } | Node::Collect { control, data: _ } => {
+                    Node::Phi { control, data: _ }
+                    | Node::Reduce {
+                        control,
+                        init: _,
+                        reduct: _,
+                    } => {
                         if dom.contains(this_id) && !dom.does_dom(control, this_id) {
                             Err(format!(
                                 "{} node (ID {}) doesn't dominate its use (ID {}).",
