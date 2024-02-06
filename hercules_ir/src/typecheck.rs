@@ -257,9 +257,6 @@ fn typeflow(
                     return Error(String::from(
                         "If node's control input cannot have non-control type.",
                     ));
-                } else {
-                    let out_ty = Type::Product(Box::new([*id, *id]));
-                    return Concrete(get_type_id(out_ty, types, reverse_type_map));
                 }
             }
 
@@ -392,45 +389,45 @@ fn typeflow(
                 reverse_type_map,
             ))
         }
-        Node::Collect { control, data: _ } => {
-            if inputs.len() != 2 {
-                return Error(String::from("Collect node must have exactly two inputs."));
+        Node::Reduce {
+            control: _,
+            init: _,
+            reduct: _,
+        } => {
+            if inputs.len() != 3 {
+                return Error(String::from("Reduce node must have exactly two inputs."));
             }
 
-            if let (Concrete(control_id), Concrete(data_id)) = (inputs[0], inputs[1]) {
+            if let (Concrete(control_id), Concrete(init_id), Concrete(reduct_id)) =
+                (inputs[0], inputs[1], inputs[2])
+            {
                 // Check control input is control.
                 if let Type::Control(_) = types[control_id.idx()] {
                 } else {
                     return Error(String::from(
-                        "Collect node's control input must have control type.",
+                        "Reduce node's control input must have control type.",
                     ));
                 }
 
-                // Check data input isn't control.
-                if let Type::Control(_) = types[data_id.idx()] {
+                // Check init input isn't control.
+                if let Type::Control(_) = types[init_id.idx()] {
                     return Error(String::from(
-                        "Collect node's data input must not have control type.",
+                        "Reduce node's initialization input must not have control type.",
                     ));
                 }
 
-                // Unfortunately, the type of the control input doesn't contain
-                // the thread replication factor this collect node is operating
-                // with. We use the join replication factor map side data
-                // structure to store the replication factor each join reduces
-                // over to make this easier.
-                if let Some(factor) = join_factor_map.get(control) {
-                    let array_out_id =
-                        get_type_id(Type::Array(*data_id, *factor), types, reverse_type_map);
-                    Concrete(array_out_id)
-                } else {
-                    // If the join factor map doesn't contain the control
-                    // input, stay optimistic.
-                    Unconstrained
+                // Check reduct input isn't control.
+                if let Type::Control(_) = types[reduct_id.idx()] {
+                    return Error(String::from(
+                        "Reduce node's reduction input must not have control type.",
+                    ));
                 }
+
+                TypeSemilattice::meet(inputs[1], inputs[2])
             } else if inputs[0].is_error() {
                 inputs[0].clone()
             } else {
-                inputs[1].clone()
+                TypeSemilattice::meet(inputs[1], inputs[2])
             }
         }
         Node::Return {
@@ -561,13 +558,21 @@ fn typeflow(
                 }
                 // Array typechecking also consists of validating the number of constant elements.
                 Constant::Array(id, ref elems) => {
-                    if let Type::Array(_, dc_id) = types[id.idx()] {
-                        if dynamic_constants[dc_id.idx()] == DynamicConstant::Constant(elems.len())
-                        {
-                            Concrete(id)
-                        } else {
-                            Error(String::from("Array constant must have the correct number of constant elements as specified by its type."))
+                    if let Type::Array(_, dc_ids) = &types[id.idx()] {
+                        let mut total_num_elems = 1;
+                        for dc_id in dc_ids.iter() {
+                            total_num_elems *= if let DynamicConstant::Constant(extent) =
+                                dynamic_constants[dc_id.idx()]
+                            {
+                                extent
+                            } else {
+                                return Error(String::from("Array constant type must reference only constant valued dynamic constants."));
+                            };
                         }
+                        if total_num_elems != 1 && total_num_elems != elems.len() {
+                            return Error(String::from("Array constant must have a compatible amount of elements as the extent of the array."));
+                        }
+                        Concrete(id)
                     } else {
                         Error(String::from(
                             "Array constant must store an explicit array type.",
@@ -745,140 +750,100 @@ fn typeflow(
 
             Concrete(callee.return_type)
         }
-        Node::ReadProd { prod: _, index } => {
-            if inputs.len() != 1 {
-                return Error(String::from("ReadProd node must have exactly one input."));
-            }
-
-            // If the input type isn't concrete, just propagate input type.
-            if let Concrete(id) = inputs[0] {
-                if let Type::Product(elem_tys) = &types[id.idx()] {
-                    if *index >= elem_tys.len() {
-                        // ReadProd's index being out of range is a type error.
-                        return Error(String::from("ReadProd node's index must be within range of input product type's element list."));
-                    } else {
-                        return Concrete(elem_tys[*index]);
-                    }
-                } else {
-                    return Error(String::from(
-                        "ReadProd node's input type must be a product type.",
-                    ));
-                }
-            }
-
-            inputs[0].clone()
-        }
-        Node::WriteProd {
-            prod: _,
-            data: _,
-            index,
+        Node::Read {
+            collect: _,
+            indices,
         } => {
-            if inputs.len() != 2 {
-                return Error(String::from("WriteProd node must have exactly two inputs."));
+            if indices.len() == 0 {
+                return Error(String::from("Read node must have at least one index."));
             }
 
-            // If the input type isn't concrete, just propagate input type.
-            if let Concrete(id) = inputs[0] {
-                if let Type::Product(elem_tys) = &types[id.idx()] {
-                    if *index >= elem_tys.len() {
-                        // ReadProd's index being out of range is a type error.
-                        return Error(String::from("WriteProd node's index must be within range of input product type's element list."));
-                    } else if let Concrete(data_id) = inputs[1] {
-                        if elem_tys[*index] != *data_id {
-                            return Error(format!("WriteProd node's data input doesn't match the type of the element at index {} inside the product type.", index));
-                        } else if let Type::Control(_) = &types[data_id.idx()] {
-                            return Error(String::from(
-                                "WriteProd node's data input cannot have a control type.",
-                            ));
+            // Traverse the collect input's type tree downwards.
+            if let Concrete(mut collect_id) = inputs[0] {
+                for index in indices.iter() {
+                    match (&types[collect_id.idx()], index) {
+                        (Type::Product(fields), Index::Field(field)) => {
+                            if *field >= fields.len() {
+                                return Error(String::from("Read node's field index must be in the range of the product type being indexed."));
+                            }
+                            collect_id = fields[*field];
                         }
-                    } else if inputs[1].is_error() {
-                        // If an input lattice value is an error, we must
-                        // propagate it.
-                        return inputs[1].clone();
-                    }
-                    return Concrete(elem_tys[*index]);
-                } else {
-                    return Error(String::from(
-                        "WriteProd node's input type must be a product type.",
-                    ));
-                }
-            }
-
-            inputs[0].clone()
-        }
-        Node::ReadArray { array: _, index: _ } => {
-            if inputs.len() != 2 {
-                return Error(String::from("ReadArray node must have exactly two inputs."));
-            }
-
-            // Check that index has unsigned type.
-            if let Concrete(id) = inputs[1] {
-                if !types[id.idx()].is_unsigned() {
-                    return Error(String::from(
-                        "ReadArray node's index input must have unsigned type.",
-                    ));
-                }
-            } else if inputs[1].is_error() {
-                return inputs[1].clone();
-            }
-
-            // If array input is concrete, we can get type of ReadArray node.
-            if let Concrete(id) = inputs[0] {
-                if let Type::Array(elem_id, _) = types[id.idx()] {
-                    return Concrete(elem_id);
-                } else {
-                    return Error(String::from(
-                        "ReadArray node's array input must have array type.",
-                    ));
-                }
-            }
-
-            inputs[0].clone()
-        }
-        Node::WriteArray {
-            array: _,
-            data: _,
-            index: _,
-        } => {
-            if inputs.len() != 3 {
-                return Error(String::from("WriteArray node must have exactly 3 inputs."));
-            }
-
-            // Check that index has unsigned type.
-            if let Concrete(id) = inputs[2] {
-                if !types[id.idx()].is_unsigned() {
-                    return Error(String::from(
-                        "WriteArray node's index input must have unsigned type.",
-                    ));
-                }
-            } else if inputs[2].is_error() {
-                return inputs[2].clone();
-            }
-
-            // Check that array and data types match.
-            if let Concrete(array_id) = inputs[0] {
-                if let Type::Array(elem_id, _) = types[array_id.idx()] {
-                    if let Concrete(data_id) = inputs[1] {
-                        if elem_id != *data_id {
-                            return Error(String::from("WriteArray node's array and data inputs must have compatible types (type of data input must be the same as the array input's element type)."));
-                        } else if let Type::Control(_) = &types[data_id.idx()] {
+                        (Type::Summation(variants), Index::Variant(variant)) => {
+                            if *variant >= variants.len() {
+                                return Error(String::from("Read node's variant index must be in the range of the variant type being indexed."));
+                            }
+                            collect_id = variants[*variant];
+                        }
+                        (Type::Array(elem_ty_id, dim_sizes), Index::Position(indices)) => {
+                            if dim_sizes.len() != indices.len() {
+                                return Error(String::from("Read node's position index must have the same number of dimensions as the array type being indexed."));
+                            }
+                            collect_id = *elem_ty_id;
+                        }
+                        (Type::Control(_), Index::Control(_)) => {}
+                        _ => {
                             return Error(String::from(
-                                "WriteArray node's data input cannot have a control type.",
+                                "Read node has mismatched input type and indices.",
                             ));
                         }
                     }
-                } else {
+                }
+
+                // If successfully traversed, the leaf type is the result.
+                return Concrete(collect_id);
+            }
+
+            inputs[0].clone()
+        }
+        Node::Write {
+            collect: _,
+            data: _,
+            indices,
+        } => {
+            if indices.len() == 0 {
+                return Error(String::from("Write node must have at least one index."));
+            }
+
+            // Traverse the collect input's type tree downwards.
+            if let (Concrete(mut collect_id), Concrete(data_id)) = (inputs[0], inputs[1]) {
+                for index in indices.iter() {
+                    match (&types[collect_id.idx()], index) {
+                        (Type::Product(fields), Index::Field(field)) => {
+                            if *field >= fields.len() {
+                                return Error(String::from("Write node's field index must be in the range of the product type being indexed."));
+                            }
+                            collect_id = fields[*field];
+                        }
+                        (Type::Summation(variants), Index::Variant(variant)) => {
+                            if *variant >= variants.len() {
+                                return Error(String::from("Write node's variant index must be in the range of the variant type being indexed."));
+                            }
+                            collect_id = variants[*variant];
+                        }
+                        (Type::Array(elem_ty_id, dim_sizes), Index::Position(indices)) => {
+                            if dim_sizes.len() != indices.len() {
+                                return Error(String::from("Write node's position index must have the same number of dimensions as the array type being indexed."));
+                            }
+                            collect_id = *elem_ty_id;
+                        }
+                        (Type::Control(_), Index::Control(_)) => {}
+                        _ => {
+                            return Error(String::from(
+                                "Write node has mismatched input type and indices.",
+                            ));
+                        }
+                    }
+                }
+
+                // The leaf type being indexed must be what's being written.
+                if *data_id != collect_id {
                     return Error(String::from(
-                        "WriteArray node's array input must have array type.",
+                        "Write node has mismatched data type and indexed type.",
                     ));
                 }
             }
 
-            // If an input type is an error, we must propagate it.
-            if inputs[1].is_error() {
-                return inputs[1].clone();
-            }
-
+            // No matter what, the type is the type of the collect input.
             inputs[0].clone()
         }
         Node::Match { control: _, sum: _ } => {
@@ -889,15 +854,13 @@ fn typeflow(
             // Check sum and control inputs simultaneously, since both need to
             // be concrete to determine a concrete type for a match node.
             if let (Concrete(control_id), Concrete(sum_id)) = (inputs[0], inputs[1]) {
-                if let Type::Summation(variants) = &types[sum_id.idx()] {
+                if let Type::Summation(_) = &types[sum_id.idx()] {
                     if !types[control_id.idx()].is_control() {
                         return Error(String::from(
                             "Match node's control input cannot have non-control type.",
                         ));
                     } else {
-                        let out_ty =
-                            Type::Product(vec![*control_id; variants.len()].into_boxed_slice());
-                        return Concrete(get_type_id(out_ty, types, reverse_type_map));
+                        return inputs[0].clone();
                     }
                 } else {
                     return Error(String::from(
@@ -912,66 +875,6 @@ fn typeflow(
                 TypeSemilattice::Concrete(_) => TypeSemilattice::Unconstrained,
                 TypeSemilattice::Error(msg) => TypeSemilattice::Error(msg),
             }
-        }
-        Node::BuildSum {
-            data: _,
-            sum_ty,
-            variant,
-        } => {
-            if inputs.len() != 1 {
-                return Error(String::from("BuildSum node must have exactly one input."));
-            }
-
-            if let Concrete(id) = inputs[0] {
-                if let Type::Control(_) = &types[id.idx()] {
-                    return Error(String::from(
-                        "BuildSum node's data input cannot have a control type.",
-                    ));
-                }
-
-                // BuildSum node stores its own result type.
-                if let Type::Summation(variants) = &types[sum_ty.idx()] {
-                    // Must reference an existing variant.
-                    if *variant >= variants.len() {
-                        return Error(String::from("BuildSum node's variant number must be in range of valid variant numbers for referenced sum type."));
-                    }
-
-                    // The variant type has to be the same as the type of data.
-                    if *id == variants[*variant] {
-                        return Error(String::from(
-                            "BuildSum node's input type must match the referenced variant type.",
-                        ));
-                    }
-
-                    return Concrete(*sum_ty);
-                } else {
-                    return Error(String::from("BuildSum node must reference a sum type."));
-                }
-            }
-
-            inputs[0].clone()
-        }
-        Node::ExtractSum { data: _, variant } => {
-            if inputs.len() != 1 {
-                return Error(String::from("ExtractSum node must have exactly one input."));
-            }
-
-            if let Concrete(id) = inputs[0] {
-                if let Type::Summation(variants) = &types[id.idx()] {
-                    // Must reference an existing variant.
-                    if *variant >= variants.len() {
-                        return Error(String::from("BuildSum node's variant number must be in range of valid variant numbers for referenced sum type."));
-                    }
-
-                    return Concrete(variants[*variant]);
-                } else {
-                    return Error(String::from(
-                        "ExtractSum node's input cannot have non-sum type.",
-                    ));
-                }
-            }
-
-            inputs[0].clone()
         }
     }
 }

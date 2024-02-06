@@ -1,28 +1,57 @@
-fn matmul<3>(a: array(array(f32, #1), #0), b: array(array(f32, #2), #1)) -> array(array(f32, #2), #0)
+fn matmul<3>(a: array(f32, #0, #1), b: array(f32, #1, #2), c: array(f32, #0, #2)) -> array(f32, #0, #2)
   i_ctrl = fork(start, #0)
   i_idx = thread_id(i_ctrl)
-  k_ctrl = fork(i_ctrl, #2)
+  j_ctrl = fork(i_ctrl, #2)
+  j_idx = thread_id(j_ctrl)
+  k_ctrl = fork(j_ctrl, #1)
   k_idx = thread_id(k_ctrl)
-  zero_idx = constant(u64, 0)
-  one_idx = constant(u64, 1)
-  zero_val = constant(f32, 0)
-  loop = region(k_ctrl, if_true)
-  j = phi(loop, zero_idx, j_inc)
-  sum = phi(loop, zero_val, sum_inc)
-  j_inc = add(j, one_idx)
-  fval1 = read_array(a, i_idx)
-  fval2 = read_array(b, j)
-  val1 = read_array(fval1, j)
-  val2 = read_array(fval2, k_idx)
-  mul = mul(val1, val2)
-  sum_inc = add(sum, mul)
-  j_size = dynamic_constant(#1)
-  less = lt(j_inc, j_size)
-  if = if(loop, less)
-  if_false = read_prod(if, 0)
-  if_true = read_prod(if, 1)
-  k_join_ctrl = join(if_false)
-  k_join_data = collect(k_join_ctrl, sum_inc)
-  i_join_ctrl = join(k_join_ctrl)
-  i_join_data = collect(i_join_ctrl, k_join_data)
-  r = return(i_join_ctrl, i_join_data)
+  k_join_ctrl = join(k_ctrl)
+  j_join_ctrl = join(k_join_ctrl)
+  i_join_ctrl = join(j_join_ctrl)
+  r = return(i_join_ctrl, update_i_c)
+  zero = constant(f32, 0)
+  a_val = read(a, position(i_idx, k_idx))
+  b_val = read(b, position(k_idx, j_idx))
+  mul = mul(a_val, b_val)
+  add = add(mul, dot)
+  dot = reduce(k_join_ctrl, zero, add)
+  updated_c = write(update_j_c, dot, position(i_idx, j_idx))
+  update_j_c = reduce(j_join_ctrl, update_i_c, updated_c)
+  update_i_c = reduce(i_join_ctrl, c, update_j_c)
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
