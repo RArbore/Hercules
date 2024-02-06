@@ -16,7 +16,6 @@ pub fn antideps<I: Iterator<Item = NodeID>>(
     // Anti-dependence edges are between a write node and a read node, where
     // each node uses the same array value. The read must be scheduled before
     // the write to avoid incorrect compilation.
-    // TODO: use backwards dataflow to track all writes that may affect a value.
     let mut antideps = vec![];
 
     for id in nodes {
