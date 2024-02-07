@@ -1,4 +1,3 @@
-extern crate bincode;
 extern crate libc;
 
 use std::ffi::CStr;
