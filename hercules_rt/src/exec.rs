@@ -1,6 +1,14 @@
+extern crate libc;
+
 use std::ffi::CString;
 use std::os::raw::*;
 use std::path::Path;
+
+struct Elf {
+    function_names: Box<[String]>,
+    function_pointers: Box<[usize]>,
+    text_section: Box<[u8]>,
+}
 
 extern "C" {
     pub fn load_elf(path: *const c_char) -> *const c_void;
@@ -32,3 +40,5 @@ pub fn load_binary(path: &Path) {
     };
     println!("{} {}\n{} {}\n", c[0][0], c[0][1], c[1][0], c[1][1]);
 }
+
+pub fn parse_elf(elf: &[u8]) -> Elf {}
