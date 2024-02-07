@@ -22,7 +22,7 @@ static uint64_t page_align(uint64_t n) {
  * function returns a structure containing heap allocated data, which needs to
  * be deallocated using free_elf.
  */
-void load_elf(const char *path) {
+void *load_elf(const char *path) {
     printf("load_elf: %s\n", path);
 
     int fd = open(path, O_RDONLY);
@@ -98,7 +98,18 @@ void load_elf(const char *path) {
         exit(1);
     }
 
-    
+    void *func = NULL;
+    for (int i = 0; i < num_symbols; ++i) {
+	if (ELF64_ST_TYPE(symbol_table[i].st_info) == STT_FUNC) {
+	    char *function_name = strtab + symbol_table[i].st_name;
+	    printf("%s\n", function_name);
+	    func = text_base + symbol_table[i].st_value;
+	}
+    }
+    if (func == NULL) {
+	fprintf(stderr, "ERROR: No function in file at %s.\n", path);
+	exit(1);
+    }
 
     if (munmap(base, sb.st_size) == -1) {
 	fprintf(stderr, "ERROR: Couldn't unmap the file at %s.\n", path);
@@ -106,4 +117,6 @@ void load_elf(const char *path) {
     }
 
     close(fd);
+
+    return func;
 }
