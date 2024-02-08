@@ -1,7 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+	"hercules_cg",
 	"hercules_ir",
-	"hercules_tools",
+	"hercules_opt",
+	"hercules_tools/hercules_dot",
+	"hercules_tools/hercules_cpu",
   "frontend"
 ]

@@ -1,0 +1,57 @@
+fn matmul<3>(a: array(f32, #0, #1), b: array(f32, #1, #2), c: array(f32, #0, #2)) -> array(f32, #0, #2)
+  i_ctrl = fork(start, #0)
+  i_idx = thread_id(i_ctrl)
+  j_ctrl = fork(i_ctrl, #2)
+  j_idx = thread_id(j_ctrl)
+  k_ctrl = fork(j_ctrl, #1)
+  k_idx = thread_id(k_ctrl)
+  k_join_ctrl = join(k_ctrl)
+  j_join_ctrl = join(k_join_ctrl)
+  i_join_ctrl = join(j_join_ctrl)
+  r = return(i_join_ctrl, update_i_c)
+  zero = constant(f32, 0)
+  a_val = read(a, position(i_idx, k_idx))
+  b_val = read(b, position(k_idx, j_idx))
+  mul = mul(a_val, b_val)
+  add = add(mul, dot)
+  dot = reduce(k_join_ctrl, zero, add)
+  updated_c = write(update_j_c, dot, position(i_idx, j_idx))
+  update_j_c = reduce(j_join_ctrl, update_i_c, updated_c)
+  update_i_c = reduce(i_join_ctrl, c, update_j_c)
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

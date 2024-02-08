@@ -1,0 +1,8 @@
+fn fork_join<1>() -> u64
+  f_ctrl = fork(start, #0)
+  j_ctrl = join(f_ctrl)
+  zero = constant(u64, 0)
+  x = thread_id(f_ctrl)
+  data = reduce(j_ctrl, zero, sum)
+  sum = add(data, x)
+  r = return(j_ctrl, data)
