@@ -12,11 +12,31 @@ use std::ptr::read_unaligned;
 use self::libc::*;
 
 #[derive(Debug)]
+pub struct Module {
+    elf: Elf,
+}
+
+#[derive(Debug)]
 struct Elf {
     function_names: Vec<String>,
     function_pointers: Vec<isize>,
     text_section: *mut u8,
     text_size: usize,
+}
+
+impl Module {
+    pub fn get_function_ptr(&self, name: &str) -> *mut u8 {
+        unsafe {
+            self.elf.text_section.offset(
+                self.elf.function_pointers[self
+                    .elf
+                    .function_names
+                    .iter()
+                    .position(|s| s == name)
+                    .unwrap()],
+            )
+        }
+    }
 }
 
 impl Drop for Elf {
@@ -25,35 +45,22 @@ impl Drop for Elf {
     }
 }
 
-pub fn load_binary(path: &Path) {
+pub fn load_binary(path: &Path) -> Module {
     let mut f = File::open(path).unwrap();
     let mut buffer = vec![];
     f.read_to_end(&mut buffer).unwrap();
     let elf = unsafe { parse_elf(buffer.as_slice()) };
-    println!("{:?}", elf);
-    let matmul: fn(
-        *const c_float,
-        *const c_float,
-        *mut c_float,
-        c_ulong,
-        c_ulong,
-        c_ulong,
-    ) -> *mut c_float =
-        unsafe { std::mem::transmute(elf.text_section.offset(elf.function_pointers[0])) };
-    let a = [[1.0f32, 2.0f32], [3.0f32, 4.0f32]];
-    let b = [[5.0f32, 6.0f32], [7.0f32, 8.0f32]];
-    let mut c = [[0.0f32, 0.0f32], [0.0f32, 0.0f32]];
-    unsafe {
-        matmul(
-            std::mem::transmute(a.as_ptr()),
-            std::mem::transmute(b.as_ptr()),
-            std::mem::transmute(c.as_mut_ptr()),
-            2,
-            2,
-            2,
-        )
+    Module { elf }
+}
+
+#[macro_export]
+macro_rules! lookup_function {
+    ($module:expr, $function:expr, $($param_ty:ty),*, => $ret_ty:ty) => {
+        {
+            let fn_ptr: fn($($param_ty),*) -> $ret_ty = unsafe { std::mem::transmute($module.get_function_ptr($function)) };
+            fn_ptr
+        }
     };
-    println!("{} {}\n{} {}\n", c[0][0], c[0][1], c[1][0], c[1][1]);
 }
 
 fn page_align(n: usize) -> usize {
