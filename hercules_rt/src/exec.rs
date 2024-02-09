@@ -11,6 +11,17 @@ use std::ptr::read_unaligned;
 
 use self::libc::*;
 
+#[repr(C)]
+#[derive(Debug)]
+struct Elf64_Rela {
+    r_offset: Elf64_Addr,
+    r_info: Elf64_Xword,
+    r_addend: Elf64_Sxword,
+}
+
+const R_X86_64_PLT32: u64 = 4;
+const STT_FUNC: u8 = 2;
+
 #[derive(Debug)]
 pub struct Module {
     elf: Elf,
@@ -82,6 +93,7 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
     let mut symtab_ndx = -1;
     let mut strtab_ndx = -1;
     let mut text_ndx = -1;
+    let mut rela_text_ndx = -1;
     let shstrtab = &elf[section_header_table[header.e_shstrndx as usize].sh_offset as usize..];
     for i in 0..header.e_shnum as usize {
         let section_name = &shstrtab[section_header_table[i].sh_name as usize..];
@@ -91,6 +103,8 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
             strtab_ndx = i as i32;
         } else if section_name.starts_with(b".text") {
             text_ndx = i as i32;
+        } else if section_name.starts_with(b".rela.text") {
+            rela_text_ndx = i as i32;
         }
     }
     assert!(symtab_ndx != -1);
@@ -100,8 +114,8 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
     let symtab_hdr = section_header_table[symtab_ndx as usize];
     let strtab_hdr = section_header_table[strtab_ndx as usize];
     let text_hdr = section_header_table[text_ndx as usize];
-    let strtab = &elf[strtab_hdr.sh_offset as usize..];
 
+    let strtab = &elf[strtab_hdr.sh_offset as usize..];
     assert!(symtab_hdr.sh_entsize as usize == size_of::<Elf64_Sym>());
     let num_symbols = symtab_hdr.sh_size as usize / size_of::<Elf64_Sym>();
     let symbol_table: Box<[_]> = (0..num_symbols)
@@ -127,6 +141,34 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
         text_base,
         text_hdr.sh_size as usize,
     );
+
+    if rela_text_ndx != -1 {
+        let rela_text_hdr = section_header_table[rela_text_ndx as usize];
+        let num_relocations = rela_text_hdr.sh_size / rela_text_hdr.sh_entsize;
+        let relocations = (0..num_relocations).map(|idx| {
+            read_unaligned(
+                (elf.as_ptr().offset(rela_text_hdr.sh_offset as isize) as *const Elf64_Rela)
+                    .offset(idx as isize),
+            )
+        });
+        for relocation in relocations {
+            let symbol_idx = relocation.r_info >> 32;
+            let ty = relocation.r_info & 0xFFFFFFFF;
+            let patch_offset = text_base.offset(relocation.r_offset as isize);
+            let symbol_address =
+                text_base.offset(symbol_table[symbol_idx as usize].st_value as isize);
+            match ty {
+                R_X86_64_PLT32 => {
+                    let patch = symbol_address
+                        .offset(relocation.r_addend as isize)
+                        .offset_from(patch_offset);
+                    (patch_offset as *mut u32).write_unaligned(patch as u32);
+                }
+                _ => panic!(),
+            }
+        }
+    }
+
     mprotect(
         text_base as *mut c_void,
         page_align(text_hdr.sh_size as usize),
@@ -140,7 +182,7 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
         text_size,
     };
     for i in 0..num_symbols {
-        if symbol_table[i].st_info & 0xF == 2 {
+        if symbol_table[i].st_info & 0xF == STT_FUNC {
             let function_name_base = &strtab[symbol_table[i].st_name as usize..];
             let function_name = CStr::from_ptr(function_name_base.as_ptr() as *const _)
                 .to_str()
