@@ -11,6 +11,11 @@ use std::ptr::read_unaligned;
 
 use self::libc::*;
 
+/*
+ * The libc crate does't have everything from elf.h, so these things need to be
+ * manually defined.
+ */
+
 #[repr(C)]
 #[derive(Debug)]
 struct Elf64_Rela {
@@ -75,11 +80,16 @@ macro_rules! lookup_function {
     };
 }
 
-fn page_align(n: usize) -> usize {
-    (n + (4096 - 1)) & !(4096 - 1)
-}
-
+/*
+ * Function for parsing our internal memory representation of an ELF file from
+ * the raw bytes of an ELF file. This includes creating a executable section of
+ * code, and relocating function calls and global variables.
+ */
 unsafe fn parse_elf(elf: &[u8]) -> Elf {
+    fn page_align(n: usize) -> usize {
+        (n + (4096 - 1)) & !(4096 - 1)
+    }
+
     let header: Elf64_Ehdr = read_unaligned(elf.as_ptr() as *const _);
     assert!(header.e_shentsize as usize == size_of::<Elf64_Shdr>());
     let section_header_table: Box<[_]> = (0..header.e_shnum)
