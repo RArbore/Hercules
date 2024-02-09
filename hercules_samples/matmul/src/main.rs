@@ -3,7 +3,7 @@ extern crate clap;
 use std::path::Path;
 
 fn main() {
-    let module = hercules_rt::exec::load_binary(Path::new("test.o"));
+    let module = hercules_rt::load_binary(Path::new("test.o"));
 
     let matmul = hercules_rt::lookup_function!(
         module,
