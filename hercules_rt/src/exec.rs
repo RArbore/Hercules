@@ -32,6 +32,12 @@ pub fn load_binary(path: &Path) -> Module {
     Module { elf }
 }
 
+/*
+ * An ugly, unchecked macro for looking up Hercules functions in a module. Curse
+ * Rust for not supporting variadic generics and type pattern matching :shrug:.
+ * TODO: Generate per-lookup struct type for checking that the provided types
+ * are correct.
+ */
 #[macro_export]
 macro_rules! lookup_function {
     ($module:expr, $function:expr, $($param_ty:ty),*, => $ret_ty:ty) => {

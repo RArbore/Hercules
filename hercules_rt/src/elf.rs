@@ -25,6 +25,13 @@ const R_X86_64_PC32: u64 = 2;
 const R_X86_64_PLT32: u64 = 4;
 const STT_FUNC: u8 = 2;
 
+/*
+ * Holds a mmaped copy of .text + .bss for direct execution, plus metadata for
+ * each function. The .bss section holds a table storing addresses to internal
+ * runtime functions, since this is literally easier than patching the object
+ * code to directly jump to those runtime functions.
+ */
+
 #[derive(Debug)]
 pub(crate) struct Elf {
     pub(crate) function_names: Vec<String>,
@@ -49,6 +56,9 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
         (n + (4096 - 1)) & !(4096 - 1)
     }
 
+    // read_unaligned corresponds to memcpys in C - we need to memcpy structs
+    // out of the file's bytes, since they may be stored without proper
+    // alignment.
     let header: Elf64_Ehdr = read_unaligned(elf.as_ptr() as *const _);
     assert!(header.e_shentsize as usize == size_of::<Elf64_Shdr>());
     let section_header_table: Box<[_]> = (0..header.e_shnum)
@@ -60,6 +70,8 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
         })
         .collect();
 
+    // Look for the .symtab, .strtab, .text, .bss, and .rela.text sections. Only
+    // the .rela.text section is not necessary.
     let mut symtab_ndx = -1;
     let mut strtab_ndx = -1;
     let mut text_ndx = -1;
@@ -85,12 +97,13 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
     assert!(text_ndx != -1);
     assert!(bss_ndx != -1);
 
+    // Get the headers for the required sections.
     let symtab_hdr = section_header_table[symtab_ndx as usize];
     let strtab_hdr = section_header_table[strtab_ndx as usize];
     let text_hdr = section_header_table[text_ndx as usize];
     let bss_hdr = section_header_table[bss_ndx as usize];
 
-    let strtab = &elf[strtab_hdr.sh_offset as usize..];
+    // Collect the symbols in the symbol table.
     assert!(symtab_hdr.sh_entsize as usize == size_of::<Elf64_Sym>());
     let num_symbols = symtab_hdr.sh_size as usize / size_of::<Elf64_Sym>();
     let symbol_table: Box<[_]> = (0..num_symbols)
@@ -102,6 +115,7 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
         })
         .collect();
 
+    // The mmaped region includes both the .text and .bss sections.
     let program_size = page_align(text_hdr.sh_size as usize) + page_align(bss_hdr.sh_size as usize);
     let program_base = mmap(
         null_mut(),
@@ -113,15 +127,20 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
     ) as *mut u8;
     let text_base = program_base;
     let bss_base = text_base.offset(page_align(text_hdr.sh_size as usize) as isize);
+
+    // Copy the object code into the mmaped region.
     copy_nonoverlapping(
         elf.as_ptr().offset(text_hdr.sh_offset as isize),
         text_base,
         text_hdr.sh_size as usize,
     );
 
+    // If there are relocations, we process them here.
     if rela_text_ndx != -1 {
         let rela_text_hdr = section_header_table[rela_text_ndx as usize];
         let num_relocations = rela_text_hdr.sh_size / rela_text_hdr.sh_entsize;
+
+        // We only iterate the relocations in order, so no need to collect.
         let relocations = (0..num_relocations).map(|idx| {
             read_unaligned(
                 (elf.as_ptr().offset(rela_text_hdr.sh_offset as isize) as *const Elf64_Rela)
@@ -132,6 +151,9 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
             let symbol_idx = relocation.r_info >> 32;
             let ty = relocation.r_info & 0xFFFFFFFF;
             let patch_offset = text_base.offset(relocation.r_offset as isize);
+
+            // We support PLT32 relocations only in the .text section, and PC32
+            // relocations only in the .bss section.
             match ty {
                 R_X86_64_PLT32 => {
                     let symbol_address =
@@ -154,12 +176,17 @@ pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
         }
     }
 
+    // Make the .text section readable and executable. The .bss section should
+    // still be readable and writable.
     mprotect(
         text_base as *mut c_void,
         page_align(text_hdr.sh_size as usize),
         PROT_READ | PROT_EXEC,
     );
 
+    // Construct the final in-memory ELF representation. Look up the names of
+    // function symbols in the string table.
+    let strtab = &elf[strtab_hdr.sh_offset as usize..];
     let mut elf = Elf {
         function_names: vec![],
         function_pointers: vec![],
