@@ -19,6 +19,7 @@ struct Elf64_Rela {
     r_addend: Elf64_Sxword,
 }
 
+const R_X86_64_PC32: u64 = 2;
 const R_X86_64_PLT32: u64 = 4;
 const STT_FUNC: u8 = 2;
 
@@ -31,14 +32,14 @@ pub struct Module {
 struct Elf {
     function_names: Vec<String>,
     function_pointers: Vec<isize>,
-    text_section: *mut u8,
-    text_size: usize,
+    program_section: *mut u8,
+    program_size: usize,
 }
 
 impl Module {
     pub fn get_function_ptr(&self, name: &str) -> *mut u8 {
         unsafe {
-            self.elf.text_section.offset(
+            self.elf.program_section.offset(
                 self.elf.function_pointers[self
                     .elf
                     .function_names
@@ -52,7 +53,7 @@ impl Module {
 
 impl Drop for Elf {
     fn drop(&mut self) {
-        unsafe { munmap(self.text_section as *mut _, self.text_size) };
+        unsafe { munmap(self.program_section as *mut _, self.program_size) };
     }
 }
 
@@ -93,6 +94,7 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
     let mut symtab_ndx = -1;
     let mut strtab_ndx = -1;
     let mut text_ndx = -1;
+    let mut bss_ndx = -1;
     let mut rela_text_ndx = -1;
     let shstrtab = &elf[section_header_table[header.e_shstrndx as usize].sh_offset as usize..];
     for i in 0..header.e_shnum as usize {
@@ -103,6 +105,8 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
             strtab_ndx = i as i32;
         } else if section_name.starts_with(b".text") {
             text_ndx = i as i32;
+        } else if section_name.starts_with(b".bss") {
+            bss_ndx = i as i32;
         } else if section_name.starts_with(b".rela.text") {
             rela_text_ndx = i as i32;
         }
@@ -110,10 +114,12 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
     assert!(symtab_ndx != -1);
     assert!(strtab_ndx != -1);
     assert!(text_ndx != -1);
+    assert!(bss_ndx != -1);
 
     let symtab_hdr = section_header_table[symtab_ndx as usize];
     let strtab_hdr = section_header_table[strtab_ndx as usize];
     let text_hdr = section_header_table[text_ndx as usize];
+    let bss_hdr = section_header_table[bss_ndx as usize];
 
     let strtab = &elf[strtab_hdr.sh_offset as usize..];
     assert!(symtab_hdr.sh_entsize as usize == size_of::<Elf64_Sym>());
@@ -127,15 +133,17 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
         })
         .collect();
 
-    let text_size = page_align(text_hdr.sh_size as usize);
-    let text_base = mmap(
+    let program_size = page_align(text_hdr.sh_size as usize) + page_align(bss_hdr.sh_size as usize);
+    let program_base = mmap(
         null_mut(),
-        text_size,
+        program_size,
         PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS,
         -1,
         0,
     ) as *mut u8;
+    let text_base = program_base;
+    let bss_base = text_base.offset(page_align(text_hdr.sh_size as usize) as isize);
     copy_nonoverlapping(
         elf.as_ptr().offset(text_hdr.sh_offset as isize),
         text_base,
@@ -155,16 +163,24 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
             let symbol_idx = relocation.r_info >> 32;
             let ty = relocation.r_info & 0xFFFFFFFF;
             let patch_offset = text_base.offset(relocation.r_offset as isize);
-            let symbol_address =
-                text_base.offset(symbol_table[symbol_idx as usize].st_value as isize);
             match ty {
                 R_X86_64_PLT32 => {
+                    let symbol_address =
+                        text_base.offset(symbol_table[symbol_idx as usize].st_value as isize);
                     let patch = symbol_address
                         .offset(relocation.r_addend as isize)
                         .offset_from(patch_offset);
                     (patch_offset as *mut u32).write_unaligned(patch as u32);
                 }
-                _ => panic!(),
+                R_X86_64_PC32 => {
+                    let symbol_address =
+                        bss_base.offset(symbol_table[symbol_idx as usize].st_value as isize);
+                    let patch = symbol_address
+                        .offset(relocation.r_addend as isize)
+                        .offset_from(patch_offset);
+                    (patch_offset as *mut u32).write_unaligned(patch as u32);
+                }
+                _ => panic!("ERROR: Unrecognized relocation type: {}.", ty),
             }
         }
     }
@@ -178,8 +194,8 @@ unsafe fn parse_elf(elf: &[u8]) -> Elf {
     let mut elf = Elf {
         function_names: vec![],
         function_pointers: vec![],
-        text_section: text_base,
-        text_size,
+        program_section: program_base,
+        program_size,
     };
     for i in 0..num_symbols {
         if symbol_table[i].st_info & 0xF == STT_FUNC {
