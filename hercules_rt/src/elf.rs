@@ -9,7 +9,7 @@ use std::ptr::read_unaligned;
 use self::libc::*;
 
 /*
- * The libc crate does't have everything from elf.h, so these things need to be
+ * The libc crate doesn't have everything from elf.h, so these things need to be
  * manually defined.
  */
 
@@ -31,7 +31,6 @@ const STT_FUNC: u8 = 2;
  * runtime functions, since this is literally easier than patching the object
  * code to directly jump to those runtime functions.
  */
-
 #[derive(Debug)]
 pub(crate) struct Elf {
     pub(crate) function_names: Vec<String>,
@@ -49,7 +48,9 @@ impl Drop for Elf {
 /*
  * Function for parsing our internal memory representation of an ELF file from
  * the raw bytes of an ELF file. This includes creating a executable section of
- * code, and relocating function calls and global variables.
+ * code, and relocating function calls and global variables. This whole thing is
+ * very unsafe, and is predicated on the elf parameter referencing properly
+ * formatted bytes.
  */
 pub(crate) unsafe fn parse_elf(elf: &[u8]) -> Elf {
     fn page_align(n: usize) -> usize {
