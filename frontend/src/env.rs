@@ -5,11 +5,12 @@ use std::hash::Hash;
 pub struct Env<K, V> {
     table : HashMap<K, Vec<V>>,
     scope : Vec<HashSet<K>>,
+    count : usize,
 }
 
 impl<K : Eq + Hash + Copy, V> Env<K, V> {
     pub fn new() -> Env<K, V> {
-        Env { table : HashMap::new(), scope : vec![] }
+        Env { table : HashMap::new(), scope : vec![], count : 0 }
     }
 
     pub fn lookup(&self, k : &K) -> Option<&V> {
@@ -54,5 +55,11 @@ impl<K : Eq + Hash + Copy, V> Env<K, V> {
                 }
             },
         }
+    }
+
+    pub fn uniq(&mut self) -> usize {
+        let n = self.count;
+        self.count += 1;
+        n
     }
 }

@@ -18,3 +18,4 @@ clap = { version = "*", features = ["derive"] }
 cfgrammar = "0.13"
 lrlex = "0.13"
 lrpar = "0.13"
+hercules_ir = { path = "../hercules_ir" }

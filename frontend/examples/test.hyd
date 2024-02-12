@@ -1,0 +1,2 @@
+type foo = struct { var : usize; };
+type mat = i64[3, 3];

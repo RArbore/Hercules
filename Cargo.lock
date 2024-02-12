@@ -286,6 +286,7 @@ version = "0.0.1"
 dependencies = [
  "cfgrammar",
  "clap",
+ "hercules_ir",
  "lrlex",
  "lrpar",
 ]

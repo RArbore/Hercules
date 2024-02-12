@@ -77,7 +77,6 @@ TypeVar -> Result<TypeVar, ()>
 Kind -> Result<Kind, ()>
   : 'type'    { Ok(Kind::Type) }
   | 'usize'   { Ok(Kind::USize) }
-  | 'bool'    { Ok(Kind::Bool) }
   | 'number'  { Ok(Kind::Number) }
   | 'integer' { Ok(Kind::Integer) }
   ;
@@ -460,10 +459,6 @@ TypeExpr -> Result<TypeExpr, ()>
       { Ok(TypeExpr::NamedTypeExpr{ span : $span, name : $1?, args : $4? }) }
   | TypeExpr '[' TypeExprs ']'
       { Ok(TypeExpr::ArrayTypeExpr{ span : $span, elem : Box::new($1?), dims : $3? }) }
-  | 'true'
-      { Ok(TypeExpr::BoolLiteral{ span : $span, val : true}) }
-  | 'false'
-      { Ok(TypeExpr::BoolLiteral{ span : $span, val : false}) }
   | IntLit
       { let (span, base) = $1?;
         Ok(TypeExpr::IntLiteral{ span : span, base : base }) }
@@ -475,8 +470,6 @@ TypeExpr -> Result<TypeExpr, ()>
       { Ok(TypeExpr::Sub{ span : $span, lhs : Box::new($1?), rhs : Box::new($3?) }) }
   | TypeExpr '*' TypeExpr
       { Ok(TypeExpr::Mul{ span : $span, lhs : Box::new($1?), rhs : Box::new($3?) }) }
-  | TypeExpr 'as' Type
-      { Ok(TypeExpr::Cast{ span : $span, val : Box::new($1?), typ : $3? }) }
   ;
 
 Unmatched -> (): 'UNMATCHED' { };
@@ -505,7 +498,7 @@ pub type PackageName = Vec<Span>;
 pub type ImportName  = (PackageName, Option<Span>); // option is the wildcard *
 
 #[derive(Debug, Copy, Clone)]
-pub enum Kind { Type, USize, Bool, Number, Integer }
+pub enum Kind { Type, USize, Number, Integer }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Primitive { Bool, I8, U8, I16, U16, I32, U32, I64, U64, USize, F32, F64, Void }
 #[derive(Debug, Copy, Clone)]
@@ -623,11 +616,48 @@ pub enum TypeExpr {
   TupleType       { span : Span, tys : Vec<TypeExpr> },
   NamedTypeExpr   { span : Span, name : PackageName, args : Vec<TypeExpr> },
   ArrayTypeExpr   { span : Span, elem : Box<TypeExpr>, dims : Vec<TypeExpr> },
-  BoolLiteral     { span : Span, val : bool },
   IntLiteral      { span : Span, base : IntBase },
   Negative        { span : Span, expr : Box<TypeExpr> },
   Add             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
   Sub             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
   Mul             { span : Span, lhs : Box<TypeExpr>, rhs : Box<TypeExpr> },
-  Cast            { span : Span, val : Box<TypeExpr>, typ : Type },
+}
+
+pub trait Spans {
+  fn span(&self) -> Span;
+}
+
+impl Spans for Expr {
+  fn span(&self) -> Span {
+    match self {
+        Expr::Variable      { span, .. }
+      | Expr::Field         { span, .. }
+      | Expr::NumField      { span, .. }
+      | Expr::ArrIndex      { span, .. }
+      | Expr::Tuple         { span, .. }
+      | Expr::OrderedStruct { span, .. }
+      | Expr::NamedStruct   { span, .. }
+      | Expr::BoolLit       { span, .. }
+      | Expr::IntLit        { span, .. }
+      | Expr::FloatLit      { span }
+      | Expr::UnaryExpr     { span, .. }
+      | Expr::BinaryExpr    { span, .. }
+      | Expr::CastExpr      { span, .. }
+      | Expr::SizeExpr      { span, .. }
+      | Expr::CondExpr      { span, .. }
+      | Expr::CallExpr      { span, .. }
+        => *span
+    }
+  }
+}
+
+impl IntBase {
+  pub fn base(&self) -> u32 {
+    match self {
+      IntBase::Binary      => 2,
+      IntBase::Octal       => 8,
+      IntBase::Decimal     => 10,
+      IntBase::Hexadecimal => 16,
+    }
+  }
 }
