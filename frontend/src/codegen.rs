@@ -19,7 +19,7 @@ use crate::env::Env;
 use crate::ssa::SSA;
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum DynamicConstant {
+enum DynamicConstant {
     Constant(usize), // constant value
     DynConst(usize, usize), // name and dynamic constant number
 }
@@ -34,7 +34,7 @@ impl DynamicConstant {
 }
 
 #[derive(Clone, Eq)]
-pub enum Type {
+enum Type {
     Primitive(Primitive),
     Tuple(Vec<Type>),
     Array(Box<Type>, Vec<DynamicConstant>),
@@ -132,17 +132,31 @@ impl Type {
             _ => false,
         }
     }
+
+    fn is_void(&self) -> bool {
+        match self {
+            Type::Primitive(Primitive::Void) => true,
+            _ => false,
+        }
+    }
 }
 
-pub enum Entity {
-    // A variable has a binding number to distinguish shadowing
-    Variable { value : NodeID, binding : usize, typ : Type, is_const : bool },
+enum GoalType {
+    KnownType(Type),
+    StructType { field : usize, field_type : Box<GoalType> },
+    RecordType { index : usize, index_type : Box<GoalType> },
+    ArrayType  { element_type : Box<GoalType> },
+}
+
+enum Entity {
+    // A variable has a variable number to distinguish shadowing
+    Variable { value : NodeID, variable : usize, typ : Type, is_const : bool },
     Type     { value : Type },
     DynConst { value : usize }, // dynamic constant number
 }
 
 // Map strings to unique identifiers and counts uids
-pub struct StringTable {
+struct StringTable {
     count : usize,
     string_to_index : HashMap<String, usize>,
     index_to_string : HashMap<usize, String>,
@@ -197,7 +211,10 @@ fn span_to_loc(span : Span, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32
     lexer.line_col(span)
 }
 
-pub fn parse_program(src_file : String) -> Result<Module, ErrorMessages> {
+// Loop info is a stack of the loop levels, recording the latch and exit block of each
+type LoopInfo = Vec<(NodeID, NodeID)>;
+
+pub fn process_program(src_file : String) -> Result<Module, ErrorMessages> {
     let mut stringtab = StringTable::new();
     let mut file = File::open(src_file.clone()).expect("PANIC: Unable to open input file.");
     parse_file(&mut file, &mut stringtab)
@@ -376,15 +393,13 @@ fn prepare_program(
                 }
 
                 let mut inout_types = vec![];
-                let mut inout_names = vec![];
-                for arg_idx in inout_args {
-                    inout_types.push(arg_types[arg_idx].1.clone());
-                    inout_names.push(arg_types[arg_idx].0);
+                for arg_idx in &inout_args {
+                    inout_types.push(arg_types[*arg_idx].1.clone());
                 }
                 
                 let pure_return_type
-                    = Type::Tuple(vec![return_type,
-                                  Type::Tuple(inout_types)]);
+                    = Type::Tuple(vec![return_type.clone(),
+                                  Type::Tuple(inout_types.clone())]);
                 let return_type_built =
                     build_type(&pure_return_type, &mut builder);
 
@@ -395,6 +410,8 @@ fn prepare_program(
                                               return_type_built,
                                               num_dyn_const).unwrap();
                 
+                let mut arg_variables = vec![];
+
                 let mut idx = 0;
                 for (nm, ty) in arg_types {
                     let mut node_builder = builder.allocate_node(func);
@@ -402,19 +419,51 @@ fn prepare_program(
                     node_builder.build_parameter(idx);
                     let _ = builder.add_node(node_builder);
 
-                    let binding = env.uniq();
+                    let variable = env.uniq();
                     env.insert(nm,
                                Entity::Variable {
                                    value : node,
-                                   binding : binding,
+                                   variable : variable,
                                    typ : ty,
                                    is_const : false });
+                    arg_variables.push(variable);
 
                     idx += 1;
                 }
 
+                let inout_variables = inout_args.iter().map(|i| arg_variables[*i]).collect::<Vec<_>>();
+
                 // Finally, we have a properly built environment and we can
                 // start processing the body
+                let mut ssa : SSA = SSA::new(func, entry);
+
+                match process_stmt(body, lexer, stringtab, &mut env, &mut builder, func, &mut ssa,
+                                   entry, &mut vec![], &return_type, &inout_types, &inout_variables)? {
+                    None => {},
+                    Some(block) => {
+                        // The fact that some block is returned indicates that there is possibly
+                        // some path that does not reach a return. This is an error unless the
+                        // return type is "void"
+                        if return_type.is_void() {
+                            // Insert return at the end
+                            // ( (), (...return_variables...) )
+                            let unit_const = builder.create_constant_prod(vec![].into());
+                            let mut unit_build = builder.allocate_node(func);
+                            let unit_value = unit_build.id();
+                            unit_build.build_constant(unit_const);
+                            let _ = builder.add_node(unit_build);
+
+                            build_return(&return_type, unit_value, block,
+                                         &inout_types, &inout_variables,
+                                         &mut builder, func, &mut ssa);
+                        } else {
+                            return Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(span, lexer),
+                                        "May reach end of control without return".to_string())));
+                        }
+                    },
+                }
 
                 env.closeScope();
             },
@@ -643,13 +692,419 @@ fn process_type_expr_as_expr(
     }
 }
 
+// The return is the block that a statement after this statement should go in,
+// it may be None in the case of a return
 fn process_stmt<'a>(
     stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
-    builder : &mut Builder<'a>, pred : NodeID, return_type : Type,
-    inout_returns : Vec<usize>, /**/) -> Result<NodeID, ErrorMessages> {
+    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
+    pred : NodeID, loops : &mut LoopInfo, return_type : &Type,
+    inout_types : &Vec<Type>, inout_vars : &Vec<usize>) -> Result<Option<NodeID>, ErrorMessages> {
+
+    match stmt {
+        lang_y::Stmt::LetStmt { span, var : VarBind { span : vSpan, pattern, typ }, init } => {
+            match pattern {
+                SPattern::Variable { span, name } => {
+                    if typ.is_none() {
+                        return Err(singleton_error(
+                                ErrorMessage::NotImplemented(
+                                    span_to_loc(vSpan, lexer),
+                                    "variable type inference".to_string())));
+                    }
+
+                    if name.len() != 1 {
+                        return Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    "Bound variables must be local names, without a package separator".to_string())));
+                    }
+
+                    let nm = intern_packageName(&name, lexer, stringtab)[0];
+                    let ty = process_type(typ.expect("FROM ABOVE"), lexer, stringtab, env)?;
+
+                    let var = env.uniq();
+
+                    let val =
+                        match init {
+                            Some(exp) => {
+                                process_expr(exp, lexer, stringtab, env, builder, func, ssa,
+                                             pred, &GoalType::KnownType(ty.clone()))?
+                            },
+                            None => {
+                                let init = build_default(&ty, builder);
+                                let mut node_builder = builder.allocate_node(func);
+                                let node = node_builder.id();
+                                node_builder.build_constant(init);
+                                let _ = builder.add_node(node_builder);
+                                node
+                            },
+                        };
+
+                    env.insert(nm,
+                               Entity::Variable { value : val, variable : var,
+                                                  typ : ty, is_const : false });
+                    Ok(Some(pred))
+                },
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::NotImplemented(
+                                span_to_loc(vSpan, lexer),
+                                "non-variable bindings".to_string())))
+                },
+            }
+        },
+        lang_y::Stmt::ConstStmt { span, var, init } => {
+            Err(singleton_error(
+                    ErrorMessage::NotImplemented(
+                        span_to_loc(span, lexer),
+                        "constant bindings".to_string())))
+        },
+        lang_y::Stmt::AssignStmt { span, lhs, assign, assign_span, rhs } => {
+            let (var, typ, index) = process_lexpr(lhs, lexer, stringtab, env, builder,
+                                                  func, ssa, pred)?;
+
+            let val = process_expr(rhs, lexer, stringtab, env, builder, func,
+                                   ssa, pred, &GoalType::KnownType(typ.clone()))?;
+
+            if assign == AssignOp::None {
+                let init_value = ssa.read_variable(var, pred, builder);
+
+                let mut update_builder = builder.allocate_node(func);
+                ssa.write_variable(var, pred, update_builder.id());
+
+                update_builder.build_write(init_value, val, index.into());
+                let _ = builder.add_node(update_builder);
+                
+                Ok(Some(pred))
+            } else {
+                let op =
+                    match assign {
+                        AssignOp::None => panic!("Impossible"),
+                        AssignOp::Add => {
+                            if !typ.is_numeric() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator += cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Add
+                        },
+                        AssignOp::Sub => {
+                            if !typ.is_numeric() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator -= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Sub
+                        },
+                        AssignOp::Mul => {
+                            if !typ.is_numeric() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator *= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Mul
+                        },
+                        AssignOp::Div => {
+                            if !typ.is_numeric() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator /= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Div
+                        },
+                        AssignOp::Mod => {
+                            if !typ.is_integer() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator %= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Rem
+                        },
+                        AssignOp::BitAnd => {
+                            if !typ.is_bitwise() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator &= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::And
+                        },
+                        AssignOp::BitOr => {
+                            if !typ.is_bitwise() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator |= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Or
+                        },
+                        AssignOp::Xor => {
+                            if !typ.is_bitwise() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator ^= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::Xor
+                        },
+                        AssignOp::LogAnd => {
+                            if !typ.is_boolean() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator &&= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            return Err(singleton_error(
+                                    ErrorMessage::NotImplemented(
+                                        span_to_loc(assign_span, lexer),
+                                        "&&= operator".to_string())));
+                        },
+                        AssignOp::LogOr => {
+                            if !typ.is_boolean() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator ||= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            return Err(singleton_error(
+                                    ErrorMessage::NotImplemented(
+                                        span_to_loc(assign_span, lexer),
+                                        "||= operator".to_string())));
+                        },
+                        AssignOp::LShift => {
+                            if !typ.is_bitwise() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator <<= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::LSh
+                        },
+                        AssignOp::RShift => {
+                            if !typ.is_bitwise() {
+                                return Err(singleton_error(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(assign_span, lexer),
+                                            format!("Operator >>= cannot be applied to type {}",
+                                                    typ.to_string(stringtab)))));
+                            }
+                            BinaryOperator::RSh
+                        },
+                    };
+                
+                let init_value = ssa.read_variable(var, pred, builder);
+
+                let mut compute_builder = builder.allocate_node(func);
+                let mut update_builder  = builder.allocate_node(func);
+                ssa.write_variable(var, pred, update_builder.id());
+
+                compute_builder.build_binary(init_value, val, op);
+                update_builder.build_write(init_value, compute_builder.id(), index.into());
+
+                let _ = builder.add_node(compute_builder);
+                let _ = builder.add_node(update_builder);
+
+                Ok(Some(pred))
+            }
+        },
+        lang_y::Stmt::IfStmt { span, cond, thn, els } => {
+            todo!()
+        },
+        lang_y::Stmt::MatchStmt { span, expr, body } => {
+            Err(singleton_error(
+                    ErrorMessage::NotImplemented(
+                        span_to_loc(span, lexer),
+                        "match statements".to_string())))
+        },
+        lang_y::Stmt::ForStmt { span, var, init, bound, step, body } => {
+            todo!()
+        },
+        lang_y::Stmt::WhileStmt { span, cond, body } => {
+            todo!()
+        },
+        lang_y::Stmt::ReturnStmt { span, expr } => {
+            todo!()
+        },
+        lang_y::Stmt::BreakStmt { span } => {
+            todo!()
+        },
+        lang_y::Stmt::ContinueStmt { span } => {
+            todo!()
+        },
+        lang_y::Stmt::BlockStmt { span, body } => {
+            todo!()
+        },
+        lang_y::Stmt::CallStmt { span, name, ty_args, args } => {
+            Err(singleton_error(
+                    ErrorMessage::NotImplemented(
+                        span_to_loc(span, lexer),
+                        "function calls".to_string())))
+        },
+    }
+}
+
+fn process_expr<'a>(
+    expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+    stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
+    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
+    block : NodeID, goal_type : &GoalType) -> Result<NodeID, ErrorMessages> {
 
     todo!()
+}
+
+fn process_lexpr<'a>(
+    expr : lang_y::LExpr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+    stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
+    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
+    block : NodeID) -> Result<(usize, Type, Vec<Index>), ErrorMessages> {
+
+    match expr {
+        lang_y::LExpr::VariableLExpr { span } => {
+            let nm = intern_id(&span, lexer, stringtab);
+            match env.lookup(&nm) {
+                Some(Entity::Variable { value, variable, typ, is_const }) => {
+                    if *is_const {
+                        return Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Variable {} is const, cannot assign to it",
+                                            lexer.span_str(span)))));
+                    }
+
+                    Ok((*variable, typ.clone(), vec![]))
+                },
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                lexer.span_str(span).to_string())))
+                },
+            }
+        },
+        lang_y::LExpr::FieldLExpr { span, lhs, rhs } => {
+            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
+                                                    builder, func, ssa, block)?;
+            let field_str = lexer.span_str(rhs)[1..].to_string();
+            let field_nm = stringtab.lookupString(field_str.clone());
+
+            match typ {
+                Type::Struct { name, id, ref fields, ref names } => {
+                    match names.get(&field_nm) {
+                        Some(index) => {
+                            idx.push(builder.create_field_index(*index));
+                            Ok((var, fields[*index].clone(), idx))
+                        },
+                        None => {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Operation .{} does not apply to type {}, does not contain field",
+                                            field_str, typ.to_string(stringtab)))))
+                        },
+                    }
+                },
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Operation .{} does not apply to type {}, expected a struct",
+                                        field_str, typ.to_string(stringtab)))))
+                },
+            }
+        },
+        lang_y::LExpr::NumFieldLExpr { span, lhs, rhs } => {
+            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
+                                                    builder, func, ssa, block)?;
+            let num = lexer.span_str(rhs)[1..].parse::<usize>()
+                                              .expect("From lexical analysis");
+
+            match typ {
+                Type::Tuple(ref fields) => {
+                    if num < fields.len() {
+                        idx.push(builder.create_field_index(num));
+                        Ok((var, fields[num].clone(), idx))
+                    } else {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Operation .{} does not apply to type {}, too few fields",
+                                            num, typ.to_string(stringtab)))))
+                    }
+                }
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Operation .{} does not apply to type {}, expected a tuple",
+                                        num, typ.to_string(stringtab)))))
+                },
+            }
+        },
+        lang_y::LExpr::IndexLExpr { span, lhs, index } => {
+            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
+                                                    builder, func, ssa, block)?;
+            
+            let mut indices = vec![];
+            let mut errors = LinkedList::new();
+            for idx in index {
+                match process_expr(idx, lexer, stringtab, env, builder,
+                                   func, ssa, block,
+                                   &GoalType::KnownType(Type::Primitive(Primitive::USize))) {
+                    Ok(exp) => indices.push(exp),
+                    Err(mut errs) => errors.append(&mut errs),
+                }
+            }
+
+            if !errors.is_empty() {
+                return Err(errors);
+            }
+
+            match typ {
+                Type::Array(element, dimensions) => {
+                    if indices.len() < dimensions.len() {
+                        // We do not access all dimensions, hence left with an array
+                        let indices_len = indices.len();
+                        idx.push(builder.create_position_index(indices.into()));
+                        Ok((var, Type::Array(element, dimensions[indices_len..].to_vec()), idx))
+                    } else if indices.len() == dimensions.len() {
+                        // All dimenensions are accessed, left with the element type
+                        idx.push(builder.create_position_index(indices.into()));
+                        Ok((var, *element, idx))
+                    } else {
+                        // Too many dimensions are accessed
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Too many array indices, value has {} dimensions but using {} indices",
+                                            dimensions.len(), indices.len()))))
+                    }
+                },
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Array index does not apply to type {}",
+                                        typ.to_string(stringtab)))))
+                },
+            }
+        },
+    }
 }
 
 fn build_dynamic_constant<'a>(c : &DynamicConstant, builder : &mut Builder<'a>) -> DynamicConstantID {
@@ -692,6 +1147,90 @@ fn build_type<'a>(ty : &Type, builder : &mut Builder<'a>) -> TypeID {
             builder.create_type_array(elem_type, dims_built.into())
         },
     }
+}
+
+fn build_tuple<'a>(types : &Vec<Type>, vals : &Vec<NodeID>,
+                   builder : &mut Builder<'a>, func : FunctionID) -> NodeID {
+    assert!(types.len() == vals.len(), "Types and values must be same length to construct a tuple");
+
+    // Create constant
+    let mut inits = vec![];
+    for ty in types {
+        inits.push(build_default(ty, builder));
+    }
+
+    let init_const = builder.create_constant_prod(inits.into());
+    let mut init_val_builder = builder.allocate_node(func);
+    let init_val = init_val_builder.id();
+
+    init_val_builder.build_constant(init_const);
+    let _ = builder.add_node(init_val_builder);
+
+    // Write each field
+    let mut cur_value = init_val;
+    for (idx, val) in vals.iter().enumerate() {
+        let mut write_builder = builder.allocate_node(func);
+        let write_node = write_builder.id();
+
+        let index = builder.create_field_index(idx);
+
+        write_builder.build_write(cur_value, *val, vec![index].into());
+        let _ = builder.add_node(write_builder);
+
+        cur_value = write_node;
+    }
+
+    cur_value
+}
+
+fn build_default<'a>(ty : &Type, builder : &mut Builder<'a>) -> ConstantID {
+    match ty {
+        Type::Primitive(Primitive::Bool)  => builder.create_constant_bool(false),
+        Type::Primitive(Primitive::I8)    => builder.create_constant_i8(0),
+        Type::Primitive(Primitive::U8)    => builder.create_constant_u8(0),
+        Type::Primitive(Primitive::I16)   => builder.create_constant_i16(0),
+        Type::Primitive(Primitive::U16)   => builder.create_constant_u16(0),
+        Type::Primitive(Primitive::I32)   => builder.create_constant_i32(0),
+        Type::Primitive(Primitive::U32)   => builder.create_constant_u32(0),
+        Type::Primitive(Primitive::I64)   => builder.create_constant_i64(0),
+        Type::Primitive(Primitive::U64)   => builder.create_constant_u64(0),
+        Type::Primitive(Primitive::USize) => builder.create_constant_u64(0),
+        Type::Primitive(Primitive::F32)   => builder.create_constant_f32(0.0),
+        Type::Primitive(Primitive::F64)   => builder.create_constant_f64(0.0),
+        Type::Primitive(Primitive::Void)  => builder.create_constant_prod(vec![].into()),
+        
+        Type::Tuple(fields) 
+        | Type::Struct { name : _, id : _, fields, .. } => {
+            let mut defaults = vec![];
+            for ty in fields {
+                defaults.push(build_default(ty, builder));
+            }
+            builder.create_constant_prod(defaults.into())
+        },
+
+        Type::Array(elem, dims) => {
+            todo!("Cannot build default value for arrays") // FIXME
+        },
+    }
+}
+
+fn build_return<'a>(return_type : &Type, return_value : NodeID, block : NodeID,
+                    inout_types : &Vec<Type>, inout_vars : &Vec<usize>,
+                    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA) {
+    let mut inout_vals = vec![];
+    for var in inout_vars {
+        let value = ssa.read_variable(*var, block, builder);
+        inout_vals.push(value);
+    }
+
+    let inout_values = build_tuple(inout_types, &inout_vals, builder, func);
+    let return_value = build_tuple(&vec![return_type.clone(), Type::Tuple(inout_types.clone())],
+                                   &vec![return_value, inout_values],
+                                   builder, func);
+
+    let mut return_builder = builder.allocate_node(func);
+    return_builder.build_return(block, return_value);
+    let _ = builder.add_node(return_builder);
 }
 /*
 

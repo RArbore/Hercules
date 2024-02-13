@@ -2,10 +2,10 @@ extern crate clap;
 
 use clap::Parser;
 
-mod parser;
+mod codegen;
 mod env;
 mod ssa;
-use parser::*;
+use codegen::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,7 +15,7 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
-    let module = parse_program(args.src_file);
+    let module = process_program(args.src_file);
     match module {
         Ok(module) => println!("Success"),
         Err(errs) => {
