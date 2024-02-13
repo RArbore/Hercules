@@ -7,6 +7,8 @@ mod env;
 mod ssa;
 use codegen::*;
 
+extern crate hercules_ir;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -17,7 +19,21 @@ fn main() {
     let args = Cli::parse();
     let module = process_program(args.src_file);
     match module {
-        Ok(module) => println!("Success"),
+        Ok(mut module) => {
+            let (_def_uses, reverse_postorders, typing, _subgraphs, doms,
+                 _postdoms, fork_join_maps)
+                = hercules_ir::verify::verify(&mut module)
+                    .expect("PANIC: Failed to verify Hercules IR modules.");
+
+            //let mut file = File::create("output.dot").expect("PANIC: Unable to open output file.");
+            //let mut contents = String::new();
+            //write_dot(&module, &reverse_postorders, &typing, &doms, &fork_join_maps,
+            //          &mut contents)
+            //    .expect("PANIC: Unable to generate output file contents.");
+            //file.write_all(contents.as_bytes())
+            //    .expect("PANIC: Unable to write output file contents.");
+            println!("Success");
+        },
         Err(errs) => {
             for err in errs {
                 error_message(err);

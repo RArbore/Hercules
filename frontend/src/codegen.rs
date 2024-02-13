@@ -150,7 +150,7 @@ enum GoalType {
 
 enum Entity {
     // A variable has a variable number to distinguish shadowing
-    Variable { value : NodeID, variable : usize, typ : Type, is_const : bool },
+    Variable { variable : usize, typ : Type, is_const : bool },
     Type     { value : Type },
     DynConst { value : usize }, // dynamic constant number
 }
@@ -188,6 +188,7 @@ impl StringTable {
 
 // Start line and column, end line and column
 pub type Location = ((usize, usize), (usize, usize));
+#[derive(Debug, Clone)]
 pub enum ErrorMessage {
     NotImplemented(Location, String),
     SyntaxError(String),
@@ -204,6 +205,43 @@ pub type ErrorMessages = LinkedList<ErrorMessage>;
 
 fn singleton_error(err : ErrorMessage) -> ErrorMessages {
     LinkedList::from([err])
+}
+
+fn get_errors<A>(x : &Result<A, ErrorMessages>) -> ErrorMessages {
+    match x {
+        Err(errs) => errs.clone(),
+        Ok(_) => LinkedList::new(),
+    }
+}
+
+fn append_errors2<A, B>(x : Result<A, ErrorMessages>, y : Result<B, ErrorMessages>)
+    -> Result<(A, B), ErrorMessages> {
+    let mut errsX = get_errors(&x);
+    let mut errsY = get_errors(&y);
+
+    errsX.append(&mut errsY);
+
+    if !errsX.is_empty() {
+        Err(errsX)
+    } else {
+        Ok((x.expect("Above"), y.expect("Above")))
+    }
+}
+
+fn append_errors3<A, B, C>(x : Result<A, ErrorMessages>, y : Result<B, ErrorMessages>,
+                           z : Result<C, ErrorMessages>) -> Result<(A, B, C), ErrorMessages> {
+    let mut errsX = get_errors(&x);
+    let mut errsY = get_errors(&y);
+    let mut errsZ = get_errors(&z);
+
+    errsX.append(&mut errsY);
+    errsX.append(&mut errsZ);
+
+    if !errsX.is_empty() {
+        Err(errsX)
+    } else {
+        Ok((x.expect("Above"), y.expect("Above"), z.expect("Above")))
+    }
 }
 
 fn span_to_loc(span : Span, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>)
@@ -410,6 +448,8 @@ fn prepare_program(
                                               return_type_built,
                                               num_dyn_const).unwrap();
                 
+                let mut ssa : SSA = SSA::new(func, entry);
+                
                 let mut arg_variables = vec![];
 
                 let mut idx = 0;
@@ -422,11 +462,12 @@ fn prepare_program(
                     let variable = env.uniq();
                     env.insert(nm,
                                Entity::Variable {
-                                   value : node,
                                    variable : variable,
                                    typ : ty,
                                    is_const : false });
                     arg_variables.push(variable);
+
+                    ssa.write_variable(variable, entry, node);
 
                     idx += 1;
                 }
@@ -435,8 +476,6 @@ fn prepare_program(
 
                 // Finally, we have a properly built environment and we can
                 // start processing the body
-                let mut ssa : SSA = SSA::new(func, entry);
-
                 match process_stmt(body, lexer, stringtab, &mut env, &mut builder, func, &mut ssa,
                                    entry, &mut vec![], &return_type, &inout_types, &inout_variables)? {
                     None => {},
@@ -559,7 +598,11 @@ fn process_type(
             if !errors.is_empty() {
                 Err(errors)
             } else {
-                Ok(Type::Tuple(fields))
+                if fields.len() == 1 {
+                    Ok(fields.pop().expect("Length"))
+                } else {
+                    Ok(Type::Tuple(fields))
+                }
             }
         },
         lang_y::Type::NamedType { span, name, args } => {
@@ -741,8 +784,9 @@ fn process_stmt<'a>(
                         };
 
                     env.insert(nm,
-                               Entity::Variable { value : val, variable : var,
-                                                  typ : ty, is_const : false });
+                               Entity::Variable { variable : var, typ : ty, is_const : false });
+                    ssa.write_variable(var, pred, val);
+
                     Ok(Some(pred))
                 },
                 _ => {
@@ -924,7 +968,48 @@ fn process_stmt<'a>(
             }
         },
         lang_y::Stmt::IfStmt { span, cond, thn, els } => {
-            todo!()
+            // Setup control flow that we need
+            let (mut if_node, then_block, else_block) = ssa.create_cond(builder, pred);
+
+            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
+                                        func, ssa, pred,
+                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
+
+            env.openScope();
+            let then_end = process_stmt(*thn, lexer, stringtab, env, builder,
+                                        func, ssa, then_block, loops, return_type,
+                                        inout_types, inout_vars);
+            env.closeScope();
+
+            let else_end =
+                match els {
+                    None => Ok(Some(else_block)),
+                    Some(els_stmt) => {
+                        env.openScope();
+                        let res = process_stmt(*els_stmt, lexer, stringtab, env, builder,
+                                               func, ssa, else_block, loops, return_type,
+                                               inout_types, inout_vars);
+                        env.closeScope();
+                        res
+                    },
+                };
+
+            let (cond_val, then_term, else_term) = append_errors3(cond_val, then_end, else_end)?;
+
+            if_node.build_if(pred, cond_val);
+            let _ = builder.add_node(if_node);
+
+            match (then_term, else_term) {
+                (None, els) => Ok(els),
+                (thn, None) => Ok(thn),
+                (Some(then_term), Some(else_term)) => {
+                    let join_node = ssa.create_block(builder);
+                    ssa.add_pred(join_node, then_term);
+                    ssa.add_pred(join_node, else_term);
+                    ssa.seal_block(join_node, builder);
+                    Ok(Some(join_node))
+                },
+            }
         },
         lang_y::Stmt::MatchStmt { span, expr, body } => {
             Err(singleton_error(
@@ -932,23 +1017,261 @@ fn process_stmt<'a>(
                         span_to_loc(span, lexer),
                         "match statements".to_string())))
         },
-        lang_y::Stmt::ForStmt { span, var, init, bound, step, body } => {
-            todo!()
+        lang_y::Stmt::ForStmt { span, var : VarBind { span : v_span, pattern, typ },
+                                init, bound, step, body } => {
+            let latch = ssa.create_block(builder);
+            let update = ssa.create_block(builder);
+
+            ssa.add_pred(latch, pred);
+            ssa.add_pred(latch, update);
+            ssa.seal_block(latch, builder);
+
+            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
+            let exit = ssa.create_block(builder);
+
+            ssa.add_pred(exit, false_proj);
+
+            let (var, var_name, var_type) =
+                match pattern {
+                    SPattern::Variable { span, name } => {
+                        if name.len() != 1 {
+                            return Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(span, lexer),
+                                        "Bound variables must be local names, without a package separator".to_string())));
+                        }
+
+                        let nm = intern_packageName(&name, lexer, stringtab)[0];
+                        let var_type =
+                            match typ {
+                                None => Type::Primitive(Primitive::U64),
+                                Some(t) => {
+                                    let ty = process_type(t, lexer, stringtab, env)?;
+                                    if !ty.is_integer() {
+                                        return Err(singleton_error(
+                                                ErrorMessage::SemanticError(
+                                                    span_to_loc(v_span, lexer),
+                                                    "For loop variables must be integers".to_string())));
+                                    }
+                                    ty
+                                },
+                            };
+
+                        let var = env.uniq();
+                        (var, nm, var_type)
+                    },
+                    _ => {
+                        return Err(singleton_error(
+                                ErrorMessage::NotImplemented(
+                                    span_to_loc(v_span, lexer),
+                                    "patterns in for loop arguments".to_string())));
+                    },
+                };
+            
+            // Evaluate the initial value, bound, and step in the predecessor
+            let init_res = process_expr(init, lexer, stringtab, env, builder,
+                                        func, ssa, pred,
+                                        &GoalType::KnownType(var_type.clone()));
+
+            let bound_res = process_expr(bound, lexer, stringtab, env, builder,
+                                         func, ssa, pred,
+                                         &GoalType::KnownType(var_type.clone()));
+            let (step_val, step_pos) =
+                match step {
+                    None => {
+                        (build_uint_const(&var_type, 1, builder, func), true)
+                    },
+                    Some((negative, span, base)) => {
+                        let val = u64::from_str_radix(lexer.span_str(span), base.base());
+                        assert!(val.is_ok(), "Internal Error: Int literal is not an integer");
+                        let num = val.unwrap();
+                        if num == 0 {
+                            return Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(span, lexer),
+                                        "For loop step cannot be 0".to_string())));
+                        }
+
+                        if negative {
+                            (build_int_const(&var_type, - (num as i64), builder, func), false)
+                        } else {
+                            (build_uint_const(&var_type, num, builder, func), true)
+                        }
+                    },
+                };
+
+            let (init_val, bound_val) = append_errors2(init_res, bound_res)?;
+
+            // Setup initial value
+            ssa.write_variable(var, pred, init_val);
+           
+            // Build the update
+            let mut update_node = builder.allocate_node(func);
+            let updated = update_node.id();
+            let loop_var = ssa.read_variable(var, update, builder);
+            update_node.build_binary(loop_var, step_val, BinaryOperator::Add);
+            let _ = builder.add_node(update_node);
+            ssa.write_variable(var, update, updated);
+
+            // Build the condition
+            let condition = {
+                let mut compare_node = builder.allocate_node(func);
+                let cond = compare_node.id();
+                let loop_var = ssa.read_variable(var, latch, builder);
+                
+                compare_node.build_binary(loop_var, bound_val,
+                                          if step_pos { BinaryOperator::LT }
+                                          else { BinaryOperator::GT });
+                
+                let _ = builder.add_node(compare_node);
+                cond
+            };
+
+            env.openScope();
+            loops.push((update, exit));
+            env.insert(var_name, Entity::Variable {
+                                    variable : var, typ : var_type, is_const : true });
+
+            let body_term = process_stmt(*body, lexer, stringtab, env, builder,
+                                         func, ssa, body_node, loops, return_type,
+                                         inout_types, inout_vars)?;
+
+            env.closeScope();
+            loops.pop();
+
+            if_node.build_if(latch, condition);
+            let _ = builder.add_node(if_node);
+
+            match body_term { 
+                None => {},
+                Some(block) => { ssa.add_pred(update, block); },
+            }
+
+            ssa.seal_block(update, builder);
+            ssa.seal_block(exit, builder);
+
+            Ok(Some(exit))
         },
         lang_y::Stmt::WhileStmt { span, cond, body } => {
-            todo!()
+            let latch = ssa.create_block(builder);
+            ssa.add_pred(latch, pred);
+            
+            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
+            let exit = ssa.create_block(builder);
+
+            ssa.add_pred(exit, false_proj);
+
+            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
+                                        func, ssa, latch,
+                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
+
+            env.openScope();
+            loops.push((latch, exit));
+
+            let body_end = process_stmt(*body, lexer, stringtab, env, builder,
+                                        func, ssa, body_node, loops, return_type,
+                                        inout_types, inout_vars);
+
+            env.closeScope();
+            loops.pop();
+
+            let (condition, body_term) = append_errors2(cond_val, body_end)?;
+
+            if_node.build_if(latch, condition);
+            let _ = builder.add_node(if_node);
+
+            match body_term {
+                None => {},
+                Some(block) => { ssa.add_pred(latch, block); },
+            }
+
+            ssa.seal_block(latch, builder);
+            ssa.seal_block(exit, builder);
+
+            Ok(Some(exit))
         },
         lang_y::Stmt::ReturnStmt { span, expr } => {
-            todo!()
+            let val =
+                if expr.is_none() && return_type.is_void() {
+                    let unit_const = builder.create_constant_prod(vec![].into());
+                    let mut unit_node = builder.allocate_node(func);
+                    let unit_val = unit_node.id();
+                    unit_node.build_constant(unit_const);
+                    let _ = builder.add_node(unit_node);
+                    unit_val
+                } else if expr.is_none() {
+                    return Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Expected return of type {} found no return value",
+                                        return_type.to_string(stringtab)))));
+                } else {
+                    process_expr(expr.unwrap(), lexer, stringtab, env,
+                                 builder, func, ssa, pred,
+                                 &GoalType::KnownType(return_type.clone()))?
+                };
+
+            build_return(return_type, val, pred, inout_types, inout_vars,
+                         builder, func, ssa);
+
+            Ok(None)
         },
         lang_y::Stmt::BreakStmt { span } => {
-            todo!()
+            if loops.len() <= 0 {
+                return Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            "Break not contained within loop".to_string())));
+            }
+
+            let last_loop = loops.len() - 1;
+            let (_latch, exit) = loops[last_loop];
+            ssa.add_pred(exit, pred); // The block that contains this break now leads to the exit
+            
+            Ok(None) // Code after the break is unreachable
         },
         lang_y::Stmt::ContinueStmt { span } => {
-            todo!()
+            if loops.len() <= 0 {
+                return Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            "Continue not contained within loop".to_string())));
+            }
+
+            let last_loop = loops.len() - 1;
+            let (latch, _exit) = loops[last_loop];
+            ssa.add_pred(latch, pred); // The block that contains this break now leads to the latch
+            
+            Ok(None) // Code after the continue is unreachable
         },
         lang_y::Stmt::BlockStmt { span, body } => {
-            todo!()
+            env.openScope();
+
+            let mut next = Some(pred);
+            let mut errors = LinkedList::new();
+            for stmt in body {
+                if next.is_none() {
+                    return Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(stmt.span(), lexer),
+                                "Unreachable statement".to_string())));
+                }
+
+                match process_stmt(stmt, lexer, stringtab, env, builder, func,
+                                   ssa, next.expect("From above"), loops,
+                                   return_type, inout_types, inout_vars) {
+                    Err(mut errs) => { errors.append(&mut errs); },
+                    Ok(block) => { next = block; },
+                }
+            }
+
+            env.closeScope();
+
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok(next)
+            }
         },
         lang_y::Stmt::CallStmt { span, name, ty_args, args } => {
             Err(singleton_error(
@@ -965,7 +1288,43 @@ fn process_expr<'a>(
     builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
     block : NodeID, goal_type : &GoalType) -> Result<NodeID, ErrorMessages> {
 
-    todo!()
+    match expr {
+        lang_y::Expr::Variable { span, name } => { todo!() },
+        lang_y::Expr::Field { span, lhs, rhs } => { todo!() },
+        lang_y::Expr::NumField { span, lhs, rhs } => { todo!() },
+        lang_y::Expr::ArrIndex { span, lhs, index } => { todo!() },
+        lang_y::Expr::Tuple { span, exprs } => { todo!() },
+        lang_y::Expr::OrderedStruct { span, exprs } => { todo!() },
+        lang_y::Expr::NamedStruct { span, exprs } => { todo!() },
+        lang_y::Expr::BoolLit { span, value } => {
+            // HERE
+            // TODO: Handle goal type
+            let mut node = builder.allocate_node(func);
+            let const_val = builder.create_constant_bool(value);
+            let res = node.id();
+            node.build_constant(const_val);
+            let _ = builder.add_node(node);
+            //res
+            todo!()
+        },
+        lang_y::Expr::IntLit { span, base } => {
+            todo!()
+        },
+        lang_y::Expr::FloatLit { span } => {
+            todo!()
+        },
+        lang_y::Expr::UnaryExpr { span, op, expr } => { todo!() },
+        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => { todo!() },
+        lang_y::Expr::CastExpr { span, expr, typ } => { todo!() },
+        lang_y::Expr::SizeExpr { span, expr } => { todo!() },
+        lang_y::Expr::CondExpr { span, cond, thn, els } => { todo!() },
+        lang_y::Expr::CallExpr { span, name, ty_args, args } => {
+            Err(singleton_error(
+                    ErrorMessage::NotImplemented(
+                        span_to_loc(span, lexer),
+                        "function calls".to_string())))
+        },
+    }
 }
 
 fn process_lexpr<'a>(
@@ -978,7 +1337,7 @@ fn process_lexpr<'a>(
         lang_y::LExpr::VariableLExpr { span } => {
             let nm = intern_id(&span, lexer, stringtab);
             match env.lookup(&nm) {
-                Some(Entity::Variable { value, variable, typ, is_const }) => {
+                Some(Entity::Variable { variable, typ, is_const }) => {
                     if *is_const {
                         return Err(singleton_error(
                                 ErrorMessage::SemanticError(
@@ -1000,7 +1359,7 @@ fn process_lexpr<'a>(
         lang_y::LExpr::FieldLExpr { span, lhs, rhs } => {
             let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
                                                     builder, func, ssa, block)?;
-            let field_str = lexer.span_str(rhs)[1..].to_string();
+            let field_str = lexer.span_str(rhs).to_string();
             let field_nm = stringtab.lookupString(field_str.clone());
 
             match typ {
@@ -1212,6 +1571,54 @@ fn build_default<'a>(ty : &Type, builder : &mut Builder<'a>) -> ConstantID {
             todo!("Cannot build default value for arrays") // FIXME
         },
     }
+}
+
+fn build_uint_const<'a>(ty : &Type, val : u64, builder : &mut Builder<'a>,
+                        func : FunctionID) -> NodeID {
+    let const_val =
+        match ty {
+            Type::Primitive(Primitive::I8)    => builder.create_constant_i8(val as i8),
+            Type::Primitive(Primitive::U8)    => builder.create_constant_u8(val as u8),
+            Type::Primitive(Primitive::I16)   => builder.create_constant_i16(val as i16),
+            Type::Primitive(Primitive::U16)   => builder.create_constant_u16(val as u16),
+            Type::Primitive(Primitive::I32)   => builder.create_constant_i32(val as i32),
+            Type::Primitive(Primitive::U32)   => builder.create_constant_u32(val as u32),
+            Type::Primitive(Primitive::I64)   => builder.create_constant_i64(val as i64),
+            Type::Primitive(Primitive::U64)   => builder.create_constant_u64(val as u64),
+            Type::Primitive(Primitive::USize) => builder.create_constant_u64(val as u64),
+            _ => panic!("Build one should not be used except on integers"),
+        };
+
+    let mut node = builder.allocate_node(func);
+    let res = node.id();
+
+    node.build_constant(const_val);
+    let _ = builder.add_node(node);
+    res
+}
+
+fn build_int_const<'a>(ty : &Type, val : i64, builder : &mut Builder<'a>,
+                       func : FunctionID) -> NodeID {
+    let const_val =
+        match ty {
+            Type::Primitive(Primitive::I8)    => builder.create_constant_i8(val as i8),
+            Type::Primitive(Primitive::U8)    => builder.create_constant_u8(val as u8),
+            Type::Primitive(Primitive::I16)   => builder.create_constant_i16(val as i16),
+            Type::Primitive(Primitive::U16)   => builder.create_constant_u16(val as u16),
+            Type::Primitive(Primitive::I32)   => builder.create_constant_i32(val as i32),
+            Type::Primitive(Primitive::U32)   => builder.create_constant_u32(val as u32),
+            Type::Primitive(Primitive::I64)   => builder.create_constant_i64(val as i64),
+            Type::Primitive(Primitive::U64)   => builder.create_constant_u64(val as u64),
+            Type::Primitive(Primitive::USize) => builder.create_constant_u64(val as u64),
+            _ => panic!("Build one should not be used except on integers"),
+        };
+
+    let mut node = builder.allocate_node(func);
+    let res = node.id();
+
+    node.build_constant(const_val);
+    let _ = builder.add_node(node);
+    res
 }
 
 fn build_return<'a>(return_type : &Type, return_value : NodeID, block : NodeID,

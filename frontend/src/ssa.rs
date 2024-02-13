@@ -32,6 +32,36 @@ impl SSA {
               unsealed_blocks : HashMap::new() }
     }
 
+    pub fn create_cond<'a>(&mut self, builder : &mut Builder<'a>,
+                           pred : NodeID) -> (NodeBuilder, NodeID, NodeID) {
+        let mut if_builder = builder.allocate_node(self.function);
+        let mut left_builder = builder.allocate_node(self.function);
+        let mut right_builder = builder.allocate_node(self.function);
+
+        let left_proj = left_builder.id();
+        let right_proj = right_builder.id();
+
+        let proj_left = builder.create_control_index(0);
+        left_builder.build_read(if_builder.id(), vec![proj_left].into());
+
+        let proj_right = builder.create_control_index(1);
+        right_builder.build_read(if_builder.id(), vec![proj_right].into());
+
+        let _ = builder.add_node(left_builder);
+        let _ = builder.add_node(right_builder);
+
+        self.sealed_blocks.insert(if_builder.id());
+        self.block_preds.insert(if_builder.id(), vec![pred]);
+
+        self.sealed_blocks.insert(left_proj);
+        self.block_preds.insert(left_proj, vec![if_builder.id()]);
+
+        self.sealed_blocks.insert(right_proj);
+        self.block_preds.insert(right_proj, vec![if_builder.id()]);
+
+        (if_builder, left_proj, right_proj)
+    }
+
     pub fn create_block<'a>(&mut self, builder : &mut Builder<'a>) -> NodeID {
         let node_builder = builder.allocate_node(self.function);
         let block = node_builder.id();

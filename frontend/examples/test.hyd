@@ -1,2 +1,7 @@
 type foo = struct { var : usize; };
 type mat = i64[3, 3];
+
+fn test(inout x : u64) : void {
+  let y : (u64, u64);
+  return;
+}

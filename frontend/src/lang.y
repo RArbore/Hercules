@@ -276,13 +276,15 @@ Stmt -> Result<Stmt, ()>
   | 'for' VarBind '=' Expr 'to' Expr Stmts
       { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : None,
                           body : Box::new($7?) }) }
-  | 'for' VarBind '=' Expr 'to' Expr 'by' Expr Stmts
+  | 'for' VarBind '=' Expr 'to' Expr 'by' SignedIntLit Stmts
       { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : Some($8?),
                           body : Box::new($9?) }) }
   | 'while' Expr Stmts
       { Ok(Stmt::WhileStmt{ span : $span, cond : $2?, body : Box::new($3?) }) }
+  | 'return' ';'
+      { Ok(Stmt::ReturnStmt{ span : $span, expr : None }) }
   | 'return' Expr ';'
-      { Ok(Stmt::ReturnStmt{ span : $span, expr : $2?}) }
+      { Ok(Stmt::ReturnStmt{ span : $span, expr : Some($2?)}) }
   | 'break' ';'
       { Ok(Stmt::BreakStmt{ span : $span }) }
   | 'continue' ';'
@@ -323,6 +325,11 @@ LExpr -> Result<LExpr, ()>
   | LExpr 'DOT_NUM'     { Ok(LExpr::NumFieldLExpr { span : $span, lhs : Box::new($1?),
                                                     rhs : span_of_tok($2)? }) }
   | LExpr '[' Exprs ']' { Ok(LExpr::IndexLExpr{ span : $span, lhs : Box::new($1?), index : $3? }) }
+  ;
+
+SignedIntLit -> Result<(bool, Span, IntBase), ()>
+  : '+' IntLit { Ok((false, $2?.0, $2?.1)) }
+  | '-' IntLit { Ok((true, $2?.0, $2?.1)) }
   ;
 
 IntLit -> Result<(Span, IntBase), ()>
@@ -556,10 +563,11 @@ pub enum Stmt {
   AssignStmt { span : Span, lhs : LExpr, assign : AssignOp, assign_span : Span, rhs : Expr },
   IfStmt     { span : Span, cond : Expr, thn : Box<Stmt>, els : Option<Box<Stmt>> },
   MatchStmt  { span : Span, expr : Expr, body : Vec<Case> },
-  ForStmt    { span : Span, var : VarBind, init : Expr, bound : Expr, step : Option<Expr>,
+  // The step records: negative, number, base
+  ForStmt    { span : Span, var : VarBind, init : Expr, bound : Expr, step : Option<(bool, Span, IntBase)>,
                body : Box<Stmt> },
   WhileStmt  { span : Span, cond : Expr, body : Box<Stmt> },
-  ReturnStmt { span : Span, expr : Expr },
+  ReturnStmt { span : Span, expr : Option<Expr> },
   BreakStmt  { span : Span },
   ContinueStmt { span : Span },
   BlockStmt    { span : Span, body : Vec<Stmt> },
@@ -648,6 +656,26 @@ impl Spans for Expr {
       | Expr::SizeExpr      { span, .. }
       | Expr::CondExpr      { span, .. }
       | Expr::CallExpr      { span, .. }
+        => *span
+    }
+  }
+}
+
+impl Spans for Stmt {
+  fn span(&self) -> Span {
+    match self {
+        Stmt::LetStmt      { span, .. }
+      | Stmt::ConstStmt    { span, .. }
+      | Stmt::AssignStmt   { span, ..}
+      | Stmt::IfStmt       { span, ..}
+      | Stmt::MatchStmt    { span, ..}
+      | Stmt::ForStmt      { span, ..}
+      | Stmt::WhileStmt    { span, ..}
+      | Stmt::ReturnStmt   { span, ..}
+      | Stmt::BreakStmt    { span, ..}
+      | Stmt::ContinueStmt { span, ..}
+      | Stmt::BlockStmt    { span, ..}
+      | Stmt::CallStmt     { span, ..}
         => *span
     }
   }
