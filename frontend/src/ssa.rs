@@ -37,6 +37,7 @@ impl SSA {
         let block = node_builder.id();
         self.unsealed_blocks.insert(block, node_builder);
         self.block_preds.insert(block, vec![]);
+        self.incomplete_phis.insert(block, HashMap::new());
         block
     }
 
@@ -53,7 +54,8 @@ impl SSA {
                                     .expect("A block must be unsealed to seal it");
 
         let preds = self.block_preds.get(&block)
-                                    .expect("A block must be created to seal it");
+                                    .expect("A block must be created to seal it")
+                                    .clone();
         let mut phis =
             match self.incomplete_phis.remove(&block) {
                 None => HashMap::new(),
@@ -61,11 +63,11 @@ impl SSA {
             };
 
         for (variable, phi) in phis.drain() {
-            self.add_phi_operands(variable, block, phi);
+            self.add_phi_operands(variable, block, phi, builder);
         }
 
         self.sealed_blocks.insert(block);
-        block_builder.build_region(preds.clone().into());
+        block_builder.build_region(preds.into());
         let _ = builder.add_node(block_builder);
     }
 
@@ -97,10 +99,40 @@ impl SSA {
 
     fn read_variable_recursive<'a>(&mut self, variable : usize, block : NodeID,
                                    builder : &mut Builder<'a>) -> NodeID {
-        todo!()
+        let val = 
+            if !self.sealed_blocks.contains(&block) {
+                let node = builder.allocate_node(self.function);
+                let node_id = node.id();
+                self.incomplete_phis.get_mut(&block)
+                    .expect("Unsealed block has been added")
+                    .insert(variable, node);
+                node_id
+            } else if self.block_preds.get(&block)
+                                      .expect("Sealed block has preds").len() == 1 {
+                self.read_variable(variable,
+                                   self.block_preds.get(&block)
+                                       .expect("Sealed block has preds")[0],
+                                   builder)
+            } else {
+                let node = builder.allocate_node(self.function);
+                let node_id = node.id();
+                self.write_variable(variable, block, node_id);
+                self.add_phi_operands(variable, block, node, builder);
+                node_id
+            };
+
+        self.write_variable(variable, block, val);
+        val
     }
 
-    fn add_phi_operands(&self, variable : usize, block : NodeID, phi : NodeBuilder) {
-        todo!()
+    fn add_phi_operands<'a>(&mut self, variable : usize, block : NodeID,
+                            mut phi : NodeBuilder, builder : &mut Builder<'a>) {
+        let mut vals = vec![];
+        let preds = self.block_preds.get(&block).expect("Block exists").clone();
+        for pred in preds {
+            vals.push(self.read_variable(variable, pred, builder));
+        }
+        phi.build_phi(block, vals.into());
+        let _ = builder.add_node(phi);
     }
 }
