@@ -223,8 +223,10 @@ Stmt -> Result<Stmt, ()>
       { Ok(Stmt::LetStmt{ span : $span, var : $2?, init : None }) }
   | 'let' VarBind '=' Expr ';'
       { Ok(Stmt::LetStmt{ span : $span, var : $2?, init : Some($4?) }) }
+  | 'const' VarBind ';'
+      { Ok(Stmt::ConstStmt{ span : $span, var : $2?, init : None }) }
   | 'const' VarBind '=' Expr ';'
-      { Ok(Stmt::ConstStmt{ span : $span, var : $2?, init : $4? }) }
+      { Ok(Stmt::ConstStmt{ span : $span, var : $2?, init : Some($4?) }) }
   | LExpr   '=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::None,
                              assign_span : span_of_tok($2)?, rhs : $3? }) }
@@ -501,7 +503,7 @@ pub type ImportName  = (PackageName, Option<Span>); // option is the wildcard *
 pub enum Kind { Type, USize, Number, Integer }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Primitive { Bool, I8, U8, I16, U16, I32, U32, I64, U64, USize, F32, F64, Void }
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AssignOp { None, Add, Sub, Mul, Div, Mod, BitAnd, BitOr, Xor, LogAnd, LogOr,
                     LShift, RShift }
 #[derive(Debug, Copy, Clone)]
@@ -550,7 +552,7 @@ pub enum Type {
 #[derive(Debug)]
 pub enum Stmt {
   LetStmt    { span : Span, var : VarBind, init : Option<Expr> },
-  ConstStmt  { span : Span, var : VarBind, init : Expr },
+  ConstStmt  { span : Span, var : VarBind, init : Option<Expr> },
   AssignStmt { span : Span, lhs : LExpr, assign : AssignOp, assign_span : Span, rhs : Expr },
   IfStmt     { span : Span, cond : Expr, thn : Box<Stmt>, els : Option<Box<Stmt>> },
   MatchStmt  { span : Span, expr : Expr, body : Vec<Case> },
