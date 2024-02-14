@@ -77,7 +77,9 @@ pub enum Type {
  * interning constants during IR construction). Product, summation, and array
  * constants all contain their own type. This is only strictly necessary for
  * summation types, but provides a nice mechanism for sanity checking for
- * product and array types as well.
+ * product and array types as well. There is also a zero initializer constant,
+ * which stores its own type as well. The zero value of a summation is defined
+ * as the zero value of the first variant.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
@@ -95,6 +97,7 @@ pub enum Constant {
     Product(TypeID, Box<[ConstantID]>),
     Summation(TypeID, u32, ConstantID),
     Array(TypeID, Box<[ConstantID]>),
+    Zero(TypeID),
 }
 
 /*
@@ -374,6 +377,7 @@ impl Module {
                 }
                 write!(w, "]")
             }
+            Constant::Zero(_) => write!(w, "zero"),
         }?;
 
         Ok(())
@@ -507,6 +511,18 @@ impl Module {
         };
         CoroutineIterator {
             coroutine: Box::new(coroutine),
+        }
+    }
+
+    /*
+     * Unfortunately, determining if a constant is an array requires both
+     * knowledge of constants and types, due to zero initializer constants.
+     */
+    pub fn is_array_constant(&self, cons_id: ConstantID) -> bool {
+        if let Constant::Zero(ty_id) = self.constants[cons_id.idx()] {
+            self.types[ty_id.idx()].is_array()
+        } else {
+            self.constants[cons_id.idx()].is_strictly_array()
         }
     }
 }
@@ -674,7 +690,7 @@ pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {
 }
 
 impl Constant {
-    pub fn is_array(&self) -> bool {
+    pub fn is_strictly_array(&self) -> bool {
         if let Constant::Array(_, _) = self {
             true
         } else {
@@ -697,6 +713,7 @@ impl Constant {
             Constant::UnsignedInteger64(0) => true,
             Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(0.0),
             Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(0.0),
+            Constant::Zero(_) => true,
             _ => false,
         }
     }
