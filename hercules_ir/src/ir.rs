@@ -77,7 +77,9 @@ pub enum Type {
  * interning constants during IR construction). Product, summation, and array
  * constants all contain their own type. This is only strictly necessary for
  * summation types, but provides a nice mechanism for sanity checking for
- * product and array types as well.
+ * product and array types as well. There is also a zero initializer constant,
+ * which stores its own type as well. The zero value of a summation is defined
+ * as the zero value of the first variant.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
@@ -95,6 +97,7 @@ pub enum Constant {
     Product(TypeID, Box<[ConstantID]>),
     Summation(TypeID, u32, ConstantID),
     Array(TypeID, Box<[ConstantID]>),
+    Zero(TypeID),
 }
 
 /*
@@ -374,6 +377,7 @@ impl Module {
                 }
                 write!(w, "]")
             }
+            Constant::Zero(_) => write!(w, "zero"),
         }?;
 
         Ok(())

@@ -133,13 +133,14 @@ impl Semilattice for ConstantLattice {
  */
 pub fn ccp(
     function: &mut Function,
+    types: &mut Vec<Type>,
     constants: &mut Vec<Constant>,
     def_use: &ImmutableDefUseMap,
     reverse_postorder: &Vec<NodeID>,
 ) {
     // Step 1: run ccp analysis to understand the function.
     let result = dataflow_global(&function, reverse_postorder, |inputs, node_id| {
-        ccp_flow_function(inputs, node_id, &function, &constants)
+        ccp_flow_function(inputs, node_id, &function, &types, &constants)
     });
 
     // Step 2: update uses of constants. Any node that doesn't produce a
@@ -371,6 +372,7 @@ fn ccp_flow_function(
     inputs: &[CCPLattice],
     node_id: NodeID,
     function: &Function,
+    types: &Vec<Type>,
     old_constants: &Vec<Constant>,
 ) -> CCPLattice {
     let node = &function.nodes[node_id.idx()];
@@ -415,7 +417,7 @@ fn ccp_flow_function(
         // TODO: This should produce a constant zero if the dynamic constant for
         // for the corresponding fork is one.
         Node::ThreadID { control } => inputs[control.idx()].clone(),
-        // TODO: At least for now, collect nodes always produce unknown values.
+        // TODO: At least for now, reduce nodes always produce unknown values.
         Node::Reduce {
             control,
             init: _,
@@ -454,6 +456,7 @@ fn ccp_flow_function(
                     (UnaryOperator::Neg, Constant::Integer64(val)) => Constant::Integer64(-val),
                     (UnaryOperator::Neg, Constant::Float32(val)) => Constant::Float32(-val),
                     (UnaryOperator::Neg, Constant::Float64(val)) => Constant::Float64(-val),
+                    (UnaryOperator::Neg, Constant::Zero(id)) => Constant::Zero(*id),
                     _ => panic!("Unsupported combination of unary operation and constant value. Did typechecking succeed?")
                 };
                 ConstantLattice::Constant(new_cons)
@@ -482,6 +485,32 @@ fn ccp_flow_function(
                 ConstantLattice::Constant(right_cons),
             ) = (left_constant, right_constant)
             {
+                let type_to_zero_cons = |ty_id: TypeID| {
+                    match types[ty_id.idx()] {
+                    Type::Boolean => Constant::Boolean(false),
+                    Type::Integer8 => Constant::Integer8(0),
+                    Type::Integer16 => Constant::Integer16(0),
+                    Type::Integer32 => Constant::Integer32(0),
+                    Type::Integer64 => Constant::Integer64(0),
+                    Type::UnsignedInteger8 => Constant::UnsignedInteger8(0),
+                    Type::UnsignedInteger16 => Constant::UnsignedInteger16(0),
+                    Type::UnsignedInteger32 => Constant::UnsignedInteger32(0),
+                    Type::UnsignedInteger64 => Constant::UnsignedInteger64(0),
+                    Type::Float32 => Constant::Float32(ordered_float::OrderedFloat::<f32>(0.0)),
+                    Type::Float64 => Constant::Float64(ordered_float::OrderedFloat::<f64>(0.0)),
+                    _ => panic!("Unsupported combination of binary operation and constant values. Did typechecking succeed?")
+                }
+                };
+                let left_cons = if let Constant::Zero(id) = left_cons {
+                    type_to_zero_cons(*id)
+                } else {
+                    left_cons.clone()
+                };
+                let right_cons = if let Constant::Zero(id) = right_cons {
+                    type_to_zero_cons(*id)
+                } else {
+                    right_cons.clone()
+                };
                 let new_cons = match (op, left_cons, right_cons) {
                     (BinaryOperator::Add, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val + right_val),
                     (BinaryOperator::Add, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val + right_val),
@@ -491,8 +520,8 @@ fn ccp_flow_function(
                     (BinaryOperator::Add, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val + right_val),
                     (BinaryOperator::Add, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val + right_val),
                     (BinaryOperator::Add, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val + right_val),
-                    (BinaryOperator::Add, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val + *right_val),
-                    (BinaryOperator::Add, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val + *right_val),
+                    (BinaryOperator::Add, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(left_val + right_val),
+                    (BinaryOperator::Add, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(left_val + right_val),
                     (BinaryOperator::Sub, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val - right_val),
                     (BinaryOperator::Sub, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val - right_val),
                     (BinaryOperator::Sub, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val - right_val),
@@ -501,8 +530,8 @@ fn ccp_flow_function(
                     (BinaryOperator::Sub, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val - right_val),
                     (BinaryOperator::Sub, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val - right_val),
                     (BinaryOperator::Sub, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val - right_val),
-                    (BinaryOperator::Sub, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val - *right_val),
-                    (BinaryOperator::Sub, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val - *right_val),
+                    (BinaryOperator::Sub, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(left_val - right_val),
+                    (BinaryOperator::Sub, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(left_val - right_val),
                     (BinaryOperator::Mul, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val * right_val),
                     (BinaryOperator::Mul, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val * right_val),
                     (BinaryOperator::Mul, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val * right_val),
@@ -511,8 +540,8 @@ fn ccp_flow_function(
                     (BinaryOperator::Mul, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val * right_val),
                     (BinaryOperator::Mul, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val * right_val),
                     (BinaryOperator::Mul, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val * right_val),
-                    (BinaryOperator::Mul, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val * *right_val),
-                    (BinaryOperator::Mul, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val * *right_val),
+                    (BinaryOperator::Mul, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(left_val * right_val),
+                    (BinaryOperator::Mul, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(left_val * right_val),
                     (BinaryOperator::Div, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val / right_val),
                     (BinaryOperator::Div, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val / right_val),
                     (BinaryOperator::Div, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val / right_val),
@@ -521,8 +550,8 @@ fn ccp_flow_function(
                     (BinaryOperator::Div, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val / right_val),
                     (BinaryOperator::Div, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val / right_val),
                     (BinaryOperator::Div, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val / right_val),
-                    (BinaryOperator::Div, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val / *right_val),
-                    (BinaryOperator::Div, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val / *right_val),
+                    (BinaryOperator::Div, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(left_val / right_val),
+                    (BinaryOperator::Div, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(left_val / right_val),
                     (BinaryOperator::Rem, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val % right_val),
                     (BinaryOperator::Rem, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val % right_val),
                     (BinaryOperator::Rem, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val % right_val),
@@ -531,8 +560,8 @@ fn ccp_flow_function(
                     (BinaryOperator::Rem, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val % right_val),
                     (BinaryOperator::Rem, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val % right_val),
                     (BinaryOperator::Rem, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val % right_val),
-                    (BinaryOperator::Rem, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(*left_val % *right_val),
-                    (BinaryOperator::Rem, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(*left_val % *right_val),
+                    (BinaryOperator::Rem, Constant::Float32(left_val), Constant::Float32(right_val)) => Constant::Float32(left_val % right_val),
+                    (BinaryOperator::Rem, Constant::Float64(left_val), Constant::Float64(right_val)) => Constant::Float64(left_val % right_val),
                     (BinaryOperator::LT, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Boolean(left_val < right_val),
                     (BinaryOperator::LT, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Boolean(left_val < right_val),
                     (BinaryOperator::LT, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Boolean(left_val < right_val),
@@ -577,7 +606,7 @@ fn ccp_flow_function(
                     // need to unpack the constants.
                     (BinaryOperator::EQ, left_val, right_val) => Constant::Boolean(left_val == right_val),
                     (BinaryOperator::NE, left_val, right_val) => Constant::Boolean(left_val != right_val),
-                    (BinaryOperator::Or, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val || *right_val),
+                    (BinaryOperator::Or, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(left_val || right_val),
                     (BinaryOperator::Or, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val | right_val),
                     (BinaryOperator::Or, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val | right_val),
                     (BinaryOperator::Or, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val | right_val),
@@ -586,7 +615,7 @@ fn ccp_flow_function(
                     (BinaryOperator::Or, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val | right_val),
                     (BinaryOperator::Or, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val | right_val),
                     (BinaryOperator::Or, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val | right_val),
-                    (BinaryOperator::And, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val && *right_val),
+                    (BinaryOperator::And, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(left_val && right_val),
                     (BinaryOperator::And, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val & right_val),
                     (BinaryOperator::And, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val & right_val),
                     (BinaryOperator::And, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val & right_val),
@@ -595,7 +624,7 @@ fn ccp_flow_function(
                     (BinaryOperator::And, Constant::UnsignedInteger16(left_val), Constant::UnsignedInteger16(right_val)) => Constant::UnsignedInteger16(left_val & right_val),
                     (BinaryOperator::And, Constant::UnsignedInteger32(left_val), Constant::UnsignedInteger32(right_val)) => Constant::UnsignedInteger32(left_val & right_val),
                     (BinaryOperator::And, Constant::UnsignedInteger64(left_val), Constant::UnsignedInteger64(right_val)) => Constant::UnsignedInteger64(left_val & right_val),
-                    (BinaryOperator::Xor, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(*left_val ^ *right_val),
+                    (BinaryOperator::Xor, Constant::Boolean(left_val), Constant::Boolean(right_val)) => Constant::Boolean(left_val ^ right_val),
                     (BinaryOperator::Xor, Constant::Integer8(left_val), Constant::Integer8(right_val)) => Constant::Integer8(left_val ^ right_val),
                     (BinaryOperator::Xor, Constant::Integer16(left_val), Constant::Integer16(right_val)) => Constant::Integer16(left_val ^ right_val),
                     (BinaryOperator::Xor, Constant::Integer32(left_val), Constant::Integer32(right_val)) => Constant::Integer32(left_val ^ right_val),

@@ -579,6 +579,8 @@ fn typeflow(
                         ))
                     }
                 }
+                // Zero constants need to store their type, and we trust it.
+                Constant::Zero(id) => Concrete(id),
             }
         }
         Node::DynamicConstant { id } => {
