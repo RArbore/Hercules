@@ -1,4 +1,5 @@
-fn matmul<3>(a: array(f32, #0, #1), b: array(f32, #1, #2), c: array(f32, #0, #2)) -> array(f32, #0, #2)
+fn matmul<3>(a: array(f32, #0, #1), b: array(f32, #1, #2)) -> array(f32, #0, #2)
+  c = constant(array(f32, #0, #2), zero)
   i_ctrl = fork(start, #0)
   i_idx = thread_id(i_ctrl)
   j_ctrl = fork(i_ctrl, #2)

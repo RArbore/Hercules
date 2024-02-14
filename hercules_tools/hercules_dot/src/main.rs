@@ -42,6 +42,7 @@ fn main() {
         |(mut function, id), (types, mut constants, dynamic_constants)| {
             hercules_opt::ccp::ccp(
                 &mut function,
+                &types,
                 &mut constants,
                 &def_uses[id.idx()],
                 &reverse_postorders[id.idx()],

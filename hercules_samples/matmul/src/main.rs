@@ -10,10 +10,10 @@ fn main() {
         "matmul",
         *const f32,
         *const f32,
+        u64,
+        u64,
+        u64,
         *mut f32,
-        u64,
-        u64,
-        u64,
         => *const f32
     );
 
@@ -24,10 +24,10 @@ fn main() {
         matmul(
             std::mem::transmute(a.as_ptr()),
             std::mem::transmute(b.as_ptr()),
+            2,
+            2,
+            2,
             std::mem::transmute(c.as_mut_ptr()),
-            2,
-            2,
-            2,
         )
     };
     println!("{} {}\n{} {}", c[0][0], c[0][1], c[1][0], c[1][1]);
