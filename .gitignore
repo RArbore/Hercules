@@ -1,3 +1,7 @@
 /target
 *.dot
 *.bc
+*.out
+*.ll
+*.c
+*.o

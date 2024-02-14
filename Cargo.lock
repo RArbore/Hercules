@@ -192,10 +192,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hercules_matmul"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hercules_rt",
+ "rand",
+]
+
+[[package]]
 name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
  "hercules_ir",
+]
+
+[[package]]
+name = "hercules_rt"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

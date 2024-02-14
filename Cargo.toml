@@ -4,6 +4,10 @@ members = [
 	"hercules_cg",
 	"hercules_ir",
 	"hercules_opt",
+	"hercules_rt",
+
 	"hercules_tools/hercules_dot",
-	"hercules_tools/hercules_cpu"
+	"hercules_tools/hercules_cpu",
+
+	"hercules_samples/matmul"
 ]
