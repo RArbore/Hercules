@@ -1,7 +1,23 @@
 type foo = struct { var : usize; };
 type mat = i64[3, 3];
 
-fn test(inout x : u64) : void {
+fn test<n : usize>(inout x : u64, arr : u32[n, n]) : void {
   let y : (u64, u64);
+  y.0 = 3;
+  y.1 = 7;
+  let z : bool = false;
+  let w : (u64, u64) = y;
+
+  let a : foo;
+  a.var = 17;
+  
+  let z : u64;
+  z += 7;
+  //a.var += 1; // TODO: Error???
+
+
+  arr[0, 0] = 1;
+  //let q : u32 = arr[0, 0]; // TODO: Error??
+
   return;
 }
