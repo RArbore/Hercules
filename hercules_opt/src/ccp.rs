@@ -133,7 +133,7 @@ impl Semilattice for ConstantLattice {
  */
 pub fn ccp(
     function: &mut Function,
-    types: &mut Vec<Type>,
+    types: &Vec<Type>,
     constants: &mut Vec<Constant>,
     def_use: &ImmutableDefUseMap,
     reverse_postorder: &Vec<NodeID>,
