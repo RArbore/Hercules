@@ -165,7 +165,11 @@ pub fn cpu_beta_codegen<W: Write>(
         }
     }
 
-    // Step 4: do codegen for each function.
+    // Step 4: generate dummy uninitialized global - this is needed so that
+    // there'll be a non-empty .bss section in the ELF object file.
+    write!(w, "@dummy = dso_local global i32 0, align 4\n")?;
+
+    // Step 5: do codegen for each function.
     for function_idx in 0..functions.len() {
         let function = &functions[function_idx];
         let typing = &typing[function_idx];
@@ -176,7 +180,7 @@ pub fn cpu_beta_codegen<W: Write>(
         let fork_join_map = &fork_join_maps[function_idx];
         let fork_join_nest = &fork_join_nests[function_idx];
 
-        // Step 4.1: emit function signature.
+        // Step 5.1: emit function signature.
         let llvm_ret_type = &llvm_types[function.return_type.idx()];
         let mut llvm_params = function
             .param_types
@@ -198,7 +202,7 @@ pub fn cpu_beta_codegen<W: Write>(
         }
         write!(w, ") {{\n")?;
 
-        // Step 4.2: emit basic blocks. A node represents a basic block if its
+        // Step 5.2: emit basic blocks. A node represents a basic block if its
         // entry in the basic blocks vector points to itself. Each basic block
         // is created as four strings: the block header, the block's phis, the
         // block's data computations, and the block's terminator instruction.
@@ -217,7 +221,7 @@ pub fn cpu_beta_codegen<W: Write>(
             }
         }
 
-        // Step 4.3: emit nodes. Nodes are emitted into basic blocks separately
+        // Step 5.3: emit nodes. Nodes are emitted into basic blocks separately
         // as nodes are not necessarily emitted in order. Assemble worklist of
         // nodes, starting as reverse post order of nodes. For non-phi and non-
         // reduce nodes, only emit once all data uses are emitted. In addition,
@@ -261,7 +265,7 @@ pub fn cpu_beta_codegen<W: Write>(
             }
         }
 
-        // Step 4.4: put basic blocks in order.
+        // Step 5.4: put basic blocks in order.
         for node in reverse_postorder {
             if bb[node.idx()] == *node {
                 write!(
@@ -275,7 +279,7 @@ pub fn cpu_beta_codegen<W: Write>(
             }
         }
 
-        // Step 4.5: close function.
+        // Step 5.5: close function.
         write!(w, "}}\n")?;
     }
 
