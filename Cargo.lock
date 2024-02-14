@@ -301,6 +301,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hercules_matmul"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hercules_rt",
+ "rand",
+]
+
+[[package]]
 name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
@@ -308,10 +317,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hercules_rt"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "indexmap"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "824b2ae422412366ba479e8111fd301f7b5faece8149317bb81925979a53f520"
+checksum = "233cf39063f058ea2caae4091bf4a3ef70a653afbc026f5c4a4135d114e3c177"
 dependencies = [
  "equivalent",
  "hashbrown",
