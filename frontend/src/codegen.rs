@@ -1062,7 +1062,17 @@ fn process_stmt<'a>(
                         },
                     };
                 
-                let init_value = ssa.read_variable(var, pred, builder);
+                let var_value = ssa.read_variable(var, pred, builder);
+                let init_value = 
+                    if index.is_empty() {
+                        var_value
+                    } else {
+                        let mut extract_builder = builder.allocate_node(func);
+                        let node = extract_builder.id();
+                        extract_builder.build_read(var_value, index.clone().into());
+                        let _ = builder.add_node(extract_builder);
+                        node
+                    };
 
                 let mut compute_builder = builder.allocate_node(func);
                 let compute_node = compute_builder.id();
@@ -1074,7 +1084,7 @@ fn process_stmt<'a>(
                 } else {
                     let mut update_builder  = builder.allocate_node(func);
                     ssa.write_variable(var, pred, update_builder.id());
-                    update_builder.build_write(init_value, compute_node, index.into());
+                    update_builder.build_write(var_value, compute_node, index.into());
                     let _ = builder.add_node(update_builder);
                 }
                 

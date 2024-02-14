@@ -13,11 +13,11 @@ fn test<n : usize>(inout x : u64, arr : u32[n, n]) : void {
   
   let z : u64;
   z += 7;
-  //a.var += 1; // TODO: Error???
+  a.var += 1;
 
 
   arr[0, 0] = 1;
-  //let q : u32 = arr[0, 0]; // TODO: Error??
+  let q : u32 = arr[0, 0]; // TODO: Error??
 
   return;
 }
