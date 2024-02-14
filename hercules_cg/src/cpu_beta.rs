@@ -107,6 +107,35 @@ pub fn cpu_beta_codegen<W: Write>(
     // Step 2: render constants into LLVM IR. This is done in a very similar
     // manner as types.
     let mut llvm_constants = vec!["".to_string(); types.len()];
+    fn render_zero_constant(ty_id: TypeID, types: &Vec<Type>) -> String {
+        match &types[ty_id.idx()] {
+            Type::Control(_) => panic!(),
+            Type::Boolean => "false".to_string(),
+            Type::Integer8
+            | Type::Integer16
+            | Type::Integer32
+            | Type::Integer64
+            | Type::UnsignedInteger8
+            | Type::UnsignedInteger16
+            | Type::UnsignedInteger32
+            | Type::UnsignedInteger64 => "0".to_string(),
+            Type::Float32 | Type::Float64 => "0.0".to_string(),
+            Type::Product(fields) => {
+                let mut iter = fields.iter();
+                if let Some(first) = iter.next() {
+                    iter.fold(
+                        "{".to_string() + &render_zero_constant(*first, types),
+                        |s, f| s + ", " + &render_zero_constant(*f, types),
+                    ) + "}"
+                } else {
+                    "{}".to_string()
+                }
+            }
+            Type::Summation(_) => todo!(),
+            Type::Array(_, _) => format!("%arr.{}", ty_id.idx()),
+        }
+    }
+
     for id in module.constants_bottom_up() {
         match &constants[id.idx()] {
             Constant::Boolean(val) => {
@@ -151,6 +180,7 @@ pub fn cpu_beta_codegen<W: Write>(
             }
             Constant::Array(_, _) => llvm_constants[id.idx()] = format!("%arr.{}", id.idx()),
             Constant::Summation(_, _, _) => todo!(),
+            Constant::Zero(id) => llvm_constants[id.idx()] = render_zero_constant(*id, types),
         }
     }
 
@@ -190,7 +220,7 @@ pub fn cpu_beta_codegen<W: Write>(
             .chain((0..function.num_dynamic_constants).map(|idx| format!("i64 %dc{}", idx)))
             .chain(
                 (0..constants.len())
-                    .filter(|idx| constants[*idx].is_array())
+                    .filter(|idx| module.is_array_constant(ConstantID::new(*idx)))
                     .map(|idx| format!("%arr.{}", idx)),
             );
         write!(w, "define {} @{}(", llvm_ret_type, function.name)?;

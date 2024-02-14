@@ -513,6 +513,18 @@ impl Module {
             coroutine: Box::new(coroutine),
         }
     }
+
+    /*
+     * Unfortunately, determining if a constant is an array requires both
+     * knowledge of constants and types, due to zero initializer constants.
+     */
+    pub fn is_array_constant(&self, cons_id: ConstantID) -> bool {
+        if let Constant::Zero(ty_id) = self.constants[cons_id.idx()] {
+            self.types[ty_id.idx()].is_array()
+        } else {
+            self.constants[cons_id.idx()].is_strictly_array()
+        }
+    }
 }
 
 struct CoroutineIterator<G, I>
@@ -678,7 +690,7 @@ pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {
 }
 
 impl Constant {
-    pub fn is_array(&self) -> bool {
+    pub fn is_strictly_array(&self) -> bool {
         if let Constant::Array(_, _) = self {
             true
         } else {
@@ -701,6 +713,7 @@ impl Constant {
             Constant::UnsignedInteger64(0) => true,
             Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(0.0),
             Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(0.0),
+            Constant::Zero(_) => true,
             _ => false,
         }
     }
