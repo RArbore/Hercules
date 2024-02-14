@@ -152,6 +152,7 @@ impl Type {
 #[derive(Clone)]
 enum GoalType {
     KnownType(Type),
+    AnyType,
     StructType { field : usize, field_type : Box<GoalType> },
     TupleType  { index : usize, index_type : Box<GoalType> },
     ArrayType  { element_type : Box<GoalType>, num_dims : usize },
@@ -161,6 +162,7 @@ impl GoalType {
     fn to_string(&self, stringtab : &StringTable) -> String {
         match self {
             GoalType::KnownType(ty) => ty.to_string(stringtab),
+            GoalType::AnyType => format!("*"),
             GoalType::StructType { field, field_type } => {
                 format!("{{ {} : {}, ... }}",
                         stringtab.lookupId(*field).unwrap(),
@@ -196,6 +198,7 @@ impl GoalType {
     fn is_integer(&self) -> bool {
         match self {
             GoalType::KnownType(ty) => ty.is_integer(),
+            GoalType::AnyType => true,
             _ => false,
         }
     }
@@ -203,6 +206,7 @@ impl GoalType {
     fn is_float(&self) -> bool {
         match self {
             GoalType::KnownType(ty) => ty.is_float(),
+            GoalType::AnyType => true,
             _ => false,
         }
     }
@@ -210,13 +214,16 @@ impl GoalType {
     fn is_boolean(&self) -> bool {
         match self {
             GoalType::KnownType(ty) => ty.is_boolean(),
+            GoalType::AnyType => true,
             _ => false,
         }
     }
 
     fn matches(&self, typ : &Type) -> bool {
         match self {
+            // TODO: Upcasts?
             GoalType::KnownType(ty) => ty == typ,
+            GoalType::AnyType => true,
             GoalType::StructType { field, field_type } => {
                 match typ {
                     Type::Struct { name : _, id : _, fields, names } => {
@@ -1520,7 +1527,32 @@ fn process_expr<'a>(
             }
         },
         
-        lang_y::Expr::Tuple { span, exprs } => { todo!() },
+        lang_y::Expr::Tuple { span, mut exprs } => {
+            if exprs.len() == 1 {
+                process_expr(exprs.pop().unwrap(), lexer, stringtab, env, builder, func, ssa,
+                             block, goal_type)
+            } else {
+                // HERE
+                match goal_type {
+                    GoalType::KnownType(Type::Tuple(fields)) => {
+                        todo!()
+                    },
+                    GoalType::TupleType { index, index_type } => {
+                        todo!()
+                    },
+                    GoalType::AnyType => {
+                        todo!()
+                    },
+                    _ => {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    goal_type.to_string(stringtab),
+                                    "tuple".to_string())))
+                    },
+                }
+            }
+        },
         lang_y::Expr::OrderedStruct { span, exprs } => { todo!() },
         lang_y::Expr::NamedStruct { span, exprs } => { todo!() },
         lang_y::Expr::BoolLit { span, value } => {
