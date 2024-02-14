@@ -20,6 +20,8 @@ fn main() {
     let module = process_program(args.src_file);
     match module {
         Ok(mut module) => {
+            println!("{}", module);
+
             let (_def_uses, reverse_postorders, typing, _subgraphs, doms,
                  _postdoms, fork_join_maps)
                 = hercules_ir::verify::verify(&mut module)
@@ -32,7 +34,7 @@ fn main() {
             //    .expect("PANIC: Unable to generate output file contents.");
             //file.write_all(contents.as_bytes())
             //    .expect("PANIC: Unable to write output file contents.");
-            println!("Success");
+            println!("Verification Succeeded");
         },
         Err(errs) => {
             for err in errs {
