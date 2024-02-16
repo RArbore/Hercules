@@ -3,6 +3,7 @@ extern crate hercules_ir;
 use std::collections::{HashMap, LinkedList};
 use std::fs::File;
 use std::io::Read;
+use std::iter;
 
 use lrlex::{lrlex_mod, DefaultLexerTypes};
 use lrpar::{lrpar_mod, NonStreamingLexer};
@@ -152,17 +153,18 @@ impl Type {
 #[derive(Clone)]
 enum GoalType {
     KnownType(Type),
-    AnyType,
     StructType { field : usize, field_type : Box<GoalType> },
     TupleType  { index : usize, index_type : Box<GoalType> },
     ArrayType  { element_type : Box<GoalType>, num_dims : usize },
+    
+    AnyType, AnyNumeric, AnyInteger, AnyBitwise
 }
 
 impl GoalType {
     fn to_string(&self, stringtab : &StringTable) -> String {
         match self {
             GoalType::KnownType(ty) => ty.to_string(stringtab),
-            GoalType::AnyType => format!("*"),
+
             GoalType::StructType { field, field_type } => {
                 format!("{{ {} : {}, ... }}",
                         stringtab.lookupId(*field).unwrap(),
@@ -178,6 +180,11 @@ impl GoalType {
                         element_type.to_string(stringtab),
                         "[*]".repeat(*num_dims))
             },
+
+            GoalType::AnyType => format!("*"),
+            GoalType::AnyNumeric => format!("numeric"),
+            GoalType::AnyInteger => format!("integer"),
+            GoalType::AnyBitwise => format!("bitwise"),
         }
     }
 
@@ -188,26 +195,93 @@ impl GoalType {
         }
     }
 
-    fn get_known(&self) -> &Type {
+    fn is_numeric(&self) -> bool {
         match self {
-            GoalType::KnownType(ty) => ty,
-            _ => panic!("GoalType::get_known should only be used on known types"),
+            GoalType::KnownType(ty) => ty.is_integer(),
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
+                | GoalType::AnyBitwise => true,
+            _ => false,
+        }
+    }
+
+    fn as_numeric(&self) -> &GoalType {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_numeric()); self },
+            GoalType::AnyType | GoalType::AnyNumeric => &GoalType::AnyNumeric,
+            GoalType::AnyInteger => &GoalType::AnyInteger,
+            GoalType::AnyBitwise => &GoalType::AnyBitwise,
+            _ => panic!("Call to GoalType::as_numeric() on non numeric type"),
         }
     }
 
     fn is_integer(&self) -> bool {
         match self {
             GoalType::KnownType(ty) => ty.is_integer(),
-            GoalType::AnyType => true,
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
+                | GoalType::AnyBitwise => true,
             _ => false,
+        }
+    }
+
+    fn get_integer(&self) -> &Type {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_integer()); ty },
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
+                | GoalType::AnyBitwise => &Type::Primitive(Primitive::I64),
+            _ => panic!("Call to GoalType::get_integer() on non integer type"),
+        }
+    }
+
+    fn as_integer(&self) -> &GoalType {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_integer()); self },
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
+                => &GoalType::AnyInteger,
+            GoalType::AnyBitwise => &GoalType::AnyBitwise,
+            _ => panic!("Call to GoalType::as_integer() no non integer type"),
+        }
+    }
+
+    fn is_bitwise(&self) -> bool {
+        match self {
+            GoalType::KnownType(ty) => ty.is_bitwise(),
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
+                | GoalType::AnyBitwise => true,
+            _ => false,
+        }
+    }
+
+    fn get_bitwise(&self) -> &Type {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_bitwise()); ty },
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
+                | GoalType::AnyBitwise => &Type::Primitive(Primitive::I64),
+            _ => panic!("Call to GoalType::get_bitwise() on non integer type"),
+        }
+    }
+
+    fn as_bitwise(&self) -> &GoalType {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_bitwise()); self },
+            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
+                | GoalType::AnyBitwise => &GoalType::AnyBitwise,
+            _ => panic!("Call to GoalType::as_bitwise() no non bitwise type"),
         }
     }
 
     fn is_float(&self) -> bool {
         match self {
             GoalType::KnownType(ty) => ty.is_float(),
-            GoalType::AnyType => true,
+            GoalType::AnyType | GoalType::AnyNumeric => true,
             _ => false,
+        }
+    }
+
+    fn get_float(&self) -> &Type {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_float()); ty },
+            GoalType::AnyType | GoalType::AnyNumeric => &Type::Primitive(Primitive::F64),
+            _ => panic!("Call to GoalType::get_float() on non float type"),
         }
     }
 
@@ -219,11 +293,19 @@ impl GoalType {
         }
     }
 
+    fn get_boolean(&self) -> &Type {
+        match self {
+            GoalType::KnownType(ty) => { assert!(ty.is_boolean()); ty },
+            GoalType::AnyType => &Type::Primitive(Primitive::Bool),
+            _ => panic!("Call to GoalType::get_boolean() on non bool type"),
+        }
+    }
+
     fn matches(&self, typ : &Type) -> bool {
         match self {
             // TODO: Upcasts?
             GoalType::KnownType(ty) => ty == typ,
-            GoalType::AnyType => true,
+
             GoalType::StructType { field, field_type } => {
                 match typ {
                     Type::Struct { name : _, id : _, fields, names } => {
@@ -249,6 +331,11 @@ impl GoalType {
                     _ => false,
                 }
             },
+
+            GoalType::AnyType => true,
+            GoalType::AnyNumeric => typ.is_numeric(),
+            GoalType::AnyInteger => typ.is_integer(),
+            GoalType::AnyBitwise => typ.is_bitwise(),
         }
     }
 }
@@ -1532,29 +1619,75 @@ fn process_expr<'a>(
                 process_expr(exprs.pop().unwrap(), lexer, stringtab, env, builder, func, ssa,
                              block, goal_type)
             } else {
-                // HERE
-                match goal_type {
-                    GoalType::KnownType(Type::Tuple(fields)) => {
-                        todo!()
-                    },
-                    GoalType::TupleType { index, index_type } => {
-                        todo!()
-                    },
-                    GoalType::AnyType => {
-                        todo!()
-                    },
-                    _ => {
-                        Err(singleton_error(
-                                ErrorMessage::TypeError(
-                                    span_to_loc(span, lexer),
-                                    goal_type.to_string(stringtab),
-                                    "tuple".to_string())))
-                    },
+                let field_tys =
+                    match goal_type {
+                        GoalType::KnownType(Type::Tuple(fields)) => {
+                            if fields.len() != exprs.len() {
+                                return Err(singleton_error(
+                                        ErrorMessage::TypeError(
+                                            span_to_loc(span, lexer),
+                                            goal_type.to_string(stringtab),
+                                            format!("(_{})", ", _".repeat(exprs.len()-1)))));
+                            }
+                            fields.iter().map(|t| GoalType::KnownType(t.clone())).collect::<Vec<_>>()
+                        },
+                        GoalType::TupleType { index, index_type } => {
+                            if *index >= exprs.len() {
+                                return Err(singleton_error(
+                                        ErrorMessage::TypeError(
+                                            span_to_loc(span, lexer),
+                                            goal_type.to_string(stringtab),
+                                            format!("(_{})", ", _".repeat(exprs.len()-1)))));
+                            }
+
+                            let mut tys = vec![];
+                            for i in 0..exprs.len() {
+                                tys.push(
+                                    if i == *index { *index_type.clone() }
+                                    else { GoalType::AnyType });
+                            }
+                            tys
+                        },
+                        GoalType::AnyType => {
+                            iter::repeat(GoalType::AnyType).take(exprs.len()).collect::<Vec<_>>()
+                        },
+                        _ => {
+                            return Err(singleton_error(
+                                    ErrorMessage::TypeError(
+                                        span_to_loc(span, lexer),
+                                        goal_type.to_string(stringtab),
+                                        "tuple".to_string())));
+                        },
+                    };
+
+                let mut vals = vec![];
+                let mut typs = vec![];
+                let mut errors = LinkedList::new();
+
+                for (exp, typ) in exprs.into_iter().zip(field_tys) {
+                    match process_expr(exp, lexer, stringtab, env, builder,
+                                       func, ssa, block, &typ) {
+                        Ok((val, ty)) => {
+                            vals.push(val);
+                            typs.push(ty);
+                        },
+                        Err(mut errs) => {
+                            errors.append(&mut errs);
+                        },
+                    }
+                }
+
+                if !errors.is_empty() {
+                    Err(errors)
+                } else {
+                    Ok((build_tuple(&typs, &vals, builder, func),
+                        Type::Tuple(typs)))
                 }
             }
         },
         lang_y::Expr::OrderedStruct { span, exprs } => { todo!() },
         lang_y::Expr::NamedStruct { span, exprs } => { todo!() },
+
         lang_y::Expr::BoolLit { span, value } => {
             if !goal_type.is_boolean() {
                 Err(singleton_error(
@@ -1568,7 +1701,7 @@ fn process_expr<'a>(
                 let res = node.id();
                 node.build_constant(const_val);
                 let _ = builder.add_node(node);
-                Ok((res, goal_type.get_known().clone()))
+                Ok((res, goal_type.get_boolean().clone()))
             }
         },
         lang_y::Expr::IntLit { span, base } => {
@@ -1581,8 +1714,8 @@ fn process_expr<'a>(
             } else {
                 let res = u64::from_str_radix(lexer.span_str(span), base.base());
                 assert!(res.is_ok(), "Internal Error: Int literal is not an integer");
-                Ok((build_int_const(goal_type.get_known(), res.unwrap(), builder, func),
-                    goal_type.get_known().clone()))
+                Ok((build_int_const(goal_type.get_integer(), res.unwrap(), builder, func),
+                    goal_type.get_integer().clone()))
             }
         },
         lang_y::Expr::FloatLit { span } => {
@@ -1593,12 +1726,74 @@ fn process_expr<'a>(
                             goal_type.to_string(stringtab),
                             "floating point".to_string())))
             } else {
-                Ok((build_float_const(goal_type.get_known(), lexer.span_str(span), builder, func),
-                    goal_type.get_known(). clone()))
+                Ok((build_float_const(goal_type.get_float(), lexer.span_str(span), builder, func),
+                    goal_type.get_float(). clone()))
             }
         },
-        lang_y::Expr::UnaryExpr { span, op, expr } => { todo!() },
+
+        lang_y::Expr::UnaryExpr { span, op, expr } => {
+            match op {
+                UnaryOp::Negation => {
+                    if !goal_type.is_numeric() {
+                        return Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    goal_type.to_string(stringtab),
+                                    "numeric".to_string())))
+                    }
+
+                    let (ex, typ) = process_expr(*expr, lexer, stringtab, env,
+                                                 builder, func, ssa, block,
+                                                 goal_type.as_numeric())?;
+
+                    let mut node = builder.allocate_node(func);
+                    let res = node.id();
+
+                    node.build_unary(ex, UnaryOperator::Neg);
+                    let _ = builder.add_node(node);
+
+                    Ok((res, typ))
+                },
+                UnaryOp::BitwiseNot => {
+                    if !goal_type.is_bitwise() {
+                        return Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    goal_type.to_string(stringtab),
+                                    "bitwise".to_string())));
+                    }
+
+                    let (ex, typ) = process_expr(*expr, lexer, stringtab, env,
+                                                 builder, func, ssa, block,
+                                                 goal_type.as_bitwise())?;
+
+                    let mut node = builder.allocate_node(func);
+                    let res = node.id();
+
+                    node.build_unary(ex, UnaryOperator::Not);
+                    let _ = builder.add_node(node);
+
+                    Ok((res, typ))
+                },
+                UnaryOp::LogicalNot => {
+                    if !goal_type.is_boolean() {
+                        return Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    goal_type.to_string(stringtab),
+                                    "bool".to_string())));
+                    }
+
+                    Err(singleton_error(
+                            ErrorMessage::NotImplemented(
+                                span_to_loc(span, lexer),
+                                "! operator".to_string())))
+                },
+            }
+        },
+        // HERE
         lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => { todo!() },
+        
         lang_y::Expr::CastExpr { span, expr, typ } => { todo!() },
         lang_y::Expr::SizeExpr { span, expr } => { todo!() },
         lang_y::Expr::CondExpr { span, cond, thn, els } => { todo!() },
