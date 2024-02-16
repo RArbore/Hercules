@@ -1732,66 +1732,57 @@ fn process_expr<'a>(
         },
 
         lang_y::Expr::UnaryExpr { span, op, expr } => {
-            match op {
-                UnaryOp::Negation => {
-                    if !goal_type.is_numeric() {
+            // All unary operators preserve the type of their argument
+            let (inner_goal, ir_op) =
+                match op {
+                    UnaryOp::Negation => {
+                        if !goal_type.is_numeric() {
+                            return Err(singleton_error(
+                                    ErrorMessage::TypeError(
+                                        span_to_loc(span, lexer),
+                                        goal_type.to_string(stringtab),
+                                        "numeric".to_string())))
+                        }
+
+                        (goal_type.as_numeric(), UnaryOperator::Neg)
+                    },
+                    UnaryOp::BitwiseNot => {
+                        if !goal_type.is_bitwise() {
+                            return Err(singleton_error(
+                                    ErrorMessage::TypeError(
+                                        span_to_loc(span, lexer),
+                                        goal_type.to_string(stringtab),
+                                        "bitwise".to_string())));
+                        }
+
+                        (goal_type.as_bitwise(), UnaryOperator::Not)
+                    },
+                    UnaryOp::LogicalNot => {
+                        if !goal_type.is_boolean() {
+                            return Err(singleton_error(
+                                    ErrorMessage::TypeError(
+                                        span_to_loc(span, lexer),
+                                        goal_type.to_string(stringtab),
+                                        "bool".to_string())));
+                        }
+
                         return Err(singleton_error(
-                                ErrorMessage::TypeError(
+                                ErrorMessage::NotImplemented(
                                     span_to_loc(span, lexer),
-                                    goal_type.to_string(stringtab),
-                                    "numeric".to_string())))
-                    }
+                                    "! operator".to_string())));
+                    },
+                };
 
-                    let (ex, typ) = process_expr(*expr, lexer, stringtab, env,
-                                                 builder, func, ssa, block,
-                                                 goal_type.as_numeric())?;
+            let (ex, typ) = process_expr(*expr, lexer, stringtab, env, builder,
+                                         func, ssa, block, inner_goal)?;
+            let mut node = builder.allocate_node(func);
+            let res = node.id();
 
-                    let mut node = builder.allocate_node(func);
-                    let res = node.id();
+            node.build_unary(ex, ir_op);
+            let _ = builder.add_node(node);
 
-                    node.build_unary(ex, UnaryOperator::Neg);
-                    let _ = builder.add_node(node);
-
-                    Ok((res, typ))
-                },
-                UnaryOp::BitwiseNot => {
-                    if !goal_type.is_bitwise() {
-                        return Err(singleton_error(
-                                ErrorMessage::TypeError(
-                                    span_to_loc(span, lexer),
-                                    goal_type.to_string(stringtab),
-                                    "bitwise".to_string())));
-                    }
-
-                    let (ex, typ) = process_expr(*expr, lexer, stringtab, env,
-                                                 builder, func, ssa, block,
-                                                 goal_type.as_bitwise())?;
-
-                    let mut node = builder.allocate_node(func);
-                    let res = node.id();
-
-                    node.build_unary(ex, UnaryOperator::Not);
-                    let _ = builder.add_node(node);
-
-                    Ok((res, typ))
-                },
-                UnaryOp::LogicalNot => {
-                    if !goal_type.is_boolean() {
-                        return Err(singleton_error(
-                                ErrorMessage::TypeError(
-                                    span_to_loc(span, lexer),
-                                    goal_type.to_string(stringtab),
-                                    "bool".to_string())));
-                    }
-
-                    Err(singleton_error(
-                            ErrorMessage::NotImplemented(
-                                span_to_loc(span, lexer),
-                                "! operator".to_string())))
-                },
-            }
+            Ok((res, typ))
         },
-        // HERE
         lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => { todo!() },
         
         lang_y::Expr::CastExpr { span, expr, typ } => { todo!() },
