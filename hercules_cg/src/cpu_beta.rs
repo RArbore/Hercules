@@ -726,6 +726,25 @@ fn emit_llvm_for_node(
                 virtual_register(right),
             );
         }
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op,
+        } => {
+            let opcode = match op {
+                TernaryOperator::Select => "select",
+            };
+
+            llvm_bbs.get_mut(&bb[id.idx()]).unwrap().data += &format!(
+                "  {} = {} {}, {}, {}\n",
+                virtual_register(id),
+                opcode,
+                normal_value(first),
+                normal_value(second),
+                normal_value(third),
+            );
+        }
         Node::Read {
             collect,
             ref indices,

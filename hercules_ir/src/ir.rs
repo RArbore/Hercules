@@ -199,6 +199,12 @@ pub enum Node {
         right: NodeID,
         op: BinaryOperator,
     },
+    Ternary {
+        first: NodeID,
+        second: NodeID,
+        third: NodeID,
+        op: TernaryOperator,
+    },
     Call {
         function: FunctionID,
         dynamic_constants: Box<[DynamicConstantID]>,
@@ -239,6 +245,11 @@ pub enum BinaryOperator {
     Xor,
     LSh,
     RSh,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TernaryOperator {
+    Select,
 }
 
 impl Module {
@@ -889,6 +900,12 @@ impl Node {
                 right: _,
                 op,
             } => op.upper_case_name(),
+            Node::Ternary {
+                first: _,
+                second: _,
+                third: _,
+                op,
+            } => op.upper_case_name(),
             Node::Call {
                 function: _,
                 dynamic_constants: _,
@@ -941,6 +958,12 @@ impl Node {
             Node::Binary {
                 left: _,
                 right: _,
+                op,
+            } => op.lower_case_name(),
+            Node::Ternary {
+                first: _,
+                second: _,
+                third: _,
                 op,
             } => op.lower_case_name(),
             Node::Call {
@@ -1033,6 +1056,20 @@ impl BinaryOperator {
             BinaryOperator::Xor => "xor",
             BinaryOperator::LSh => "lsh",
             BinaryOperator::RSh => "rsh",
+        }
+    }
+}
+
+impl TernaryOperator {
+    pub fn upper_case_name(&self) -> &'static str {
+        match self {
+            TernaryOperator::Select => "Select",
+        }
+    }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            TernaryOperator::Select => "select",
         }
     }
 }
