@@ -62,7 +62,7 @@ pub fn default_plan(function: &Function, fork_join_map: &HashMap<NodeID, NodeID>
             control,
             init: _,
             reduct,
-        } = function.nodes[id.idx()]
+        } = function.nodes[chain_id.idx()]
         {
             if first_control.is_none() {
                 first_control = Some(control);
