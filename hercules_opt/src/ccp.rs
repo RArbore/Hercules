@@ -665,6 +665,62 @@ fn ccp_flow_function(
                 constant: new_constant,
             }
         }
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op,
+        } => {
+            let CCPLattice {
+                reachability: ref first_reachability,
+                constant: ref first_constant,
+            } = inputs[first.idx()];
+            let CCPLattice {
+                reachability: ref second_reachability,
+                constant: ref second_constant,
+            } = inputs[second.idx()];
+            let CCPLattice {
+                reachability: ref third_reachability,
+                constant: ref third_constant,
+            } = inputs[third.idx()];
+
+            let new_constant = if let (
+                ConstantLattice::Constant(first_cons),
+                ConstantLattice::Constant(second_cons),
+                ConstantLattice::Constant(third_cons),
+            ) = (first_constant, second_constant, third_constant)
+            {
+                let new_cons = match(op, first_cons, second_cons, third_cons) {
+                    (TernaryOperator::Select, Constant::Boolean(first_val), second_val, third_val) => if *first_val {second_val.clone()} else {third_val.clone()},
+                    _ => panic!("Unsupported combination of ternary operation and constant values. Did typechecking succeed?")
+                };
+                ConstantLattice::Constant(new_cons)
+            } else if (first_constant.is_top()
+                && !second_constant.is_bottom()
+                && !third_constant.is_bottom())
+                || (!first_constant.is_bottom()
+                    && second_constant.is_top()
+                    && !first_constant.is_bottom())
+                || (!first_constant.is_bottom()
+                    && !second_constant.is_bottom()
+                    && third_constant.is_top())
+            {
+                ConstantLattice::top()
+            } else {
+                ConstantLattice::meet(
+                    first_constant,
+                    &ConstantLattice::meet(second_constant, third_constant),
+                )
+            };
+
+            CCPLattice {
+                reachability: ReachabilityLattice::meet(
+                    first_reachability,
+                    &ReachabilityLattice::meet(second_reachability, third_reachability),
+                ),
+                constant: new_constant,
+            }
+        }
         // Call nodes are uninterpretable.
         Node::Call {
             function: _,

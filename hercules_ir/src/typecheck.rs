@@ -701,6 +701,37 @@ fn typeflow(
 
             input_ty.clone()
         }
+        Node::Ternary {
+            first: _,
+            second: _,
+            third: _,
+            op,
+        } => {
+            if inputs.len() != 3 {
+                return Error(String::from("Ternary node must have exactly three inputs."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                match op {
+                    TernaryOperator::Select => {
+                        if !types[id.idx()].is_bool() {
+                            return Error(String::from(
+                                "Select ternary node input cannot have non-bool condition input.",
+                            ));
+                        }
+
+                        let data_ty = TypeSemilattice::meet(inputs[1], inputs[2]);
+                        if let Concrete(data_id) = data_ty {
+                            return Concrete(data_id);
+                        } else {
+                            return data_ty;
+                        }
+                    }
+                }
+            }
+
+            Error(String::from("Unhandled ternary types."))
+        }
         Node::Call {
             function: callee_id,
             dynamic_constants: dc_args,

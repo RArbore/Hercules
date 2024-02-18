@@ -152,6 +152,12 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::DynamicConstant { id: _ } => NodeUses::One([NodeID::new(0)]),
         Node::Unary { input, op: _ } => NodeUses::One([*input]),
         Node::Binary { left, right, op: _ } => NodeUses::Two([*left, *right]),
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op: _,
+        } => NodeUses::Three([*first, *second, *third]),
         Node::Call {
             function: _,
             dynamic_constants: _,
@@ -227,6 +233,12 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
         Node::DynamicConstant { id: _ } => NodeUsesMut::Zero,
         Node::Unary { input, op: _ } => NodeUsesMut::One([input]),
         Node::Binary { left, right, op: _ } => NodeUsesMut::Two([left, right]),
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op: _,
+        } => NodeUsesMut::Three([first, second, third]),
         Node::Call {
             function: _,
             dynamic_constants: _,

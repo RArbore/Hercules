@@ -308,6 +308,7 @@ fn parse_node<'a>(
         "xor" => parse_binary(ir_text, context, BinaryOperator::Xor)?,
         "lsh" => parse_binary(ir_text, context, BinaryOperator::LSh)?,
         "rsh" => parse_binary(ir_text, context, BinaryOperator::RSh)?,
+        "select" => parse_ternary(ir_text, context, TernaryOperator::Select)?,
         "call" => parse_call(ir_text, context)?,
         "read" => parse_read(ir_text, context)?,
         "write" => parse_write(ir_text, context)?,
@@ -483,6 +484,27 @@ fn parse_binary<'a>(
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
     Ok((ir_text, Node::Binary { left, right, op }))
+}
+
+fn parse_ternary<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+    op: TernaryOperator,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (first, second, third)) =
+        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
+    let first = context.borrow_mut().get_node_id(first);
+    let second = context.borrow_mut().get_node_id(second);
+    let third = context.borrow_mut().get_node_id(third);
+    Ok((
+        ir_text,
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op,
+        },
+    ))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
