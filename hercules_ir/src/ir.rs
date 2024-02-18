@@ -1078,6 +1078,7 @@ impl TernaryOperator {
  * Rust things to make newtyped IDs usable.
  */
 
+#[macro_export]
 macro_rules! define_id_type {
     ($x: ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
