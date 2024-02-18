@@ -1,4 +1,4 @@
-#![feature(coroutines, coroutine_trait)]
+#![feature(coroutines, coroutine_trait, let_chains)]
 
 pub mod build;
 pub mod dataflow;
