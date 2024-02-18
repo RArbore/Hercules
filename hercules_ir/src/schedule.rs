@@ -32,21 +32,34 @@ define_id_type!(PartitionID);
  * by the compiler should be included.
  */
 pub fn default_plan(function: &Function, fork_join_map: &HashMap<NodeID, NodeID>) -> Plan {
-    // Step 1: create a completely bare-bones plan doing nothing interesting.
+    // Start by creating a completely bare-bones plan doing nothing interesting.
     let mut plan = Plan {
         schedules: vec![vec![]; function.nodes.len()],
         partitions: vec![PartitionID::new(0); function.nodes.len()],
         num_partitions: 0,
     };
 
-    // Step 2: infer parallel reductions consisting of a simple loop between a
-    // Reduce node and a Write node, where an index of the Write is a position
-    // index using the ThreadID node attached to the corresponding Fork. This
-    // procedure also adds the ParallelReduce schedule to Reduce nodes reducing
-    // over a parallelized Reduce, as long as the base Write node also has a
-    // position index that is the ThreadID of the outer fork. In other words,
-    // the complete Reduce chain is annotated with ParallelReduce, as long as
-    // each ThreadID appears in the positional indexing of the Write.
+    // Infer schedules.
+    infer_parallel_reduce(function, fork_join_map, &mut plan);
+
+    plan
+}
+
+/*
+ * Infer parallel reductions consisting of a simple cycle between a Reduce node
+ * and a Write node, where an index of the Write is a position index using the
+ * ThreadID node attached to the corresponding Fork. This procedure also adds
+ * the ParallelReduce schedule to Reduce nodes reducing over a parallelized
+ * Reduce, as long as the base Write node also has a position index that is the
+ * ThreadID of the outer fork. In other words, the complete Reduce chain is
+ * annotated with ParallelReduce, as long as each ThreadID appears in the
+ * positional indexing of the Write.
+ */
+pub fn infer_parallel_reduce(
+    function: &Function,
+    fork_join_map: &HashMap<NodeID, NodeID>,
+    plan: &mut Plan,
+) {
     for id in (0..function.nodes.len())
         .map(NodeID::new)
         .filter(|id| function.nodes[id.idx()].is_reduce())
@@ -110,6 +123,4 @@ pub fn default_plan(function: &Function, fork_join_map: &HashMap<NodeID, NodeID>
             }
         }
     }
-
-    plan
 }
