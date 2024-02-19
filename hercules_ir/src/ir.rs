@@ -857,9 +857,9 @@ impl Node {
         self.is_start()
             || self.is_region()
             || self.is_if()
+            || self.is_match()
             || self.is_fork()
             || self.is_join()
-            || self.is_return()
             || self.is_return()
     }
 

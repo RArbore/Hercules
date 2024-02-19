@@ -62,6 +62,15 @@ fn main() {
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
+    println!(
+        "{:?}",
+        hercules_ir::schedule::default_plan(
+            &module.functions[0],
+            &reverse_postorders[0],
+            &fork_join_maps[0]
+        )
+    );
+
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();
         let mut rng = rand::thread_rng();

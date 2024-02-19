@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::zip;
 
 use crate::*;
 
@@ -31,7 +32,11 @@ define_id_type!(PartitionID);
  * conservative partitioning is enacted. Only schedules that can be proven safe
  * by the compiler should be included.
  */
-pub fn default_plan(function: &Function, fork_join_map: &HashMap<NodeID, NodeID>) -> Plan {
+pub fn default_plan(
+    function: &Function,
+    reverse_postorder: &Vec<NodeID>,
+    fork_join_map: &HashMap<NodeID, NodeID>,
+) -> Plan {
     // Start by creating a completely bare-bones plan doing nothing interesting.
     let mut plan = Plan {
         schedules: vec![vec![]; function.nodes.len()],
@@ -41,6 +46,9 @@ pub fn default_plan(function: &Function, fork_join_map: &HashMap<NodeID, NodeID>
 
     // Infer schedules.
     infer_parallel_reduce(function, fork_join_map, &mut plan);
+
+    // Infer a partitioning.
+    partition_out_forks(function, reverse_postorder, fork_join_map, &mut plan);
 
     plan
 }
@@ -123,4 +131,86 @@ pub fn infer_parallel_reduce(
             }
         }
     }
+}
+
+/*
+ * Create partitions corresponding to fork-join nests. Also, split the "top-
+ * level" partition into sub-partitions that are connected graphs. Place data
+ * nodes using ThreadID or Reduce nodes in the corresponding fork-join nest's
+ * partition.
+ */
+pub fn partition_out_forks(
+    function: &Function,
+    reverse_postorder: &Vec<NodeID>,
+    fork_join_map: &HashMap<NodeID, NodeID>,
+    plan: &mut Plan,
+) {
+    impl Semilattice for NodeID {
+        fn meet(a: &Self, b: &Self) -> Self {
+            if a.idx() < b.idx() {
+                *a
+            } else {
+                *b
+            }
+        }
+
+        fn bottom() -> Self {
+            NodeID::new(0)
+        }
+
+        fn top() -> Self {
+            NodeID::new(!0)
+        }
+    }
+
+    // Step 1: do dataflow analysis over control nodes to identify a
+    // representative node for each partition. Each fork not taking as input the
+    // ID of another fork node introduces its own ID as a partition
+    // representative. Each join node propagates the fork ID if it's not the
+    // fork pointing to the join in the fork join map - otherwise, it introduces
+    // its user as a representative node ID for a partition. A region node taking
+    // multiple node IDs as input belongs to the partition with the smaller
+    // representative node ID.
+    let representatives = forward_dataflow(
+        function,
+        reverse_postorder,
+        |inputs: &[&NodeID], node_id: NodeID| match function.nodes[node_id.idx()] {
+            Node::Start => NodeID::new(0),
+            Node::Fork {
+                control: _,
+                factor: _,
+            } => {
+                // Start a partition if the preceding partition isn't a fork
+                // partition. Otherwise, be part of the parent fork partition.
+                if *inputs[0] != NodeID::top() && function.nodes[inputs[0].idx()].is_fork() {
+                    inputs[0].clone()
+                } else {
+                    node_id
+                }
+            }
+            Node::Join { control: _ } => inputs[0].clone(),
+            _ => {
+                // If the previous node is a join and terminates a fork's
+                // partition, then start a new partition here. Otherwise, just
+                // meet over the input lattice values. Set all data nodes to be
+                // in the !0 partition.
+                if !function.nodes[node_id.idx()].is_control() {
+                    NodeID::top()
+                } else if zip(inputs, get_uses(&function.nodes[node_id.idx()]).as_ref())
+                    .any(|(part_id, pred_id)| fork_join_map.get(part_id) == Some(pred_id))
+                {
+                    node_id
+                } else {
+                    inputs
+                        .iter()
+                        .filter(|id| {
+                            ***id != NodeID::top() && function.nodes[id.idx()].is_control()
+                        })
+                        .fold(NodeID::top(), |a, b| NodeID::meet(&a, b))
+                }
+            }
+        },
+    );
+
+    println!("{:?}", representatives);
 }
