@@ -171,7 +171,7 @@ pub fn partition_out_forks(
     // its user as a representative node ID for a partition. A region node taking
     // multiple node IDs as input belongs to the partition with the smaller
     // representative node ID.
-    let representatives = forward_dataflow(
+    let control_representatives = forward_dataflow(
         function,
         reverse_postorder,
         |inputs: &[&NodeID], node_id: NodeID| match function.nodes[node_id.idx()] {
@@ -212,5 +212,20 @@ pub fn partition_out_forks(
         },
     );
 
-    println!("{:?}", representatives);
+    // Step 2:
+
+    // Step 3: deduplicate representative node IDs.
+    let mut representative_to_partition_ids = HashMap::new();
+    for rep in &representatives {
+        if !representative_to_partition_ids.contains_key(rep) {
+            representative_to_partition_ids
+                .insert(rep, PartitionID::new(representative_to_partition_ids.len()));
+        }
+    }
+
+    // Step 4: update plan.
+    plan.num_partitions = representative_to_partition_ids.len();
+    for id in (0..function.nodes.len()).map(NodeID::new) {
+        plan.partitions[id.idx()] = representative_to_partition_ids[&representatives[id.idx()]];
+    }
 }
