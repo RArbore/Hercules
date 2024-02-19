@@ -7,4 +7,5 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 clap = { version = "*", features = ["derive"] }
 hercules_ir = { path = "../../hercules_ir" }
 hercules_opt = { path = "../../hercules_opt" }
+hercules_cg = { path = "../../hercules_cg" }
 rand = "*"

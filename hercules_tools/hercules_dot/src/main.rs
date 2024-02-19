@@ -58,18 +58,36 @@ fn main() {
             (function, (types, constants, dynamic_constants))
         },
     );
-    let (_def_uses, reverse_postorders, typing, _subgraphs, doms, _postdoms, fork_join_maps) =
+    let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
 
-    println!(
-        "{:?}",
-        hercules_ir::schedule::default_plan(
-            &module.functions[0],
-            &reverse_postorders[0],
-            &fork_join_maps[0]
-        )
-    );
+    let plans: Vec<_> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| {
+            hercules_ir::schedule::default_plan(
+                function,
+                &reverse_postorders[idx],
+                &fork_join_maps[idx],
+                &hercules_cg::gcm::gcm(
+                    function,
+                    &def_uses[idx],
+                    &reverse_postorders[idx],
+                    &subgraphs[idx],
+                    &doms[idx],
+                    &fork_join_maps[idx],
+                    &hercules_cg::antideps::array_antideps(
+                        function,
+                        &def_uses[idx],
+                        &module.types,
+                        &typing[idx],
+                    ),
+                ),
+            )
+        })
+        .collect();
 
     if args.output.is_empty() {
         let mut tmp_path = temp_dir();

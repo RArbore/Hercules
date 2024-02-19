@@ -36,6 +36,7 @@ pub fn default_plan(
     function: &Function,
     reverse_postorder: &Vec<NodeID>,
     fork_join_map: &HashMap<NodeID, NodeID>,
+    bbs: &Vec<NodeID>,
 ) -> Plan {
     // Start by creating a completely bare-bones plan doing nothing interesting.
     let mut plan = Plan {
@@ -48,7 +49,7 @@ pub fn default_plan(
     infer_parallel_reduce(function, fork_join_map, &mut plan);
 
     // Infer a partitioning.
-    partition_out_forks(function, reverse_postorder, fork_join_map, &mut plan);
+    partition_out_forks(function, reverse_postorder, fork_join_map, bbs, &mut plan);
 
     plan
 }
@@ -143,6 +144,7 @@ pub fn partition_out_forks(
     function: &Function,
     reverse_postorder: &Vec<NodeID>,
     fork_join_map: &HashMap<NodeID, NodeID>,
+    bbs: &Vec<NodeID>,
     plan: &mut Plan,
 ) {
     impl Semilattice for NodeID {
@@ -171,7 +173,7 @@ pub fn partition_out_forks(
     // its user as a representative node ID for a partition. A region node taking
     // multiple node IDs as input belongs to the partition with the smaller
     // representative node ID.
-    let control_representatives = forward_dataflow(
+    let mut representatives = forward_dataflow(
         function,
         reverse_postorder,
         |inputs: &[&NodeID], node_id: NodeID| match function.nodes[node_id.idx()] {
@@ -212,7 +214,13 @@ pub fn partition_out_forks(
         },
     );
 
-    // Step 2:
+    // Step 2: assign data nodes to the partitions of the control nodes they are
+    // assigned to by GCM.
+    for idx in 0..function.nodes.len() {
+        if !function.nodes[idx].is_control() {
+            representatives[idx] = representatives[bbs[idx].idx()];
+        }
+    }
 
     // Step 3: deduplicate representative node IDs.
     let mut representative_to_partition_ids = HashMap::new();
