@@ -27,6 +27,21 @@ pub struct Plan {
 
 define_id_type!(PartitionID);
 
+impl Plan {
+    /*
+     * Invert stored map from node to partition to map from partition to nodes.
+     */
+    pub fn invert_partition_map(&self) -> Vec<Vec<NodeID>> {
+        let mut map = vec![vec![]; self.num_partitions];
+
+        for idx in 0..self.partitions.len() {
+            map[self.partitions[idx].idx()].push(NodeID::new(idx));
+        }
+
+        map
+    }
+}
+
 /*
  * A "default" plan should be available, where few schedules are used and
  * conservative partitioning is enacted. Only schedules that can be proven safe
