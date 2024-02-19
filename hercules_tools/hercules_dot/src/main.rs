@@ -102,6 +102,7 @@ fn main() {
             &typing,
             &doms,
             &fork_join_maps,
+            &plans,
             &mut contents,
         )
         .expect("PANIC: Unable to generate output file contents.");
@@ -120,6 +121,7 @@ fn main() {
             &typing,
             &doms,
             &fork_join_maps,
+            &plans,
             &mut contents,
         )
         .expect("PANIC: Unable to generate output file contents.");

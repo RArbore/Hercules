@@ -15,6 +15,7 @@ pub fn write_dot<W: Write>(
     typing: &ModuleTyping,
     doms: &Vec<DomTree>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
+    plans: &Vec<Plan>,
     w: &mut W,
 ) -> std::fmt::Result {
     write_digraph_header(w)?;
@@ -22,6 +23,7 @@ pub fn write_dot<W: Write>(
     for function_id in (0..module.functions.len()).map(FunctionID::new) {
         let function = &module.functions[function_id.idx()];
         let reverse_postorder = &reverse_postorders[function_id.idx()];
+        let plan = &plans[function_id.idx()];
         let mut reverse_postorder_node_numbers = vec![0; function.nodes.len()];
         for (idx, id) in reverse_postorder.iter().enumerate() {
             reverse_postorder_node_numbers[id.idx()] = idx;
@@ -39,7 +41,14 @@ pub fn write_dot<W: Write>(
             // Control nodes are dark red, data nodes are dark blue.
             let color = if dst_control { "darkred" } else { "darkblue" };
 
-            write_node(node_id, function_id, color, module, w)?;
+            write_node(
+                node_id,
+                function_id,
+                color,
+                module,
+                &plan.schedules[node_id.idx()],
+                w,
+            )?;
 
             for u in def_use::get_uses(&node).as_ref() {
                 let src_ty = &module.types[typing[function_id.idx()][u.idx()].idx()];
@@ -164,6 +173,7 @@ fn write_node<W: Write>(
     function_id: FunctionID,
     color: &str,
     module: &Module,
+    schedules: &Vec<Schedule>,
     w: &mut W,
 ) -> std::fmt::Result {
     let node = &module.functions[function_id.idx()].nodes[node_id.idx()];
@@ -222,16 +232,33 @@ fn write_node<W: Write>(
     } else {
         format!("{} ({})", node.lower_case_name(), suffix)
     };
-    write!(
-        w,
-        "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
-        node.lower_case_name(),
-        function_id.idx(),
-        node_id.idx(),
-        node_id.idx(),
-        label,
-        color
-    )?;
+
+    let mut iter = schedules.into_iter();
+    if let Some(first) = iter.next() {
+        let subtitle = iter.fold(format!("{:?}", first), |b, i| format!("{}, {:?}", b, i));
+        write!(
+            w,
+            "{}_{}_{} [xlabel={}, label=<{}<BR /><FONT POINT-SIZE=\"8\">{}</FONT>>, color={}];\n",
+            node.lower_case_name(),
+            function_id.idx(),
+            node_id.idx(),
+            node_id.idx(),
+            label,
+            subtitle,
+            color
+        )?;
+    } else {
+        write!(
+            w,
+            "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
+            node.lower_case_name(),
+            function_id.idx(),
+            node_id.idx(),
+            node_id.idx(),
+            label,
+            color
+        )?;
+    }
     Ok(())
 }
 

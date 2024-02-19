@@ -20,9 +20,9 @@ pub enum Schedule {
  */
 #[derive(Debug, Clone)]
 pub struct Plan {
-    schedules: Vec<Vec<Schedule>>,
-    partitions: Vec<PartitionID>,
-    num_partitions: usize,
+    pub schedules: Vec<Vec<Schedule>>,
+    pub partitions: Vec<PartitionID>,
+    pub num_partitions: usize,
 }
 
 define_id_type!(PartitionID);
