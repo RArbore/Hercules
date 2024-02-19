@@ -1604,7 +1604,7 @@ fn process_expr<'a>(
                 Ok((array_val, Type::Array(element_type, dims))) => {
                     let mut node_builder = builder.allocate_node(func);
                     let res = node_builder.id();
-                    node_builder.build_read(res, vec![builder.create_position_index(indices.clone().into())].into());
+                    node_builder.build_read(array_val, vec![builder.create_position_index(indices.clone().into())].into());
                     let _ = builder.add_node(node_builder);
 
                     assert!(indices.len() == dims.len(), "Array has wrong number of dimensions");
