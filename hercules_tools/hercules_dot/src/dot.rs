@@ -35,7 +35,11 @@ pub fn write_dot<W: Write>(
         // Step 1: draw IR graph itself. This includes all IR nodes and all edges
         // between IR nodes.
         for partition_idx in 0..plan.num_partitions {
-            write_partition_header(function_id, partition_idx, module, w)?;
+            let partition_color = match plan.partition_devices[partition_idx] {
+                Device::CPU => "lightblue",
+                Device::GPU => "darkseagreen",
+            };
+            write_partition_header(function_id, partition_idx, module, partition_color, w)?;
             for node_id in &partition_to_node_map[partition_idx] {
                 let node = &function.nodes[node_id.idx()];
                 let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
@@ -173,13 +177,14 @@ fn write_partition_header<W: Write>(
     function_id: FunctionID,
     partition_idx: usize,
     module: &Module,
+    color: &str,
     w: &mut W,
 ) -> std::fmt::Result {
     let function = &module.functions[function_id.idx()];
     write!(w, "subgraph {}_{} {{\n", function.name, partition_idx)?;
     write!(w, "label=\"\"\n")?;
     write!(w, "style=rounded\n")?;
-    write!(w, "bgcolor=ivory3\n")?;
+    write!(w, "bgcolor={}\n", color)?;
     write!(w, "cluster=true\n")?;
     Ok(())
 }

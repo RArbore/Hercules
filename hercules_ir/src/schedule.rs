@@ -11,6 +11,18 @@ use crate::*;
 #[derive(Debug, Clone)]
 pub enum Schedule {
     ParallelReduce,
+    Vectorize,
+}
+
+/*
+ * The authoritative enumeration of supported devices. Technically, a device
+ * refers to a specific backend, so difference "devices" may refer to the same
+ * "kind" of hardware.
+ */
+#[derive(Debug, Clone)]
+pub enum Device {
+    CPU,
+    GPU,
 }
 
 /*
@@ -22,6 +34,7 @@ pub enum Schedule {
 pub struct Plan {
     pub schedules: Vec<Vec<Schedule>>,
     pub partitions: Vec<PartitionID>,
+    pub partition_devices: Vec<Device>,
     pub num_partitions: usize,
 }
 
@@ -57,6 +70,7 @@ pub fn default_plan(
     let mut plan = Plan {
         schedules: vec![vec![]; function.nodes.len()],
         partitions: vec![PartitionID::new(0); function.nodes.len()],
+        partition_devices: vec![Device::CPU; 1],
         num_partitions: 0,
     };
 
@@ -65,6 +79,9 @@ pub fn default_plan(
 
     // Infer a partitioning.
     partition_out_forks(function, reverse_postorder, fork_join_map, bbs, &mut plan);
+
+    // Place fork partitions on the GPU.
+    place_fork_partitions_on_gpu(function, &mut plan);
 
     plan
 }
@@ -250,5 +267,18 @@ pub fn partition_out_forks(
     plan.num_partitions = representative_to_partition_ids.len();
     for id in (0..function.nodes.len()).map(NodeID::new) {
         plan.partitions[id.idx()] = representative_to_partition_ids[&representatives[id.idx()]];
+    }
+
+    plan.partition_devices = vec![Device::CPU; plan.num_partitions];
+}
+
+/*
+ * Set the device for all partitions containing a fork to the GPU.
+ */
+pub fn place_fork_partitions_on_gpu(function: &Function, plan: &mut Plan) {
+    for idx in 0..function.nodes.len() {
+        if function.nodes[idx].is_fork() {
+            plan.partition_devices[plan.partitions[idx].idx()] = Device::GPU;
+        }
     }
 }
