@@ -131,17 +131,6 @@ impl Type {
         }
     }
 
-    fn is_bitwise(&self) -> bool {
-        match self {
-              Type::Primitive(Primitive::I8)  | Type::Primitive(Primitive::U8)
-            | Type::Primitive(Primitive::I16) | Type::Primitive(Primitive::U16)
-            | Type::Primitive(Primitive::I32) | Type::Primitive(Primitive::U32)
-            | Type::Primitive(Primitive::I64) | Type::Primitive(Primitive::U64)
-              => true,
-            _ => false,
-        }
-    }
-
     fn is_void(&self) -> bool {
         match self {
             Type::Primitive(Primitive::Void) => true,
@@ -157,7 +146,7 @@ enum GoalType {
     TupleType  { index : usize, index_type : Box<GoalType> },
     ArrayType  { element_type : Box<GoalType>, num_dims : usize },
     
-    AnyType, AnyNumeric, AnyInteger, AnyBitwise
+    AnyType, AnyNumeric, AnyInteger
 }
 
 impl GoalType {
@@ -184,7 +173,6 @@ impl GoalType {
             GoalType::AnyType => format!("*"),
             GoalType::AnyNumeric => format!("numeric"),
             GoalType::AnyInteger => format!("integer"),
-            GoalType::AnyBitwise => format!("bitwise"),
         }
     }
 
@@ -199,7 +187,7 @@ impl GoalType {
         match self {
             GoalType::KnownType(ty) => ty.is_integer(),
             GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
-                | GoalType::AnyBitwise => true,
+                => true,
             _ => false,
         }
     }
@@ -209,7 +197,6 @@ impl GoalType {
             GoalType::KnownType(ty) => { assert!(ty.is_numeric()); self },
             GoalType::AnyType | GoalType::AnyNumeric => &GoalType::AnyNumeric,
             GoalType::AnyInteger => &GoalType::AnyInteger,
-            GoalType::AnyBitwise => &GoalType::AnyBitwise,
             _ => panic!("Call to GoalType::as_numeric() on non numeric type"),
         }
     }
@@ -218,7 +205,7 @@ impl GoalType {
         match self {
             GoalType::KnownType(ty) => ty.is_integer(),
             GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
-                | GoalType::AnyBitwise => true,
+                => true,
             _ => false,
         }
     }
@@ -227,7 +214,7 @@ impl GoalType {
         match self {
             GoalType::KnownType(ty) => { assert!(ty.is_integer()); ty },
             GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
-                | GoalType::AnyBitwise => &Type::Primitive(Primitive::I64),
+                => &Type::Primitive(Primitive::I64),
             _ => panic!("Call to GoalType::get_integer() on non integer type"),
         }
     }
@@ -237,35 +224,7 @@ impl GoalType {
             GoalType::KnownType(ty) => { assert!(ty.is_integer()); self },
             GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
                 => &GoalType::AnyInteger,
-            GoalType::AnyBitwise => &GoalType::AnyBitwise,
             _ => panic!("Call to GoalType::as_integer() no non integer type"),
-        }
-    }
-
-    fn is_bitwise(&self) -> bool {
-        match self {
-            GoalType::KnownType(ty) => ty.is_bitwise(),
-            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger 
-                | GoalType::AnyBitwise => true,
-            _ => false,
-        }
-    }
-
-    fn get_bitwise(&self) -> &Type {
-        match self {
-            GoalType::KnownType(ty) => { assert!(ty.is_bitwise()); ty },
-            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
-                | GoalType::AnyBitwise => &Type::Primitive(Primitive::I64),
-            _ => panic!("Call to GoalType::get_bitwise() on non integer type"),
-        }
-    }
-
-    fn as_bitwise(&self) -> &GoalType {
-        match self {
-            GoalType::KnownType(ty) => { assert!(ty.is_bitwise()); self },
-            GoalType::AnyType | GoalType::AnyNumeric | GoalType::AnyInteger
-                | GoalType::AnyBitwise => &GoalType::AnyBitwise,
-            _ => panic!("Call to GoalType::as_bitwise() no non bitwise type"),
         }
     }
 
@@ -335,7 +294,6 @@ impl GoalType {
             GoalType::AnyType => true,
             GoalType::AnyNumeric => typ.is_numeric(),
             GoalType::AnyInteger => typ.is_integer(),
-            GoalType::AnyBitwise => typ.is_bitwise(),
         }
     }
 }
@@ -1079,7 +1037,7 @@ fn process_stmt<'a>(
                             BinaryOperator::Rem
                         },
                         AssignOp::BitAnd => {
-                            if !typ.is_bitwise() {
+                            if !typ.is_integer() {
                                 return Err(singleton_error(
                                         ErrorMessage::SemanticError(
                                             span_to_loc(assign_span, lexer),
@@ -1089,7 +1047,7 @@ fn process_stmt<'a>(
                             BinaryOperator::And
                         },
                         AssignOp::BitOr => {
-                            if !typ.is_bitwise() {
+                            if !typ.is_integer() {
                                 return Err(singleton_error(
                                         ErrorMessage::SemanticError(
                                             span_to_loc(assign_span, lexer),
@@ -1099,7 +1057,7 @@ fn process_stmt<'a>(
                             BinaryOperator::Or
                         },
                         AssignOp::Xor => {
-                            if !typ.is_bitwise() {
+                            if !typ.is_integer() {
                                 return Err(singleton_error(
                                         ErrorMessage::SemanticError(
                                             span_to_loc(assign_span, lexer),
@@ -1135,7 +1093,7 @@ fn process_stmt<'a>(
                                         "||= operator".to_string())));
                         },
                         AssignOp::LShift => {
-                            if !typ.is_bitwise() {
+                            if !typ.is_integer() {
                                 return Err(singleton_error(
                                         ErrorMessage::SemanticError(
                                             span_to_loc(assign_span, lexer),
@@ -1145,7 +1103,7 @@ fn process_stmt<'a>(
                             BinaryOperator::LSh
                         },
                         AssignOp::RShift => {
-                            if !typ.is_bitwise() {
+                            if !typ.is_integer() {
                                 return Err(singleton_error(
                                         ErrorMessage::SemanticError(
                                             span_to_loc(assign_span, lexer),
@@ -1747,15 +1705,15 @@ fn process_expr<'a>(
                         (goal_type.as_numeric(), UnaryOperator::Neg)
                     },
                     UnaryOp::BitwiseNot => {
-                        if !goal_type.is_bitwise() {
+                        if !goal_type.is_integer() {
                             return Err(singleton_error(
                                     ErrorMessage::TypeError(
                                         span_to_loc(span, lexer),
                                         goal_type.to_string(stringtab),
-                                        "bitwise".to_string())));
+                                        "integer".to_string())));
                         }
 
-                        (goal_type.as_bitwise(), UnaryOperator::Not)
+                        (goal_type.as_integer(), UnaryOperator::Not)
                     },
                     UnaryOp::LogicalNot => {
                         if !goal_type.is_boolean() {
