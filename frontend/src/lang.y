@@ -381,8 +381,6 @@ Expr -> Result<Expr, ()>
       { Ok(Expr::UnaryExpr{ span : $span, op : UnaryOp::LogicalNot, expr : Box::new($2?)}) }
   | Expr 'as' Type
       { Ok(Expr::CastExpr{ span : $span, expr : Box::new($1?), typ : $3?}) }
-  | 'size' Expr
-      { Ok(Expr::SizeExpr{ span : $span, expr : Box::new($2?)}) }
   | Expr '+' Expr
       { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Add, lhs: Box::new($1?), rhs: Box::new($3?)}) }
   | Expr '-' Expr
@@ -614,7 +612,6 @@ pub enum Expr {
   UnaryExpr     { span : Span, op : UnaryOp, expr : Box<Expr> },
   BinaryExpr    { span : Span, op : BinaryOp, lhs : Box<Expr>, rhs : Box<Expr> },
   CastExpr      { span : Span, expr : Box<Expr>, typ : Type },
-  SizeExpr      { span : Span, expr : Box<Expr> },
   CondExpr      { span : Span, cond : Box<Expr>, thn : Box<Expr>, els : Box<Expr> },
   CallExpr      { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
                   args : Vec<(bool, Expr)> }, // bool indicates & (for inouts)
@@ -653,7 +650,6 @@ impl Spans for Expr {
       | Expr::UnaryExpr     { span, .. }
       | Expr::BinaryExpr    { span, .. }
       | Expr::CastExpr      { span, .. }
-      | Expr::SizeExpr      { span, .. }
       | Expr::CondExpr      { span, .. }
       | Expr::CallExpr      { span, .. }
         => *span

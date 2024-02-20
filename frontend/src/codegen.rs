@@ -1737,7 +1737,6 @@ fn process_expr<'a>(
         lang_y::Expr::BinaryExpr { span: _, op: _, lhs: _, rhs: _ } => { todo!() },
         
         lang_y::Expr::CastExpr { span: _, expr: _, typ: _ } => { todo!() },
-        lang_y::Expr::SizeExpr { span: _, expr: _ } => { todo!() },
         lang_y::Expr::CondExpr { span: _, cond: _, thn: _, els: _ } => { todo!() },
         lang_y::Expr::CallExpr { span, name: _, ty_args: _, args: _ } => {
             Err(singleton_error(

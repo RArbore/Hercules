@@ -23,7 +23,7 @@ impl<K : Eq + Hash + Copy, V> Env<K, V> {
     pub fn insert(&mut self, k : K, v : V) {
         if self.scope[self.scope.len()-1].contains(&k) {
             match self.table.get_mut(&k) {
-                None => assert!(false, "Internal Failure: Environment Insert"),
+                None => panic!("Internal Failure: Environment Insert"),
                 Some(r) => {
                     let last = r.len() - 1;
                     r[last] = v;
