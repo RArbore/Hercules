@@ -15,6 +15,7 @@ pub fn write_dot<W: Write>(
     typing: &ModuleTyping,
     doms: &Vec<DomTree>,
     fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
+    plans: &Vec<Plan>,
     w: &mut W,
 ) -> std::fmt::Result {
     write_digraph_header(w)?;
@@ -22,67 +23,85 @@ pub fn write_dot<W: Write>(
     for function_id in (0..module.functions.len()).map(FunctionID::new) {
         let function = &module.functions[function_id.idx()];
         let reverse_postorder = &reverse_postorders[function_id.idx()];
+        let plan = &plans[function_id.idx()];
         let mut reverse_postorder_node_numbers = vec![0; function.nodes.len()];
         for (idx, id) in reverse_postorder.iter().enumerate() {
             reverse_postorder_node_numbers[id.idx()] = idx;
         }
         write_subgraph_header(function_id, module, w)?;
 
+        let partition_to_node_map = plan.invert_partition_map();
+
         // Step 1: draw IR graph itself. This includes all IR nodes and all edges
         // between IR nodes.
-        for node_id in (0..function.nodes.len()).map(NodeID::new) {
-            let node = &function.nodes[node_id.idx()];
-            let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
-            let dst_strictly_control = node.is_strictly_control();
-            let dst_control = dst_ty.is_control() || dst_strictly_control;
+        for partition_idx in 0..plan.num_partitions {
+            let partition_color = match plan.partition_devices[partition_idx] {
+                Device::CPU => "lightblue",
+                Device::GPU => "darkseagreen",
+            };
+            write_partition_header(function_id, partition_idx, module, partition_color, w)?;
+            for node_id in &partition_to_node_map[partition_idx] {
+                let node = &function.nodes[node_id.idx()];
+                let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
+                let dst_strictly_control = node.is_strictly_control();
+                let dst_control = dst_ty.is_control() || dst_strictly_control;
 
-            // Control nodes are dark red, data nodes are dark blue.
-            let color = if dst_control { "darkred" } else { "darkblue" };
+                // Control nodes are dark red, data nodes are dark blue.
+                let color = if dst_control { "darkred" } else { "darkblue" };
 
-            write_node(node_id, function_id, color, module, w)?;
-
-            for u in def_use::get_uses(&node).as_ref() {
-                let src_ty = &module.types[typing[function_id.idx()][u.idx()].idx()];
-                let src_strictly_control = function.nodes[u.idx()].is_strictly_control();
-                let src_control = src_ty.is_control() || src_strictly_control;
-
-                // An edge between control nodes is dashed. An edge between data
-                // nodes is filled. An edge between a control node and a data
-                // node is dotted.
-                let style = if dst_control && src_control {
-                    "dashed"
-                } else if !dst_control && !src_control {
-                    ""
-                } else {
-                    "dotted"
-                };
-
-                // To have a consistent layout, we will add "back edges" in the
-                // IR graph as backward facing edges in the graphviz output, so
-                // that they don't mess up the layout. There isn't necessarily a
-                // precise definition of a "back edge" in Hercules IR. I've
-                // found what makes for the most clear output graphs is treating
-                // edges to phi nodes as back edges when the phi node appears
-                // before the use in the reverse postorder, and treating a
-                // control edge a back edge when the destination appears before
-                // the source in the reverse postorder.
-                let is_back_edge = reverse_postorder_node_numbers[node_id.idx()]
-                    < reverse_postorder_node_numbers[u.idx()]
-                    && (node.is_phi()
-                        || (function.nodes[node_id.idx()].is_control()
-                            && function.nodes[u.idx()].is_control()));
-                write_edge(
-                    node_id,
+                write_node(
+                    *node_id,
                     function_id,
-                    *u,
-                    function_id,
-                    !is_back_edge,
-                    "black",
-                    style,
+                    color,
                     module,
+                    &plan.schedules[node_id.idx()],
                     w,
                 )?;
+
+                for u in def_use::get_uses(&node).as_ref() {
+                    let src_ty = &module.types[typing[function_id.idx()][u.idx()].idx()];
+                    let src_strictly_control = function.nodes[u.idx()].is_strictly_control();
+                    let src_control = src_ty.is_control() || src_strictly_control;
+
+                    // An edge between control nodes is dashed. An edge between data
+                    // nodes is filled. An edge between a control node and a data
+                    // node is dotted.
+                    let style = if dst_control && src_control {
+                        "dashed"
+                    } else if !dst_control && !src_control {
+                        ""
+                    } else {
+                        "dotted"
+                    };
+
+                    // To have a consistent layout, we will add "back edges" in the
+                    // IR graph as backward facing edges in the graphviz output, so
+                    // that they don't mess up the layout. There isn't necessarily a
+                    // precise definition of a "back edge" in Hercules IR. I've
+                    // found what makes for the most clear output graphs is treating
+                    // edges to phi nodes as back edges when the phi node appears
+                    // before the use in the reverse postorder, and treating a
+                    // control edge a back edge when the destination appears before
+                    // the source in the reverse postorder.
+                    let is_back_edge = reverse_postorder_node_numbers[node_id.idx()]
+                        < reverse_postorder_node_numbers[u.idx()]
+                        && (node.is_phi()
+                            || (function.nodes[node_id.idx()].is_control()
+                                && function.nodes[u.idx()].is_control()));
+                    write_edge(
+                        *node_id,
+                        function_id,
+                        *u,
+                        function_id,
+                        !is_back_edge,
+                        "black",
+                        style,
+                        module,
+                        w,
+                    )?;
+                }
             }
+            write_graph_footer(w)?;
         }
 
         // Step 2: draw dominance edges in dark green. Don't draw post dominance
@@ -154,6 +173,22 @@ fn write_subgraph_header<W: Write>(
     Ok(())
 }
 
+fn write_partition_header<W: Write>(
+    function_id: FunctionID,
+    partition_idx: usize,
+    module: &Module,
+    color: &str,
+    w: &mut W,
+) -> std::fmt::Result {
+    let function = &module.functions[function_id.idx()];
+    write!(w, "subgraph {}_{} {{\n", function.name, partition_idx)?;
+    write!(w, "label=\"\"\n")?;
+    write!(w, "style=rounded\n")?;
+    write!(w, "bgcolor={}\n", color)?;
+    write!(w, "cluster=true\n")?;
+    Ok(())
+}
+
 fn write_graph_footer<W: Write>(w: &mut W) -> std::fmt::Result {
     write!(w, "}}\n")?;
     Ok(())
@@ -164,6 +199,7 @@ fn write_node<W: Write>(
     function_id: FunctionID,
     color: &str,
     module: &Module,
+    schedules: &Vec<Schedule>,
     w: &mut W,
 ) -> std::fmt::Result {
     let node = &module.functions[function_id.idx()].nodes[node_id.idx()];
@@ -222,16 +258,33 @@ fn write_node<W: Write>(
     } else {
         format!("{} ({})", node.lower_case_name(), suffix)
     };
-    write!(
-        w,
-        "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
-        node.lower_case_name(),
-        function_id.idx(),
-        node_id.idx(),
-        node_id.idx(),
-        label,
-        color
-    )?;
+
+    let mut iter = schedules.into_iter();
+    if let Some(first) = iter.next() {
+        let subtitle = iter.fold(format!("{:?}", first), |b, i| format!("{}, {:?}", b, i));
+        write!(
+            w,
+            "{}_{}_{} [xlabel={}, label=<{}<BR /><FONT POINT-SIZE=\"8\">{}</FONT>>, color={}];\n",
+            node.lower_case_name(),
+            function_id.idx(),
+            node_id.idx(),
+            node_id.idx(),
+            label,
+            subtitle,
+            color
+        )?;
+    } else {
+        write!(
+            w,
+            "{}_{}_{} [xlabel={}, label=\"{}\", color={}];\n",
+            node.lower_case_name(),
+            function_id.idx(),
+            node_id.idx(),
+            node_id.idx(),
+            label,
+            color
+        )?;
+    }
     Ok(())
 }
 
