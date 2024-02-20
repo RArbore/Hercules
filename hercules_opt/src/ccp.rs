@@ -444,22 +444,22 @@ fn ccp_flow_function(
             } = inputs[input.idx()];
 
             let new_constant = if let ConstantLattice::Constant(cons) = constant {
-                let new_cons = match (op, cons) {
-                    (UnaryOperator::Not, Constant::Boolean(val)) => Constant::Boolean(!val),
-                    (UnaryOperator::Not, Constant::Integer8(val)) => Constant::Integer8(!val),
-                    (UnaryOperator::Not, Constant::Integer16(val)) => Constant::Integer16(!val),
-                    (UnaryOperator::Not, Constant::Integer32(val)) => Constant::Integer32(!val),
-                    (UnaryOperator::Not, Constant::Integer64(val)) => Constant::Integer64(!val),
-                    (UnaryOperator::Neg, Constant::Integer8(val)) => Constant::Integer8(-val),
-                    (UnaryOperator::Neg, Constant::Integer16(val)) => Constant::Integer16(-val),
-                    (UnaryOperator::Neg, Constant::Integer32(val)) => Constant::Integer32(-val),
-                    (UnaryOperator::Neg, Constant::Integer64(val)) => Constant::Integer64(-val),
-                    (UnaryOperator::Neg, Constant::Float32(val)) => Constant::Float32(-val),
-                    (UnaryOperator::Neg, Constant::Float64(val)) => Constant::Float64(-val),
-                    (UnaryOperator::Neg, Constant::Zero(id)) => Constant::Zero(*id),
+                match (op, cons) {
+                    (UnaryOperator::Not, Constant::Boolean(val)) => ConstantLattice::Constant(Constant::Boolean(!val)),
+                    (UnaryOperator::Not, Constant::Integer8(val)) => ConstantLattice::Constant(Constant::Integer8(!val)),
+                    (UnaryOperator::Not, Constant::Integer16(val)) => ConstantLattice::Constant(Constant::Integer16(!val)),
+                    (UnaryOperator::Not, Constant::Integer32(val)) => ConstantLattice::Constant(Constant::Integer32(!val)),
+                    (UnaryOperator::Not, Constant::Integer64(val)) => ConstantLattice::Constant(Constant::Integer64(!val)),
+                    (UnaryOperator::Neg, Constant::Integer8(val)) => ConstantLattice::Constant(Constant::Integer8(-val)),
+                    (UnaryOperator::Neg, Constant::Integer16(val)) => ConstantLattice::Constant(Constant::Integer16(-val)),
+                    (UnaryOperator::Neg, Constant::Integer32(val)) => ConstantLattice::Constant(Constant::Integer32(-val)),
+                    (UnaryOperator::Neg, Constant::Integer64(val)) => ConstantLattice::Constant(Constant::Integer64(-val)),
+                    (UnaryOperator::Neg, Constant::Float32(val)) => ConstantLattice::Constant(Constant::Float32(-val)),
+                    (UnaryOperator::Neg, Constant::Float64(val)) => ConstantLattice::Constant(Constant::Float64(-val)),
+                    (UnaryOperator::Neg, Constant::Zero(id)) => ConstantLattice::Constant(Constant::Zero(*id)),
+                    (UnaryOperator::Cast(_), _) => ConstantLattice::Bottom,
                     _ => panic!("Unsupported combination of unary operation and constant value. Did typechecking succeed?")
-                };
-                ConstantLattice::Constant(new_cons)
+                }
             } else {
                 constant.clone()
             };

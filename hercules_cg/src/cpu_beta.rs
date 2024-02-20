@@ -614,6 +614,7 @@ fn emit_llvm_for_node(
                     todo!()
                 }
             }
+            UnaryOperator::Cast(_) => todo!(),
         },
         Node::Binary { left, right, op } => {
             let opcode = match op {

@@ -625,6 +625,17 @@ fn typeflow(
                             ));
                         }
                     }
+                    UnaryOperator::Cast(dst_id) => {
+                        let src_ty = &types[id.idx()];
+                        let dst_ty = &types[dst_id.idx()];
+                        if cast_compatible(src_ty, dst_ty) {
+                            return Concrete(*dst_id);
+                        } else {
+                            return Error(String::from(
+                                "Cast unary node has incompatible input and output types.",
+                            ));
+                        }
+                    }
                 }
             }
 
@@ -939,4 +950,13 @@ pub fn fork_join_map(
         }
     }
     fork_join_map
+}
+
+/*
+ * Determine if a given cast conversion is valid.
+ */
+pub fn cast_compatible(src_ty: &Type, dst_ty: &Type) -> bool {
+    // Can convert between any pair of primitive types, as long as the cast is
+    // not from a floating point type to a boolean type.
+    src_ty.is_primitive() && dst_ty.is_primitive() && !(src_ty.is_float() && dst_ty.is_bool())
 }
