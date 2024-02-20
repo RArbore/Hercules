@@ -857,9 +857,9 @@ impl Node {
         self.is_start()
             || self.is_region()
             || self.is_if()
+            || self.is_match()
             || self.is_fork()
             || self.is_join()
-            || self.is_return()
             || self.is_return()
     }
 
@@ -1078,6 +1078,7 @@ impl TernaryOperator {
  * Rust things to make newtyped IDs usable.
  */
 
+#[macro_export]
 macro_rules! define_id_type {
     ($x: ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
