@@ -76,11 +76,10 @@ pub fn default_plan(
 
     // Infer schedules.
     infer_parallel_reduce(function, fork_join_map, &mut plan);
+    infer_vectorize(function, fork_join_map, &mut plan);
 
     // Infer a partitioning.
     partition_out_forks(function, reverse_postorder, fork_join_map, bbs, &mut plan);
-
-    // Place fork partitions on the GPU.
     place_fork_partitions_on_gpu(function, &mut plan);
 
     plan
@@ -162,6 +161,28 @@ pub fn infer_parallel_reduce(
             if is_parallel {
                 plan.schedules[id.idx()].push(Schedule::ParallelReduce);
             }
+        }
+    }
+}
+
+/*
+ * Infer vectorizable fork-joins. Just check that there are no control nodes
+ * between a fork and its join.
+ */
+pub fn infer_vectorize(
+    function: &Function,
+    fork_join_map: &HashMap<NodeID, NodeID>,
+    plan: &mut Plan,
+) {
+    for id in (0..function.nodes.len())
+        .map(NodeID::new)
+        .filter(|id| function.nodes[id.idx()].is_join())
+    {
+        let u = get_uses(&function.nodes[id.idx()]).as_ref()[0];
+        if let Some(join) = fork_join_map.get(&u)
+            && *join == id
+        {
+            plan.schedules[u.idx()].push(Schedule::Vectorize);
         }
     }
 }
