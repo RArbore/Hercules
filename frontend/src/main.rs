@@ -22,8 +22,7 @@ fn main() {
         Ok(mut module) => {
             println!("{}", module);
 
-            let (_def_uses, reverse_postorders, typing, _subgraphs, doms,
-                 _postdoms, fork_join_maps)
+            let _
                 = hercules_ir::verify::verify(&mut module)
                     .expect("PANIC: Failed to verify Hercules IR modules.");
 
@@ -46,23 +45,23 @@ fn main() {
 
 fn error_message(msg : ErrorMessage) {
     match msg {
-        ErrorMessage::NotImplemented(((sLine, sCol), (eLine, eCol)), msg) => {
-            eprintln!("Error ({sLine}, {sCol} -- {eLine}, {eCol}). Feature not implemented : {msg}");
+        ErrorMessage::NotImplemented(((s_line, s_col), (e_line, e_col)), msg) => {
+            eprintln!("Error ({s_line}, {s_col} -- {e_line}, {e_col}). Feature not implemented : {msg}");
         },
         ErrorMessage::SyntaxError(msg) => {
             eprintln!("Syntax Error : {msg}");
         },
-        ErrorMessage::SemanticError(((sLine, sCol), (eLine, eCol)), msg) => {
-            eprintln!("Error ({sLine}, {sCol} -- {eLine}, {eCol}). {msg}");
+        ErrorMessage::SemanticError(((s_line, s_col), (e_line, e_col)), msg) => {
+            eprintln!("Error ({s_line}, {s_col} -- {e_line}, {e_col}). {msg}");
         },
-        ErrorMessage::UndefinedVariable(((sLine, sCol), (eLine, eCol)), name) => {
-            eprintln!("Error ({sLine}, {sCol} -- {eLine}, {eCol}). Undefined variable '{name}'");
+        ErrorMessage::UndefinedVariable(((s_line, s_col), (e_line, e_col)), name) => {
+            eprintln!("Error ({s_line}, {s_col} -- {e_line}, {e_col}). Undefined variable '{name}'");
         },
-        ErrorMessage::KindError(((sLine, sCol), (eLine, eCol)), expected, actual) => {
-            eprintln!("Error ({sLine}, {sCol} -- {eLine}, {eCol}). Expected {expected} but found {actual}");
+        ErrorMessage::KindError(((s_line, s_col), (e_line, e_col)), expected, actual) => {
+            eprintln!("Error ({s_line}, {s_col} -- {e_line}, {e_col}). Expected {expected} but found {actual}");
         },
-        ErrorMessage::TypeError(((sLine, sCol), (eLine, eCol)), expected, actual) => {
-            eprintln!("Error ({sLine}, {sCol} -- {eLine}, {eCol}). Type error, expected {expected} but found {actual}");
+        ErrorMessage::TypeError(((s_line, s_col), (e_line, e_col)), expected, actual) => {
+            eprintln!("Error ({s_line}, {s_col} -- {e_line}, {e_col}). Type error, expected {expected} but found {actual}");
         },
     }
 }

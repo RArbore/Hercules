@@ -34,7 +34,7 @@ impl SSA {
 
     pub fn create_cond<'a>(&mut self, builder : &mut Builder<'a>,
                            pred : NodeID) -> (NodeBuilder, NodeID, NodeID) {
-        let mut if_builder = builder.allocate_node(self.function);
+        let if_builder = builder.allocate_node(self.function);
         let mut left_builder = builder.allocate_node(self.function);
         let mut right_builder = builder.allocate_node(self.function);
 

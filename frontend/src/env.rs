@@ -39,15 +39,15 @@ impl<K : Eq + Hash + Copy, V> Env<K, V> {
         }
     }
 
-    pub fn openScope(&mut self) {
+    pub fn open_scope(&mut self) {
         self.scope.push(HashSet::new());
     }
 
-    pub fn closeScope(&mut self) {
+    pub fn close_scope(&mut self) {
         match self.scope.pop() {
             None => assert!(false, "Internal Failure: Environment no scope to close"),
-            Some(toRemove) => {
-                for k in toRemove {
+            Some(to_remove) => {
+                for k in to_remove {
                     match self.table.get_mut(&k) {
                         None => { assert!(false, "Internal Failure: Environment Close Scope"); },
                         Some(r) => { r.pop(); },

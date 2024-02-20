@@ -29,7 +29,7 @@ impl DynamicConstant {
     fn to_string(&self, stringtab : &StringTable) -> String {
         match self {
             DynamicConstant::Constant(val) => val.to_string(),
-            DynamicConstant::DynConst(nm, _) => stringtab.lookupId(*nm).unwrap(),
+            DynamicConstant::DynConst(nm, _) => stringtab.lookup_id(*nm).unwrap(),
         }
     }
 }
@@ -88,7 +88,7 @@ impl Type {
                 + "]"
             },
             Type::Struct { name, .. } => {
-                stringtab.lookupId(*name).unwrap()
+                stringtab.lookup_id(*name).unwrap()
             },
         }
     }
@@ -156,7 +156,7 @@ impl GoalType {
 
             GoalType::StructType { field, field_type } => {
                 format!("{{ {} : {}, ... }}",
-                        stringtab.lookupId(*field).unwrap(),
+                        stringtab.lookup_id(*field).unwrap(),
                         field_type.to_string(stringtab))
             },
             GoalType::TupleType { index, index_type } => {
@@ -173,13 +173,6 @@ impl GoalType {
             GoalType::AnyType => format!("*"),
             GoalType::AnyNumeric => format!("numeric"),
             GoalType::AnyInteger => format!("integer"),
-        }
-    }
-
-    fn is_known(&self) -> bool {
-        match self {
-            GoalType::KnownType(_) => true,
-            _ => false,
         }
     }
 
@@ -318,7 +311,7 @@ impl StringTable {
                       index_to_string : HashMap::new(), }
     }
 
-    fn lookupString(&mut self, s : String) -> usize {
+    fn lookup_string(&mut self, s : String) -> usize {
         match self.string_to_index.get(&s) {
             Some(n) => *n,
             None => {
@@ -331,7 +324,7 @@ impl StringTable {
         }
     }
 
-    fn lookupId(&self, n : usize) -> Option<String> {
+    fn lookup_id(&self, n : usize) -> Option<String> {
         self.index_to_string.get(&n).cloned()
     }
 }
@@ -366,13 +359,13 @@ fn get_errors<A>(x : &Result<A, ErrorMessages>) -> ErrorMessages {
 
 fn append_errors2<A, B>(x : Result<A, ErrorMessages>, y : Result<B, ErrorMessages>)
     -> Result<(A, B), ErrorMessages> {
-    let mut errsX = get_errors(&x);
-    let mut errsY = get_errors(&y);
+    let mut errs_x = get_errors(&x);
+    let mut errs_y = get_errors(&y);
 
-    errsX.append(&mut errsY);
+    errs_x.append(&mut errs_y);
 
-    if !errsX.is_empty() {
-        Err(errsX)
+    if !errs_x.is_empty() {
+        Err(errs_x)
     } else {
         Ok((x.expect("Above"), y.expect("Above")))
     }
@@ -380,15 +373,15 @@ fn append_errors2<A, B>(x : Result<A, ErrorMessages>, y : Result<B, ErrorMessage
 
 fn append_errors3<A, B, C>(x : Result<A, ErrorMessages>, y : Result<B, ErrorMessages>,
                            z : Result<C, ErrorMessages>) -> Result<(A, B, C), ErrorMessages> {
-    let mut errsX = get_errors(&x);
-    let mut errsY = get_errors(&y);
-    let mut errsZ = get_errors(&z);
+    let mut errs_x = get_errors(&x);
+    let mut errs_y = get_errors(&y);
+    let mut errs_z = get_errors(&z);
 
-    errsX.append(&mut errsY);
-    errsX.append(&mut errsZ);
+    errs_x.append(&mut errs_y);
+    errs_x.append(&mut errs_z);
 
-    if !errsX.is_empty() {
-        Err(errsX)
+    if !errs_x.is_empty() {
+        Err(errs_x)
     } else {
         Ok((x.expect("Above"), y.expect("Above"), z.expect("Above")))
     }
@@ -410,10 +403,10 @@ pub fn process_program(src_file : String) -> Result<Module, ErrorMessages> {
 
 fn intern_id(n : &Span, lex : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
              stringtab : &mut StringTable) -> usize {
-    stringtab.lookupString(lex.span_str(*n).to_string())
+    stringtab.lookup_string(lex.span_str(*n).to_string())
 }
 
-fn intern_packageName(
+fn intern_package_name(
     n : &PackageName, lex : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     stringtab : &mut StringTable) -> Vec<usize> {
 
@@ -438,7 +431,7 @@ fn parse_file(file : &mut File, stringtab : &mut StringTable)
             Some(Ok(r))    => prepare_program(r, &lexer, stringtab),
             None           => Err(singleton_error(
                     ErrorMessage::SyntaxError("Parser did not return program".to_string()))),
-            Some(Err(err)) => Err(singleton_error(
+            Some(Err(())) => Err(singleton_error(
                     ErrorMessage::SyntaxError("Unspecified parse error".to_string()))),
         }
     } else {
@@ -456,17 +449,17 @@ fn prepare_program(
     let mut env : Env<usize, Entity> = Env::new();
     let mut builder = Builder::create();
 
-    env.openScope();
+    env.open_scope();
 
     for top in prg {
         match top {
-            lang_y::Top::Import { span, name } => {
+            lang_y::Top::Import { span, name: _ } => {
                 return Err(singleton_error(
                         ErrorMessage::NotImplemented(
                             span_to_loc(span, lexer),
                             "imports".to_string())));
             },
-            lang_y::Top::TypeDecl { span, public, name, ty_vars, body } => {
+            lang_y::Top::TypeDecl { span, public: _, name, ty_vars, body } => {
                 // TODO: Handle public
                 if ty_vars.len() > 0 {
                     return Err(singleton_error(
@@ -479,15 +472,15 @@ fn prepare_program(
                 let typ = process_type_def(body, nm, lexer, stringtab, &mut env)?;
                 env.insert(nm, Entity::Type { value : typ });
             },
-            lang_y::Top::ConstDecl { span, public, name, ty, body } => {
+            lang_y::Top::ConstDecl { span, public: _, name: _, ty: _, body: _ } => {
                 return Err(singleton_error(
                         ErrorMessage::NotImplemented(
                             span_to_loc(span, lexer),
                             "constants".to_string())));
             },
-            lang_y::Top::FuncDecl { span, public, attr, name, ty_vars, args, ty, body } => {
+            lang_y::Top::FuncDecl { span, public: _, attr: _, name, ty_vars, args, ty, body } => {
                 // TODO: Handle public, attributes
-                env.openScope();
+                env.open_scope();
 
                 let mut num_dyn_const : u32 = 0;
                 for TypeVar { span, name, kind } in ty_vars {
@@ -531,7 +524,7 @@ fn prepare_program(
                                 continue;
                             }
 
-                            let nm = intern_packageName(&name, lexer, stringtab)[0];
+                            let nm = intern_package_name(&name, lexer, stringtab)[0];
                             match process_type(typ.expect("FROM ABOVE"), lexer, stringtab, &env) {
                                 Ok(ty) => {
                                     if inout.is_some() {
@@ -654,9 +647,9 @@ fn prepare_program(
                     },
                 }
 
-                env.closeScope();
+                env.close_scope();
             },
-            lang_y::Top::ModDecl { span, public, name, body } => {
+            lang_y::Top::ModDecl { span, public: _, name: _, body: _ } => {
                 return Err(singleton_error(
                         ErrorMessage::NotImplemented(
                             span_to_loc(span, lexer),
@@ -675,17 +668,17 @@ fn process_type_def(
     -> Result<Type, ErrorMessages> {
     
     match def {
-        lang_y::TyDef::TypeAlias { span, body } => {
+        lang_y::TyDef::TypeAlias { span: _, body } => {
             process_type(body, lexer, stringtab, env)
         },
-        lang_y::TyDef::Struct { span, public, fields } => {
+        lang_y::TyDef::Struct { span: _, public: _, fields } => {
             // TODO: handle public correctly (and field public)
             
             let mut field_list = vec![];
             let mut field_map = HashMap::new();
             let mut errors = LinkedList::new();
 
-            for ObjField { span, public, name, typ } in fields {
+            for ObjField { span, public: _, name, typ } in fields {
                 let nm = intern_id(&name, lexer, stringtab);
                 match typ {
                     None => {
@@ -716,7 +709,7 @@ fn process_type_def(
                                   names : field_map })
             }
         },
-        lang_y::TyDef::Union { span, public, fields } => {
+        lang_y::TyDef::Union { span, public: _, fields: _ } => {
             Err(singleton_error(
                     ErrorMessage::NotImplemented(
                         span_to_loc(span, lexer),
@@ -731,10 +724,10 @@ fn process_type(
     -> Result<Type, ErrorMessages> {
 
     match typ {
-        lang_y::Type::PrimType { span, typ } => {
+        lang_y::Type::PrimType { span: _, typ } => {
             Ok(Type::Primitive(typ))
         },
-        lang_y::Type::TupleType { span, tys } => {
+        lang_y::Type::TupleType { span: _, tys } => {
             let mut fields = vec![];
             let mut errors = LinkedList::new();
 
@@ -767,7 +760,7 @@ fn process_type(
                             span_to_loc(span, lexer),
                             "packages".to_string())))
             } else {
-                let id = intern_packageName(&name, lexer, stringtab);
+                let id = intern_package_name(&name, lexer, stringtab);
                 let nm = id[0];
                 match env.lookup(&nm) {
                     Some(Entity::Type { value }) => Ok(value.clone()),
@@ -781,11 +774,11 @@ fn process_type(
                         Err(singleton_error(
                                 ErrorMessage::UndefinedVariable(
                                     span_to_loc(span, lexer),
-                                    stringtab.lookupId(nm).unwrap()))),
+                                    stringtab.lookup_id(nm).unwrap()))),
                 }
             }
         },
-        lang_y::Type::ArrayType { span, elem, dims } => {
+        lang_y::Type::ArrayType { span: _, elem, dims } => {
             let mut dimensions = vec![];
             let mut errors = LinkedList::new();
 
@@ -850,7 +843,7 @@ fn process_type_expr_as_expr(
                             span_to_loc(span, lexer),
                             "packages".to_string())))
             } else {
-                let id = intern_packageName(&name, lexer, stringtab);
+                let id = intern_package_name(&name, lexer, stringtab);
                 let nm = id[0];
                 match env.lookup(&nm) {
                     Some(Entity::DynConst { value }) => {
@@ -872,7 +865,7 @@ fn process_type_expr_as_expr(
                         Err(singleton_error(
                                 ErrorMessage::UndefinedVariable(
                                     span_to_loc(span, lexer),
-                                    stringtab.lookupId(nm).unwrap()))),
+                                    stringtab.lookup_id(nm).unwrap()))),
                 }
             }
         },
@@ -903,13 +896,13 @@ fn process_stmt<'a>(
     inout_types : &Vec<Type>, inout_vars : &Vec<usize>) -> Result<Option<NodeID>, ErrorMessages> {
 
     match stmt {
-        lang_y::Stmt::LetStmt { span, var : VarBind { span : vSpan, pattern, typ }, init } => {
+        lang_y::Stmt::LetStmt { span: _, var : VarBind { span : v_span, pattern, typ }, init } => {
             match pattern {
                 SPattern::Variable { span, name } => {
                     if typ.is_none() {
                         return Err(singleton_error(
                                 ErrorMessage::NotImplemented(
-                                    span_to_loc(vSpan, lexer),
+                                    span_to_loc(v_span, lexer),
                                     "variable type inference".to_string())));
                     }
 
@@ -920,7 +913,7 @@ fn process_stmt<'a>(
                                     "Bound variables must be local names, without a package separator".to_string())));
                     }
 
-                    let nm = intern_packageName(&name, lexer, stringtab)[0];
+                    let nm = intern_package_name(&name, lexer, stringtab)[0];
                     let ty = process_type(typ.expect("FROM ABOVE"), lexer, stringtab, env)?;
 
                     let var = env.uniq();
@@ -950,18 +943,18 @@ fn process_stmt<'a>(
                 _ => {
                     Err(singleton_error(
                             ErrorMessage::NotImplemented(
-                                span_to_loc(vSpan, lexer),
+                                span_to_loc(v_span, lexer),
                                 "non-variable bindings".to_string())))
                 },
             }
         },
-        lang_y::Stmt::ConstStmt { span, var, init } => {
+        lang_y::Stmt::ConstStmt { span, var: _, init: _ } => {
             Err(singleton_error(
                     ErrorMessage::NotImplemented(
                         span_to_loc(span, lexer),
                         "constant bindings".to_string())))
         },
-        lang_y::Stmt::AssignStmt { span, lhs, assign, assign_span, rhs } => {
+        lang_y::Stmt::AssignStmt { span: _, lhs, assign, assign_span, rhs } => {
             let (var, typ, index) = process_lexpr(lhs, lexer, stringtab, env, builder,
                                                   func, ssa, pred)?;
 
@@ -1143,7 +1136,7 @@ fn process_stmt<'a>(
                 Ok(Some(pred))
             }
         },
-        lang_y::Stmt::IfStmt { span, cond, thn, els } => {
+        lang_y::Stmt::IfStmt { span: _, cond, thn, els } => {
             // Setup control flow that we need
             let (mut if_node, then_block, else_block) = ssa.create_cond(builder, pred);
 
@@ -1151,21 +1144,21 @@ fn process_stmt<'a>(
                                         func, ssa, pred,
                                         &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
 
-            env.openScope();
+            env.open_scope();
             let then_end = process_stmt(*thn, lexer, stringtab, env, builder,
                                         func, ssa, then_block, loops, return_type,
                                         inout_types, inout_vars);
-            env.closeScope();
+            env.close_scope();
 
             let else_end =
                 match els {
                     None => Ok(Some(else_block)),
                     Some(els_stmt) => {
-                        env.openScope();
+                        env.open_scope();
                         let res = process_stmt(*els_stmt, lexer, stringtab, env, builder,
                                                func, ssa, else_block, loops, return_type,
                                                inout_types, inout_vars);
-                        env.closeScope();
+                        env.close_scope();
                         res
                     },
                 };
@@ -1187,13 +1180,13 @@ fn process_stmt<'a>(
                 },
             }
         },
-        lang_y::Stmt::MatchStmt { span, expr, body } => {
+        lang_y::Stmt::MatchStmt { span, expr: _, body: _ } => {
             Err(singleton_error(
                     ErrorMessage::NotImplemented(
                         span_to_loc(span, lexer),
                         "match statements".to_string())))
         },
-        lang_y::Stmt::ForStmt { span, var : VarBind { span : v_span, pattern, typ },
+        lang_y::Stmt::ForStmt { span: _, var : VarBind { span : v_span, pattern, typ },
                                 init, bound, step, body } => {
             let latch = ssa.create_block(builder);
             let update = ssa.create_block(builder);
@@ -1217,7 +1210,7 @@ fn process_stmt<'a>(
                                         "Bound variables must be local names, without a package separator".to_string())));
                         }
 
-                        let nm = intern_packageName(&name, lexer, stringtab)[0];
+                        let nm = intern_package_name(&name, lexer, stringtab)[0];
                         let var_type =
                             match typ {
                                 None => Type::Primitive(Primitive::U64),
@@ -1301,7 +1294,7 @@ fn process_stmt<'a>(
                 cond
             };
 
-            env.openScope();
+            env.open_scope();
             loops.push((update, exit));
             env.insert(var_name, Entity::Variable {
                                     variable : var, typ : var_type, is_const : true });
@@ -1310,7 +1303,7 @@ fn process_stmt<'a>(
                                          func, ssa, body_node, loops, return_type,
                                          inout_types, inout_vars)?;
 
-            env.closeScope();
+            env.close_scope();
             loops.pop();
 
             if_node.build_if(latch, condition);
@@ -1326,7 +1319,7 @@ fn process_stmt<'a>(
 
             Ok(Some(exit))
         },
-        lang_y::Stmt::WhileStmt { span, cond, body } => {
+        lang_y::Stmt::WhileStmt { span: _, cond, body } => {
             let latch = ssa.create_block(builder);
             ssa.add_pred(latch, pred);
             
@@ -1339,14 +1332,14 @@ fn process_stmt<'a>(
                                         func, ssa, latch,
                                         &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
 
-            env.openScope();
+            env.open_scope();
             loops.push((latch, exit));
 
             let body_end = process_stmt(*body, lexer, stringtab, env, builder,
                                         func, ssa, body_node, loops, return_type,
                                         inout_types, inout_vars);
 
-            env.closeScope();
+            env.close_scope();
             loops.pop();
 
             let ((condition, _), body_term) = append_errors2(cond_val, body_end)?;
@@ -1418,8 +1411,8 @@ fn process_stmt<'a>(
             
             Ok(None) // Code after the continue is unreachable
         },
-        lang_y::Stmt::BlockStmt { span, body } => {
-            env.openScope();
+        lang_y::Stmt::BlockStmt { span: _, body } => {
+            env.open_scope();
 
             let mut next = Some(pred);
             let mut errors = LinkedList::new();
@@ -1439,7 +1432,7 @@ fn process_stmt<'a>(
                 }
             }
 
-            env.closeScope();
+            env.close_scope();
 
             if !errors.is_empty() {
                 Err(errors)
@@ -1447,7 +1440,7 @@ fn process_stmt<'a>(
                 Ok(next)
             }
         },
-        lang_y::Stmt::CallStmt { span, name, ty_args, args } => {
+        lang_y::Stmt::CallStmt { span, name: _, ty_args: _, args: _ } => {
             Err(singleton_error(
                     ErrorMessage::NotImplemented(
                         span_to_loc(span, lexer),
@@ -1470,9 +1463,9 @@ fn process_expr<'a>(
                             span_to_loc(span, lexer),
                             "packages".to_string())));
             }
-            let nm = intern_packageName(&name, lexer, stringtab)[0];
+            let nm = intern_package_name(&name, lexer, stringtab)[0];
             match env.lookup(&nm) {
-                Some(Entity::Variable { variable, typ, is_const }) => {
+                Some(Entity::Variable { variable, typ, is_const: _ }) => {
                     if goal_type.matches(typ) {
                         Ok((ssa.read_variable(*variable, block, builder), typ.clone()))
                     } else {
@@ -1493,7 +1486,7 @@ fn process_expr<'a>(
             }
         },
         
-        lang_y::Expr::Field { span, lhs, rhs } => {
+        lang_y::Expr::Field { span: _, lhs, rhs } => {
             let field_name = intern_id(&rhs, lexer, stringtab);
             let (res, typ) = process_expr(*lhs, lexer, stringtab, env, builder, func,
                                           ssa, block,
@@ -1514,7 +1507,7 @@ fn process_expr<'a>(
                 },
             }
         },
-        lang_y::Expr::NumField { span, lhs, rhs } => {
+        lang_y::Expr::NumField { span: _, lhs, rhs } => {
             let field_num = lexer.span_str(rhs)[1..].parse::<usize>()
                                                     .expect("From lexical analysis");
 
@@ -1537,7 +1530,7 @@ fn process_expr<'a>(
                 },
             }
         },
-        lang_y::Expr::ArrIndex { span, lhs, index } => {
+        lang_y::Expr::ArrIndex { span: _, lhs, index } => {
             let array = process_expr(*lhs, lexer, stringtab, env, builder, func,
                                      ssa, block,
                                      &GoalType::ArrayType {
@@ -1643,8 +1636,8 @@ fn process_expr<'a>(
                 }
             }
         },
-        lang_y::Expr::OrderedStruct { span, exprs } => { todo!() },
-        lang_y::Expr::NamedStruct { span, exprs } => { todo!() },
+        lang_y::Expr::OrderedStruct { span: _, exprs: _ } => { todo!() },
+        lang_y::Expr::NamedStruct { span: _, exprs: _ } => { todo!() },
 
         lang_y::Expr::BoolLit { span, value } => {
             if !goal_type.is_boolean() {
@@ -1741,12 +1734,12 @@ fn process_expr<'a>(
 
             Ok((res, typ))
         },
-        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => { todo!() },
+        lang_y::Expr::BinaryExpr { span: _, op: _, lhs: _, rhs: _ } => { todo!() },
         
-        lang_y::Expr::CastExpr { span, expr, typ } => { todo!() },
-        lang_y::Expr::SizeExpr { span, expr } => { todo!() },
-        lang_y::Expr::CondExpr { span, cond, thn, els } => { todo!() },
-        lang_y::Expr::CallExpr { span, name, ty_args, args } => {
+        lang_y::Expr::CastExpr { span: _, expr: _, typ: _ } => { todo!() },
+        lang_y::Expr::SizeExpr { span: _, expr: _ } => { todo!() },
+        lang_y::Expr::CondExpr { span: _, cond: _, thn: _, els: _ } => { todo!() },
+        lang_y::Expr::CallExpr { span, name: _, ty_args: _, args: _ } => {
             Err(singleton_error(
                     ErrorMessage::NotImplemented(
                         span_to_loc(span, lexer),
@@ -1789,10 +1782,10 @@ fn process_lexpr<'a>(
             let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
                                                     builder, func, ssa, block)?;
             let field_str = lexer.span_str(rhs).to_string();
-            let field_nm = stringtab.lookupString(field_str.clone());
+            let field_nm = stringtab.lookup_string(field_str.clone());
 
             match typ {
-                Type::Struct { name, id, ref fields, ref names } => {
+                Type::Struct { name: _, id: _, ref fields, ref names } => {
                     match names.get(&field_nm) {
                         Some(index) => {
                             idx.push(builder.create_field_index(*index));
@@ -1998,7 +1991,7 @@ fn build_default<'a>(ty : &Type, builder : &mut Builder<'a>) -> ConstantID {
             builder.create_constant_prod(defaults.into())
         },
 
-        Type::Array(elem, dims) => {
+        Type::Array(_elem, _dims) => {
             todo!("Cannot build default value for arrays") // FIXME
         },
     }
