@@ -5,6 +5,8 @@ use clap::Parser;
 mod codegen;
 mod env;
 mod ssa;
+mod types;
+mod semant;
 use codegen::*;
 
 extern crate hercules_ir;
@@ -17,7 +19,7 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
-    let module = process_program(args.src_file);
+    let module = codegen::process_program(args.src_file);
     match module {
         Ok(mut module) => {
             println!("{}", module);
