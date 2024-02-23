@@ -197,8 +197,8 @@ SPattern -> Result<SPattern, ()>
                             Ok(SPattern::IntLit{ span : span, base : base }) }
   | PackageName           { Ok(SPattern::Variable{ span : $span, name : $1? }) }
   | '(' PatternsComma ')' { Ok(SPattern::TuplePat{ span : $span, pats : $2? }) }
-  | '{' PatternsComma '}' { Ok(SPattern::OrderedStructPat{ span : $span, pats : $2? }) }
-  | '{' NamePatterns  '}' { Ok(SPattern::NamedStructPat{ span : $span, pats : $2? }) }
+  | PackageName '{' NamePatterns '}'
+                          { Ok(SPattern::StructPat { span : $span, name : $1?, pats : $3? }) }
   ;
 PatternsComma -> Result<Vec<Pattern>, ()>
   :                             { Ok(vec![]) }
@@ -266,11 +266,8 @@ Stmt -> Result<Stmt, ()>
   | LExpr '>>=' Expr ';'
       { Ok(Stmt::AssignStmt{ span : $span, lhs : $1?, assign : AssignOp::RShift,
                              assign_span : span_of_tok($2)?, rhs : $3? }) }
-  | 'if' Expr Stmts
-      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?), els : None }) }
-  | 'if' Expr Stmts 'else' Stmts
-      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
-                         els : Some(Box::new($5?)) }) }
+  | IfStmt
+      { $1 }
   | 'match' Expr Cases
       { Ok(Stmt::MatchStmt{ span : $span, expr : $2?, body : $3? }) }
   | 'for' VarBind '=' Expr 'to' Expr Stmts
@@ -301,6 +298,17 @@ Stmts -> Result<Stmt, ()>
 StmtList -> Result<Vec<Stmt>, ()>
   :                { Ok(vec![]) }
   | StmtList Stmt  { flatten($1, $2) }
+  ;
+
+IfStmt -> Result<Stmt, ()>
+  : 'if' Expr Stmts
+      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?), els : None }) }
+  | 'if' Expr Stmts 'else' IfStmt
+      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
+                         els : Some(Box::new($5?)) }) }
+  | 'if' Expr Stmts 'else' Stmts
+      { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
+                         els : Some(Box::new($5?)) }) }
   ;
 
 Cases -> Result<Vec<Case>, ()>
@@ -360,10 +368,10 @@ Expr -> Result<Expr, ()>
       { Ok(Expr::ArrIndex{ span : $span, lhs : Box::new($1?), index : $3? }) }
   | '(' Exprs ')'
       { Ok(Expr::Tuple{ span : $span, exprs : $2? }) }
-  | '{' Exprs '}'
-      { Ok(Expr::OrderedStruct{ span : $span, exprs : $2? }) }
-  | '{' IdExprs '}'
-      { Ok(Expr::NamedStruct{ span : $span, exprs : $2? }) }
+  | PackageName '::' '{' IdExprs '}'
+      { Ok(Expr::Struct{ span : $span, name : $1?, ty_args : vec![], exprs : $4? }) }
+  | PackageName '::' '<' TypeExprs '>' '{' IdExprs '}'
+      { Ok(Expr::Struct{ span : $span, name : $1?, ty_args : $4?, exprs : $7? }) }
   | 'true'
       { Ok(Expr::BoolLit{ span : $span, value : true }) }
   | 'false'
@@ -585,8 +593,7 @@ pub enum SPattern {
   IntLit           { span : Span, base : IntBase },
   Variable         { span : Span, name : PackageName },
   TuplePat         { span : Span, pats : Vec<Pattern> },
-  OrderedStructPat { span : Span, pats : Vec<Pattern> },
-  NamedStructPat   { span : Span, pats : Vec<(Id, Pattern)> },
+  StructPat        { span : Span, name : PackageName, pats : Vec<(Id, Pattern)> },
 }
 
 #[derive(Debug)]
@@ -604,8 +611,8 @@ pub enum Expr {
   NumField      { span : Span, lhs : Box<Expr>, rhs : Span },
   ArrIndex      { span : Span, lhs : Box<Expr>, index : Vec<Expr> },
   Tuple         { span : Span, exprs : Vec<Expr> },
-  OrderedStruct { span : Span, exprs : Vec<Expr> },
-  NamedStruct   { span : Span, exprs : Vec<(Id, Expr)> },
+  Struct        { span : Span, name : PackageName, ty_args : Vec<TypeExpr>,
+                  exprs : Vec<(Id, Expr)> },
   BoolLit       { span : Span, value : bool },
   IntLit        { span : Span, base : IntBase },
   FloatLit      { span : Span },
@@ -642,8 +649,7 @@ impl Spans for Expr {
       | Expr::NumField      { span, .. }
       | Expr::ArrIndex      { span, .. }
       | Expr::Tuple         { span, .. }
-      | Expr::OrderedStruct { span, .. }
-      | Expr::NamedStruct   { span, .. }
+      | Expr::Struct        { span, .. }
       | Expr::BoolLit       { span, .. }
       | Expr::IntLit        { span, .. }
       | Expr::FloatLit      { span }
@@ -662,16 +668,33 @@ impl Spans for Stmt {
     match self {
         Stmt::LetStmt      { span, .. }
       | Stmt::ConstStmt    { span, .. }
-      | Stmt::AssignStmt   { span, ..}
-      | Stmt::IfStmt       { span, ..}
-      | Stmt::MatchStmt    { span, ..}
-      | Stmt::ForStmt      { span, ..}
-      | Stmt::WhileStmt    { span, ..}
-      | Stmt::ReturnStmt   { span, ..}
-      | Stmt::BreakStmt    { span, ..}
-      | Stmt::ContinueStmt { span, ..}
-      | Stmt::BlockStmt    { span, ..}
-      | Stmt::CallStmt     { span, ..}
+      | Stmt::AssignStmt   { span, .. }
+      | Stmt::IfStmt       { span, .. }
+      | Stmt::MatchStmt    { span, .. }
+      | Stmt::ForStmt      { span, .. }
+      | Stmt::WhileStmt    { span, .. }
+      | Stmt::ReturnStmt   { span, .. }
+      | Stmt::BreakStmt    { span, .. }
+      | Stmt::ContinueStmt { span, .. }
+      | Stmt::BlockStmt    { span, .. }
+      | Stmt::CallStmt     { span, .. }
+        => *span
+    }
+  }
+}
+
+impl Spans for TypeExpr {
+  fn span(&self) -> Span {
+    match self {
+      TypeExpr::PrimType          { span, .. }
+      | TypeExpr::TupleType       { span, .. }
+      | TypeExpr::NamedTypeExpr   { span, .. }
+      | TypeExpr::ArrayTypeExpr   { span, .. }
+      | TypeExpr::IntLiteral      { span, .. }
+      | TypeExpr::Negative        { span, .. }
+      | TypeExpr::Add             { span, .. }
+      | TypeExpr::Sub             { span, .. }
+      | TypeExpr::Mul             { span, .. }
         => *span
     }
   }

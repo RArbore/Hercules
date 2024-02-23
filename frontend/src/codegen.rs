@@ -1636,8 +1636,7 @@ fn process_expr<'a>(
                 }
             }
         },
-        lang_y::Expr::OrderedStruct { span: _, exprs: _ } => { todo!() },
-        lang_y::Expr::NamedStruct { span: _, exprs: _ } => { todo!() },
+        lang_y::Expr::Struct { span : _, name : _, ty_args : _, exprs : _ } => { todo!() },
 
         lang_y::Expr::BoolLit { span, value } => {
             if !goal_type.is_boolean() {
