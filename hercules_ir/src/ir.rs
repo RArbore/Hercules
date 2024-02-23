@@ -225,6 +225,7 @@ pub enum Node {
 pub enum UnaryOperator {
     Not,
     Neg,
+    Cast(TypeID),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1005,6 +1006,7 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "Not",
             UnaryOperator::Neg => "Neg",
+            UnaryOperator::Cast(_) => "Cast",
         }
     }
 
@@ -1012,6 +1014,7 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "not",
             UnaryOperator::Neg => "neg",
+            UnaryOperator::Cast(_) => "cast",
         }
     }
 }
