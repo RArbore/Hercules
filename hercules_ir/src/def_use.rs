@@ -1,8 +1,7 @@
 use crate::*;
 
 /*
- * Custom type for an immutable def_use map. This is a relatively efficient
- * storage of def_use edges, requiring 2 heap allocations.
+ * Custom type for an immutable def-use map.
  */
 #[derive(Debug, Clone)]
 pub struct ImmutableDefUseMap {
