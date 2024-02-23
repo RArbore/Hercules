@@ -268,15 +268,15 @@ Stmt -> Result<Stmt, ()>
                              assign_span : span_of_tok($2)?, rhs : $3? }) }
   | IfStmt
       { $1 }
-  | 'match' Expr Cases
+  | 'match' NonStructExpr Cases
       { Ok(Stmt::MatchStmt{ span : $span, expr : $2?, body : $3? }) }
-  | 'for' VarBind '=' Expr 'to' Expr Stmts
+  | 'for' VarBind '=' NonStructExpr 'to' NonStructExpr Stmts
       { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : None,
                           body : Box::new($7?) }) }
-  | 'for' VarBind '=' Expr 'to' Expr 'by' SignedIntLit Stmts
+  | 'for' VarBind '=' NonStructExpr 'to' NonStructExpr 'by' SignedIntLit Stmts
       { Ok(Stmt::ForStmt{ span : $span, var : $2?, init : $4?, bound : $6?, step : Some($8?),
                           body : Box::new($9?) }) }
-  | 'while' Expr Stmts
+  | 'while' NonStructExpr Stmts
       { Ok(Stmt::WhileStmt{ span : $span, cond : $2?, body : Box::new($3?) }) }
   | 'return' ';'
       { Ok(Stmt::ReturnStmt{ span : $span, expr : None }) }
@@ -301,12 +301,12 @@ StmtList -> Result<Vec<Stmt>, ()>
   ;
 
 IfStmt -> Result<Stmt, ()>
-  : 'if' Expr Stmts
+  : 'if' NonStructExpr Stmts
       { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?), els : None }) }
-  | 'if' Expr Stmts 'else' IfStmt
+  | 'if' NonStructExpr Stmts 'else' IfStmt
       { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
                          els : Some(Box::new($5?)) }) }
-  | 'if' Expr Stmts 'else' Stmts
+  | 'if' NonStructExpr Stmts 'else' Stmts
       { Ok(Stmt::IfStmt{ span : $span, cond : $2?, thn : Box::new($3?),
                          els : Some(Box::new($5?)) }) }
   ;
@@ -368,8 +368,8 @@ Expr -> Result<Expr, ()>
       { Ok(Expr::ArrIndex{ span : $span, lhs : Box::new($1?), index : $3? }) }
   | '(' Exprs ')'
       { Ok(Expr::Tuple{ span : $span, exprs : $2? }) }
-  | PackageName '::' '{' IdExprs '}'
-      { Ok(Expr::Struct{ span : $span, name : $1?, ty_args : vec![], exprs : $4? }) }
+  | PackageName '{' IdExprs '}'
+      { Ok(Expr::Struct{ span : $span, name : $1?, ty_args : vec![], exprs : $3? }) }
   | PackageName '::' '<' TypeExprs '>' '{' IdExprs '}'
       { Ok(Expr::Struct{ span : $span, name : $1?, ty_args : $4?, exprs : $7? }) }
   | 'true'
@@ -452,6 +452,78 @@ ParamsS -> Result<Vec<(bool, Expr)>, ()>
   | '&' Expr              { Ok(vec![(true, $2?)]) }
   | ParamsS ',' Expr      { flatten($1, Ok((false, $3?))) }
   | ParamsS ',' '&' Expr  { flatten($1, Ok((true, $4?))) }
+  ;
+
+NonStructExpr -> Result<Expr, ()>
+  : PackageName
+      { Ok(Expr::Variable{ span : $span, name : $1? }) }
+  | NonStructExpr '.' 'ID'
+      { Ok(Expr::Field{ span : $span, lhs : Box::new($1?), rhs : span_of_tok($3)? }) }
+  | NonStructExpr 'DOT_NUM'
+      { Ok(Expr::NumField{ span : $span, lhs : Box::new($1?), rhs : span_of_tok($2)? }) }
+  | NonStructExpr '[' Exprs ']'
+      { Ok(Expr::ArrIndex{ span : $span, lhs : Box::new($1?), index : $3? }) }
+  | '(' Exprs ')'
+      { Ok(Expr::Tuple{ span : $span, exprs : $2? }) }
+  | 'true'
+      { Ok(Expr::BoolLit{ span : $span, value : true }) }
+  | 'false'
+      { Ok(Expr::BoolLit{ span : $span, value : false }) }
+  | IntLit
+      { let (span, base) = $1?;
+        Ok(Expr::IntLit{ span : span, base : base }) }
+  | 'FLOAT'
+      { Ok(Expr::FloatLit{ span : $span }) }
+  | '-' NonStructExpr %prec 'UNARY'
+      { Ok(Expr::UnaryExpr{ span : $span, op : UnaryOp::Negation, expr : Box::new($2?)}) }
+  | '~' NonStructExpr
+      { Ok(Expr::UnaryExpr{ span : $span, op : UnaryOp::BitwiseNot, expr : Box::new($2?)}) }
+  | '!' NonStructExpr
+      { Ok(Expr::UnaryExpr{ span : $span, op : UnaryOp::LogicalNot, expr : Box::new($2?)}) }
+  | NonStructExpr 'as' Type
+      { Ok(Expr::CastExpr{ span : $span, expr : Box::new($1?), typ : $3?}) }
+  | NonStructExpr '+' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Add, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '-' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Sub, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '*' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Mul, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '/' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Div, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '%' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Mod, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '&' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::BitAnd, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '&&' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::LogAnd, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '|' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::BitOr, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '||' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::LogOr, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '^' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Xor, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '<' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Lt, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '<=' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Le, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '>' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Gt, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '>=' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Ge, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '==' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Eq, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '!=' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::Neq, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '<<' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::LShift, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | NonStructExpr '>>' NonStructExpr
+      { Ok(Expr::BinaryExpr{ span: $span, op: BinaryOp::RShift, lhs: Box::new($1?), rhs: Box::new($3?)}) }
+  | 'if' NonStructExpr 'then' NonStructExpr 'else' NonStructExpr
+      { Ok(Expr::CondExpr{ span: $span, cond : Box::new($2?), thn : Box::new($4?), els : Box::new($6?) })}
+  | PackageName '(' Params ')'
+      { Ok(Expr::CallExpr{ span : $span, name : $1?, ty_args : vec![], args: $3? }) }
+  | PackageName '::' '<' TypeExprs '>' '(' Params ')'
+      { Ok(Expr::CallExpr{ span : $span, name : $1?, ty_args : $4?, args: $7? }) }
   ;
 
 TypeExprs -> Result<Vec<TypeExpr>, ()>
