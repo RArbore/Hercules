@@ -172,9 +172,7 @@ impl PassManager {
                 Pass::DCE => {
                     for idx in 0..self.module.functions.len() {
                         dce(&mut self.module.functions[idx]);
-                        self.module.functions[idx].delete_gravestones();
                     }
-                    self.clear_analyses();
                 }
                 Pass::CCP => {
                     self.make_def_uses();
@@ -189,9 +187,7 @@ impl PassManager {
                             &def_uses[idx],
                             &reverse_postorders[idx],
                         );
-                        self.module.functions[idx].delete_gravestones();
                     }
-                    self.clear_analyses();
                 }
                 Pass::GVN => {
                     self.make_def_uses();
@@ -202,13 +198,28 @@ impl PassManager {
                             &self.module.constants,
                             &def_uses[idx],
                         );
-                        self.module.functions[idx].delete_gravestones();
                     }
-                    self.clear_analyses();
                 }
-                Pass::Forkify => {}
+                Pass::Forkify => {
+                    self.make_loops();
+                    let loops = self.loops.as_ref().unwrap();
+                    for idx in 0..self.module.functions.len() {
+                        forkify(
+                            &mut self.module.functions[idx],
+                            &self.module.constants,
+                            &mut self.module.dynamic_constants,
+                            &loops[idx],
+                        )
+                    }
+                }
             }
+
+            for idx in 0..self.module.functions.len() {
+                self.module.functions[idx].delete_gravestones();
+            }
+            self.clear_analyses();
         }
+
         self.module
     }
 
