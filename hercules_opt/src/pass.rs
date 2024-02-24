@@ -11,6 +11,8 @@ use self::hercules_ir::loops::*;
 use self::hercules_ir::subgraph::*;
 use self::hercules_ir::typecheck::*;
 
+use crate::*;
+
 /*
  * Passes that can be run on a module.
  */
@@ -70,21 +72,18 @@ impl PassManager {
         }
     }
 
-    pub fn get_def_uses(&mut self) -> &Vec<ImmutableDefUseMap> {
-        self.make_def_uses();
-        self.def_uses.as_ref().unwrap()
-    }
-
     fn make_reverse_postorders(&mut self) {
         if self.reverse_postorders.is_none() {
-            self.reverse_postorders =
-                Some(self.get_def_uses().iter().map(reverse_postorder).collect());
+            self.make_def_uses();
+            self.reverse_postorders = Some(
+                self.def_uses
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(reverse_postorder)
+                    .collect(),
+            );
         }
-    }
-
-    pub fn get_reverse_postorders(&mut self) -> &Vec<Vec<NodeID>> {
-        self.make_reverse_postorders();
-        self.reverse_postorders.as_ref().unwrap()
     }
 
     fn make_typing(&mut self) {
@@ -96,11 +95,6 @@ impl PassManager {
         }
     }
 
-    pub fn get_typing(&mut self) -> &ModuleTyping {
-        self.make_typing();
-        self.typing.as_ref().unwrap()
-    }
-
     fn make_control_subgraphs(&mut self) {
         if self.control_subgraphs.is_none() {
             self.make_def_uses();
@@ -110,11 +104,6 @@ impl PassManager {
                     .collect(),
             );
         }
-    }
-
-    pub fn get_control_subgraphs(&mut self) -> &Vec<Subgraph> {
-        self.make_control_subgraphs();
-        self.control_subgraphs.as_ref().unwrap()
     }
 
     fn make_doms(&mut self) {
@@ -131,11 +120,6 @@ impl PassManager {
         }
     }
 
-    pub fn get_doms(&mut self) -> &Vec<DomTree> {
-        self.make_doms();
-        self.doms.as_ref().unwrap()
-    }
-
     fn make_postdoms(&mut self) {
         if self.postdoms.is_none() {
             self.make_control_subgraphs();
@@ -150,11 +134,6 @@ impl PassManager {
         }
     }
 
-    pub fn get_postdoms(&mut self) -> &Vec<DomTree> {
-        self.make_postdoms();
-        self.postdoms.as_ref().unwrap()
-    }
-
     fn make_fork_join_maps(&mut self) {
         if self.fork_join_maps.is_none() {
             self.make_typing();
@@ -167,11 +146,6 @@ impl PassManager {
                 .collect(),
             );
         }
-    }
-
-    pub fn get_fork_join_maps(&mut self) -> &Vec<HashMap<NodeID, NodeID>> {
-        self.make_fork_join_maps();
-        self.fork_join_maps.as_ref().unwrap()
     }
 
     fn make_loops(&mut self) {
@@ -192,8 +166,49 @@ impl PassManager {
         }
     }
 
-    pub fn get_loops(&mut self) -> &Vec<LoopTree> {
-        self.make_loops();
-        self.loops.as_ref().unwrap()
+    pub fn run_passes(mut self) -> Module {
+        for pass in self.passes.clone().iter() {
+            match pass {
+                Pass::DCE => {
+                    for idx in 0..self.module.functions.len() {
+                        dce(&mut self.module.functions[idx]);
+                        self.module.functions[idx].delete_gravestones();
+                    }
+                }
+                Pass::CCP => {
+                    self.make_def_uses();
+                    self.make_reverse_postorders();
+                    let def_uses = self.def_uses.as_ref().unwrap();
+                    let reverse_postorders = self.reverse_postorders.as_ref().unwrap();
+                    for idx in 0..self.module.functions.len() {
+                        ccp(
+                            &mut self.module.functions[idx],
+                            &self.module.types,
+                            &mut self.module.constants,
+                            &def_uses[idx],
+                            &reverse_postorders[idx],
+                        );
+                        self.module.functions[idx].delete_gravestones();
+                    }
+                    self.def_uses = None;
+                    self.reverse_postorders = None;
+                }
+                Pass::GVN => {
+                    self.make_def_uses();
+                    let def_uses = self.def_uses.as_ref().unwrap();
+                    for idx in 0..self.module.functions.len() {
+                        gvn(
+                            &mut self.module.functions[idx],
+                            &self.module.constants,
+                            &def_uses[idx],
+                        );
+                        self.module.functions[idx].delete_gravestones();
+                    }
+                    self.def_uses = None;
+                }
+                Pass::Forkify => {}
+            }
+        }
+        self.module
     }
 }

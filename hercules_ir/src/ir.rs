@@ -255,46 +255,6 @@ pub enum TernaryOperator {
 
 impl Module {
     /*
-     * There are many transformations that need to iterate over the functions
-     * in a module, while having mutable access to the interned types,
-     * constants, and dynamic constants in a module. This code is really ugly,
-     * so write it once.
-     */
-    pub fn map<F>(self, mut func: F) -> Self
-    where
-        F: FnMut(
-            (Function, FunctionID),
-            (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>),
-        ) -> (Function, (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>)),
-    {
-        let Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        } = self;
-        let mut stuff = (types, constants, dynamic_constants);
-        let functions = functions
-            .into_iter()
-            .enumerate()
-            .map(|(idx, function)| {
-                let mut new_stuff = (vec![], vec![], vec![]);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                let (function, mut new_stuff) = func((function, FunctionID::new(idx)), new_stuff);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                function
-            })
-            .collect();
-        let (types, constants, dynamic_constants) = stuff;
-        Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        }
-    }
-
-    /*
      * Printing out types, constants, and dynamic constants fully requires a
      * reference to the module, since references to other types, constants, and
      * dynamic constants are done using IDs.
