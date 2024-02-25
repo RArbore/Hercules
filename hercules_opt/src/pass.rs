@@ -215,7 +215,29 @@ impl PassManager {
                     }
                 }
                 Pass::Verify => {
-                    verify(&mut self.module).expect("PANIC: Failed to verify Hercules IR module.");
+                    let (
+                        def_uses,
+                        reverse_postorders,
+                        typing,
+                        subgraphs,
+                        doms,
+                        postdoms,
+                        fork_join_maps,
+                    ) = verify(&mut self.module)
+                        .expect("PANIC: Failed to verify Hercules IR module.");
+
+                    // Verification produces a bunch of analysis results that
+                    // may be useful for later passes.
+                    self.def_uses = Some(def_uses);
+                    self.reverse_postorders = Some(reverse_postorders);
+                    self.typing = Some(typing);
+                    self.control_subgraphs = Some(subgraphs);
+                    self.doms = Some(doms);
+                    self.postdoms = Some(postdoms);
+                    self.fork_join_maps = Some(fork_join_maps);
+
+                    // Verification doesn't require clearing analysis results.
+                    continue;
                 }
             }
 
