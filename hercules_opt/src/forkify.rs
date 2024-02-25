@@ -170,6 +170,11 @@ pub fn forkify(
                 get_uses_mut(&mut function.nodes[user.idx()]).map(*reduction_phi, reduce_id);
             }
 
+            // Edit users of uses of phis.
+            for user in def_use.get_users(reduct) {
+                get_uses_mut(&mut function.nodes[user.idx()]).map(reduct, reduce_id);
+            }
+
             // Delete reducing phi.
             function.nodes[reduction_phi.idx()] = Node::Start;
         }

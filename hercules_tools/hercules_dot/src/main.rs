@@ -42,6 +42,7 @@ fn main() {
     pm.add_pass(hercules_opt::pass::Pass::GVN);
     pm.add_pass(hercules_opt::pass::Pass::DCE);
     pm.add_pass(hercules_opt::pass::Pass::Forkify);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
     let mut module = pm.run_passes();
 
     let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
