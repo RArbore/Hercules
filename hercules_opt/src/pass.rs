@@ -10,6 +10,7 @@ use self::hercules_ir::ir::*;
 use self::hercules_ir::loops::*;
 use self::hercules_ir::subgraph::*;
 use self::hercules_ir::typecheck::*;
+use self::hercules_ir::verify::*;
 
 use crate::*;
 
@@ -22,6 +23,7 @@ pub enum Pass {
     CCP,
     GVN,
     Forkify,
+    Verify,
 }
 
 /*
@@ -211,6 +213,9 @@ impl PassManager {
                             &loops[idx],
                         )
                     }
+                }
+                Pass::Verify => {
+                    verify(&mut self.module).expect("PANIC: Failed to verify Hercules IR module.");
                 }
             }
 
