@@ -1,5 +1,6 @@
 extern crate bitvec;
 
+use std::collections::hash_map;
 use std::collections::HashMap;
 
 use self::bitvec::prelude::*;
@@ -14,7 +15,10 @@ use crate::*;
  * join pairs, and so on. Each node in the loop tree has a representative
  * "header" node. For normal loops, this is the region node branched to by a
  * dominated if node. For fork join pairs, this is the fork node. A loop is a
- * top-level loop if its parent is the root node of the subgraph.
+ * top-level loop if its parent is the root node of the subgraph. Each node in
+ * the tree is an entry in the loops HashMap - the key is the "header" node for
+ * the loop, and the key is a pair of the set of control nodes inside the loop
+ * and this loop's parent header.
  */
 #[derive(Debug, Clone)]
 pub struct LoopTree {
@@ -25,6 +29,10 @@ pub struct LoopTree {
 impl LoopTree {
     pub fn contains(&self, x: NodeID) -> bool {
         x == self.root || self.loops.contains_key(&x)
+    }
+
+    pub fn loops(&self) -> hash_map::Iter<'_, NodeID, (BitVec<u8, Lsb0>, NodeID)> {
+        self.loops.iter()
     }
 }
 

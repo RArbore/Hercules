@@ -834,6 +834,69 @@ impl Node {
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
 
+    pub fn try_if(&self) -> Option<(NodeID, NodeID)> {
+        if let Node::If { control, cond } = self {
+            Some((*control, *cond))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_phi(&self) -> Option<(NodeID, &[NodeID])> {
+        if let Node::Phi { control, data } = self {
+            Some((*control, data))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_constant(&self) -> Option<ConstantID> {
+        if let Node::Constant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_dynamic_constant(&self) -> Option<DynamicConstantID> {
+        if let Node::DynamicConstant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_binary(&self, bop: BinaryOperator) -> Option<(NodeID, NodeID)> {
+        if let Node::Binary { left, right, op } = self
+            && *op == bop
+        {
+            Some((*left, *right))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_control_read(&self, branch: usize) -> Option<NodeID> {
+        if let Node::Read { collect, indices } = self
+            && indices.len() == 1
+            && indices[0] == Index::Control(branch)
+        {
+            Some(*collect)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_zero_constant(&self, constants: &Vec<Constant>) -> bool {
+        if let Node::Constant { id } = self
+            && constants[id.idx()].is_zero()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     /*
      * Read nodes can be considered control when following an if or match
      * node. However, it is sometimes useful to exclude such nodes when
