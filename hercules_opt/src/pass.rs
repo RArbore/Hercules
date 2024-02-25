@@ -203,13 +203,16 @@ impl PassManager {
                     }
                 }
                 Pass::Forkify => {
+                    self.make_def_uses();
                     self.make_loops();
+                    let def_uses = self.def_uses.as_ref().unwrap();
                     let loops = self.loops.as_ref().unwrap();
                     for idx in 0..self.module.functions.len() {
                         forkify(
                             &mut self.module.functions[idx],
                             &self.module.constants,
                             &mut self.module.dynamic_constants,
+                            &def_uses[idx],
                             &loops[idx],
                         )
                     }

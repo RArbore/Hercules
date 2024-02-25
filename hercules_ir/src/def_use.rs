@@ -98,6 +98,17 @@ pub enum NodeUsesMut<'a> {
     Variable(Box<[&'a mut NodeID]>),
 }
 
+impl<'a> NodeUsesMut<'a> {
+    pub fn map(&mut self, old: NodeID, new: NodeID) {
+        let uses = self.as_mut();
+        for mut_ref in uses.into_iter() {
+            if **mut_ref == old {
+                **mut_ref = new;
+            }
+        }
+    }
+}
+
 impl<'a> AsRef<[NodeID]> for NodeUses<'a> {
     fn as_ref(&self) -> &[NodeID] {
         match self {
