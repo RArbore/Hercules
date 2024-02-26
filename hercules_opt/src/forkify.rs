@@ -42,7 +42,6 @@ pub fn forkify(
             let (phi, one) = function.nodes[idx.idx()].try_binary(BinaryOperator::Add)?;
             let (should_be_header, pred_datas) = function.nodes[phi.idx()].try_phi()?;
             let one_c_id = function.nodes[one.idx()].try_constant()?;
-            let bound_dc_id = function.nodes[bound.idx()].try_dynamic_constant()?;
 
             if should_be_header != *header || !constants[one_c_id.idx()].is_one() {
                 return None;
@@ -62,6 +61,42 @@ pub fn forkify(
             {
                 return None;
             }
+
+            // Check for constant used as loop bound. Do this last, since we may
+            // create a new dynamic constant here.
+            let bound_dc_id =
+                if let Some(bound_dc_id) = function.nodes[bound.idx()].try_dynamic_constant() {
+                    bound_dc_id
+                } else if let Some(bound_c_id) = function.nodes[bound.idx()].try_constant() {
+                    // Create new dynamic constant that reflects this constant.
+                    let dc = match constants[bound_c_id.idx()] {
+                        Constant::Integer8(x) => DynamicConstant::Constant(x as _),
+                        Constant::Integer16(x) => DynamicConstant::Constant(x as _),
+                        Constant::Integer32(x) => DynamicConstant::Constant(x as _),
+                        Constant::Integer64(x) => DynamicConstant::Constant(x as _),
+                        Constant::UnsignedInteger8(x) => DynamicConstant::Constant(x as _),
+                        Constant::UnsignedInteger16(x) => DynamicConstant::Constant(x as _),
+                        Constant::UnsignedInteger32(x) => DynamicConstant::Constant(x as _),
+                        Constant::UnsignedInteger64(x) => DynamicConstant::Constant(x as _),
+                        _ => return None,
+                    };
+
+                    // The new dynamic constant may already be interned.
+                    let maybe_already_in = dynamic_constants
+                        .iter()
+                        .enumerate()
+                        .find(|(_, x)| **x == dc)
+                        .map(|(idx, _)| idx);
+                    if let Some(bound_dc_idx) = maybe_already_in {
+                        DynamicConstantID::new(bound_dc_idx)
+                    } else {
+                        let id = DynamicConstantID::new(dynamic_constants.len());
+                        dynamic_constants.push(dc);
+                        id
+                    }
+                } else {
+                    return None;
+                };
 
             Some((header, phi, contents, bound_dc_id))
         })
