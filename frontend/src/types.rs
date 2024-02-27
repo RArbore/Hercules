@@ -515,22 +515,13 @@ impl TypeSolver {
         }
     }
 
-    pub fn get_constructor_index(&self, Type { val } : Type, name : usize) -> Option<usize> {
+    pub fn get_constructor_info(&self, Type { val } : Type, name : usize) 
+        -> Option<(usize, Type)> {
         match &self.types[val] {
-            TypeForm::Union { name : _, id : _, constr : _, names} => {
-                names.get(&name).copied()
+            TypeForm::Union { name : _, id : _, constr, names} => {
+                names.get(&name).map(|idx| (*idx, constr[*idx]))
             },
-            TypeForm::OtherType(t) => self.get_constructor_index(*t, name),
-            _ => None,
-        }
-    }
-
-    pub fn get_constructor_type(&self, Type { val } : Type, name : usize) -> Option<Type> {
-        match &self.types[val] {
-            TypeForm::Union { name : _, id : _, constr, names } => {
-                names.get(&name).map(|idx| constr[*idx])
-            },
-            TypeForm::OtherType(t) => self.get_constructor_type(*t, name),
+            TypeForm::OtherType(t) => self.get_constructor_info(*t, name),
             _ => None,
         }
     }

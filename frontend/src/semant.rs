@@ -279,6 +279,7 @@ pub enum Stmt {
 //    expressed using the conditional expression
 // 6. Functions are now identified by number, and arguments to functions are now represented as
 //    either an expression or a variable number for the inout arguments
+//    TODO: Technically inout arguments could be any l-expression
 // 7. There's an additional Zero which is used to construct the default of a type
 #[derive(Clone)]
 pub enum Expr {
@@ -3478,11 +3479,308 @@ fn process_expr(expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexer
                                 span_to_loc(name[0], lexer),
                                 format!("{} is a constant, expected a function or union constructor",
                                         stringtab.lookup_id(nm[0]).unwrap())))),
-                Some(Entity::Type { type_args, value }) => {
-                    todo!()
+                Some(Entity::Type { type_args : kinds, value : typ }) => {
+                    if !types.is_union(*typ) {
+                        if name.len() != 1 {
+                            Err(singleton_error(
+                                    ErrorMessage::NotImplemented(
+                                        span_to_loc(span, lexer),
+                                        "packages".to_string())))?
+                        } else {
+                            Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(name[0], lexer),
+                                        format!("{} is a type, expected a function or union constructor",
+                                                stringtab.lookup_id(nm[0]).unwrap()))))?
+                        }
+                    }
+                    if name.len() != 2 {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(name[0], lexer),
+                                    format!("Expected constructor name"))))?
+                    }
+
+                    if types.get_constructor_info(*typ, nm[1]).is_none() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(name[1], lexer),
+                                    format!("{} is not a constructor of type {}",
+                                            stringtab.lookup_id(nm[1]).unwrap(),
+                                            unparse_type(types, *typ, stringtab)))))?
+                    }
+
+                    // Now, we know that we are constructing some struct, we need to verify that
+                    // the type arguments are appropriate
+                    if kinds.len() != ty_args.len() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Expected {} type arguments, provided {}",
+                                            kinds.len(), ty_args.len()))))?
+                    }
+                    
+                    let mut type_vars = vec![];
+                    let mut dyn_consts = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for (arg, kind) in ty_args.into_iter().zip(kinds.iter()) {
+                        let arg_span = arg.span();
+                        match kind {
+                            lang_y::Kind::USize => {
+                                match process_type_expr_as_expr(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(val) => dyn_consts.push(val),
+                                }
+                            },
+                            lang_y::Kind::Type => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => type_vars.push(typ),
+                                }
+                            },
+                            lang_y::Kind::Number => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => {
+                                        if types.is_number(typ) {
+                                            type_vars.push(typ);
+                                        } else {
+                                            errors.push_back(
+                                                ErrorMessage::KindError(
+                                                    span_to_loc(arg_span, lexer),
+                                                    "number".to_string(),
+                                                    unparse_type(types, typ, stringtab)));
+                                        }
+                                    },
+                                }
+                            },
+                            lang_y::Kind::Integer => {
+                                    match process_type_expr_as_type(
+                                            arg, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(typ) => {
+                                            if types.is_integer(typ) {
+                                                type_vars.push(typ);
+                                            } else {
+                                                errors.push_back(
+                                                    ErrorMessage::KindError(
+                                                        span_to_loc(arg_span, lexer),
+                                                        "integer".to_string(),
+                                                        unparse_type(types, typ, stringtab)));
+                                            }
+                                        },
+                                    }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    let union_type =
+                        if type_vars.len() == 0 && dyn_consts.len() == 0 {
+                            *typ
+                        } else {
+                            types.instantiate(*typ, &type_vars, &dyn_consts)
+                        };
+                    let Some((constr_idx, constr_typ))
+                        = types.get_constructor_info(union_type, nm[1])
+                        else { panic!("From above"); };
+
+                    // Now, process the arguments to ensure they has the type needed by this
+                    // constructor
+                    // To do this, since unions take a single argument, we process the arguments as
+                    // a single tuple, reporting an error if inout is used anywhere
+                    for (is_inout, arg) in args.iter() {
+                        if *is_inout {
+                            Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(arg.span(), lexer),
+                                        format!("Union constructors cannot be marked inout"))))?
+                        }
+                    }
+
+                    let body = process_expr(
+                                lang_y::Expr::Tuple { 
+                                    span : span,
+                                    exprs : args.into_iter().map(|(_, a)| a).collect::<Vec<_>>() },
+                                lexer, stringtab, env, types)?;
+                    let body_typ = body.get_type();
+
+                    if !types.equal(constr_typ, body_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    unparse_type(types, constr_typ, stringtab),
+                                    unparse_type(types, body_typ, stringtab))))
+                    } else {
+                        Ok(Expr::Union {
+                            tag : constr_idx,
+                            val : Box::new(body),
+                            typ : union_type })
+                    }
                 },
-                Some(Entity::Function { index, type_args, args : func_args, return_type }) => {
-                    todo!()
+                Some(Entity::Function { index : function, type_args : kinds, 
+                                        args : func_args, return_type }) => {
+                    let func = *function;
+
+                    // Verify that the type arguments are appropriate
+                    if kinds.len() != ty_args.len() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Expected {} type arguments, provided {}",
+                                            kinds.len(), ty_args.len()))))?
+                    }
+                    
+                    let mut type_vars = vec![];
+                    let mut dyn_consts = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for (arg, kind) in ty_args.into_iter().zip(kinds.iter()) {
+                        let arg_span = arg.span();
+                        match kind {
+                            lang_y::Kind::USize => {
+                                match process_type_expr_as_expr(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(val) => dyn_consts.push(val),
+                                }
+                            },
+                            lang_y::Kind::Type => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => type_vars.push(typ),
+                                }
+                            },
+                            lang_y::Kind::Number => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => {
+                                        if types.is_number(typ) {
+                                            type_vars.push(typ);
+                                        } else {
+                                            errors.push_back(
+                                                ErrorMessage::KindError(
+                                                    span_to_loc(arg_span, lexer),
+                                                    "number".to_string(),
+                                                    unparse_type(types, typ, stringtab)));
+                                        }
+                                    },
+                                }
+                            },
+                            lang_y::Kind::Integer => {
+                                    match process_type_expr_as_type(
+                                            arg, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(typ) => {
+                                            if types.is_integer(typ) {
+                                                type_vars.push(typ);
+                                            } else {
+                                                errors.push_back(
+                                                    ErrorMessage::KindError(
+                                                        span_to_loc(arg_span, lexer),
+                                                        "integer".to_string(),
+                                                        unparse_type(types, typ, stringtab)));
+                                            }
+                                        },
+                                    }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    let arg_types =
+                        if type_vars.len() == 0 && dyn_consts.len() == 0 {
+                            func_args.clone()
+                        } else {
+                            let mut tys = vec![];
+                            for (t, inout) in func_args {
+                                tys.push((
+                                    types.instantiate(*t, &type_vars, &dyn_consts),
+                                    *inout));
+                            }
+                            tys
+                        };
+                    let return_typ =
+                        types.instantiate(*return_type, &type_vars, &dyn_consts);
+
+                    // Now, process the arguments to ensure they has the type needed by this
+                    // constructor
+                    let mut arg_vals : Vec<Either<Expr, usize>> = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for ((is_inout, arg), (arg_typ, expect_inout))
+                        in args.into_iter().zip(arg_types.into_iter()) {
+                    
+                        let arg_span = arg.span();
+
+                        if is_inout && !expect_inout {
+                            errors.push_back(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(arg_span, lexer),
+                                    format!("Argument should be inout")));
+                        } else if !is_inout && expect_inout {
+                            errors.push_back(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(arg_span, lexer),
+                                    format!("Argument should not be inout")));
+                        } else if is_inout {
+                            // If the argument is an inout then it needs to just be a variable
+                            match process_expr(arg, lexer, stringtab, env, types) {
+                                Err(mut errs) => errors.append(&mut errs),
+                                Ok(Expr::Variable { var, typ }) => {
+                                    if !types.equal(arg_typ, typ) {
+                                        errors.push_back(
+                                            ErrorMessage::TypeError(
+                                                span_to_loc(arg_span, lexer),
+                                                unparse_type(types, arg_typ, stringtab),
+                                                unparse_type(types, typ, stringtab)));
+                                    } else {
+                                        arg_vals.push(Either::Right(var));
+                                    }
+                                },
+                                Ok(_) => {
+                                    errors.push_back(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(arg_span, lexer),
+                                            format!("An inout argument must just be a variable")));
+                                },
+                            }
+                        } else {
+                            match process_expr(arg, lexer, stringtab, env, types) {
+                                Err(mut errs) => errors.append(&mut errs),
+                                Ok(exp) => {
+                                    if !types.equal(arg_typ, exp.get_type()) {
+                                        errors.push_back(
+                                            ErrorMessage::TypeError(
+                                                span_to_loc(arg_span, lexer),
+                                                unparse_type(types, arg_typ, stringtab),
+                                                unparse_type(types, exp.get_type(), stringtab)));
+                                    } else {
+                                        arg_vals.push(Either::Left(exp));
+                                    }
+                                },
+                            }
+                        }
+                    }
+
+                    if !errors.is_empty() {
+                        Err(errors)
+                    } else {
+                        Ok(Expr::CallExpr {
+                            func       : func,
+                            ty_args    : type_vars,
+                            dyn_consts : dyn_consts,
+                            args       : arg_vals,
+                            typ        : return_typ })
+                    }
                 },
             }
         },
