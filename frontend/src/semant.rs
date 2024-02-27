@@ -9,6 +9,8 @@ use lrlex::{lrlex_mod, DefaultLexerTypes};
 use lrpar::{lrpar_mod, NonStreamingLexer};
 use cfgrammar::Span;
 
+use ordered_float::OrderedFloat;
+
 lrlex_mod!("lang.l");
 lrpar_mod!("lang.y");
 
@@ -33,18 +35,35 @@ enum Entity {
 }
 
 // Constant values
+#[derive(Clone)]
 pub enum Literal {
-    Bool(bool), Signed(i64), Unsigned(u64), Float(f64),
+    Unit, Bool(bool), Integer(u64), Float(f64),
     Tuple(Vec<Constant>),
-    Struct(Vec<Constant>), // Values of fields (in their order)
-    Union(usize, Box<Constant>), // The tag and value
+    Sum(usize, Box<Constant>), // The tag and value
 }
 pub type Constant = (Literal, Type);
+
+impl PartialEq for Literal {
+    fn eq(&self, other : &Self) -> bool {
+        match (self, other) {
+            (Literal::Unit, Literal::Unit) => true,
+            (Literal::Bool(b), Literal::Bool(c)) => b == c,
+            (Literal::Integer(i), Literal::Integer(j)) => i == j,
+            (Literal::Float(i), Literal::Float(j)) =>
+                OrderedFloat(*i) == OrderedFloat(*j),
+            (Literal::Tuple(fs), Literal::Tuple(gs)) => fs == gs,
+            (Literal::Sum(i, v), Literal::Sum(j, u)) => i == j && *v == *u,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Literal {}
 
 impl Literal {
     fn as_usize(&self) -> usize {
         match self {
-            Literal::Unsigned(val) => *val as usize,
+            Literal::Integer(val) => *val as usize,
             _ => panic!("Expected a constant integer"),
         }
     }
@@ -261,8 +280,10 @@ pub enum Stmt {
 // 6. Functions are now identified by number, and arguments to functions are now represented as
 //    either an expression or a variable number for the inout arguments
 // 7. There's an additional Zero which is used to construct the default of a type
+#[derive(Clone)]
 pub enum Expr {
     Variable  { var : usize, typ : Type },
+    DynConst  { idx : usize, typ : Type },
     Read      { index : Vec<Index>, val : Box<Expr>, typ : Type },
     Write     { index : Vec<Index>, val : Box<Expr>, rep : Box<Expr>, typ : Type },
     Tuple     { vals : Vec<Expr>, typ : Type },
@@ -277,19 +298,64 @@ pub enum Expr {
                 args : Vec<Either<Expr, usize>>, typ : Type },
 }
 
-pub enum Index { Field(usize), Variant(usize), Array(Box<Expr>) }
+#[derive(Clone)]
+pub enum Index { Field(usize), Variant(usize), Array(Vec<Expr>) }
 
+#[derive(Clone)]
 pub enum UnaryOp  { Negation, BitwiseNot }
+#[derive(Clone)]
 pub enum BinaryOp { Add, Sub, Mul, Div, Mod,
                     BitAnd, BitOr, Xor,
                     Lt, Le, Gt, Ge, Eq, Neq,
                     LShift, RShift }
 
+fn convert_assign_op(op : lang_y::AssignOp) -> BinaryOp {
+    match op {
+        AssignOp::None   => panic!("Do not call convert_assign_op on AssignOp::None"),
+        AssignOp::Add    => BinaryOp::Add,
+        AssignOp::Sub    => BinaryOp::Sub,
+        AssignOp::Mul    => BinaryOp::Mul,
+        AssignOp::Div    => BinaryOp::Div,
+        AssignOp::Mod    => BinaryOp::Mod,
+        AssignOp::BitAnd => BinaryOp::BitAnd,
+        AssignOp::BitOr  => BinaryOp::BitOr,
+        AssignOp::Xor    => BinaryOp::Xor,
+        AssignOp::LShift => BinaryOp::LShift,
+        AssignOp::RShift => BinaryOp::RShift,
+        AssignOp::LogAnd => panic!("Do not call convert_assign_op on AssignOp::LogAnd"),
+        AssignOp::LogOr  => panic!("Do not call convert_assign_op on AssignOp::LogOr"),
+    }
+}
+
+fn convert_binary_op(op : lang_y::BinaryOp) -> BinaryOp {
+    match op {
+        lang_y::BinaryOp::Add    => BinaryOp::Add,
+        lang_y::BinaryOp::Sub    => BinaryOp::Sub,
+        lang_y::BinaryOp::Mul    => BinaryOp::Mul,
+        lang_y::BinaryOp::Div    => BinaryOp::Div,
+        lang_y::BinaryOp::Mod    => BinaryOp::Mod,
+        lang_y::BinaryOp::BitAnd => BinaryOp::BitAnd,
+        lang_y::BinaryOp::BitOr  => BinaryOp::BitOr,
+        lang_y::BinaryOp::Xor    => BinaryOp::Xor,
+        lang_y::BinaryOp::Lt     => BinaryOp::Lt,
+        lang_y::BinaryOp::Le     => BinaryOp::Le,
+        lang_y::BinaryOp::Gt     => BinaryOp::Gt,
+        lang_y::BinaryOp::Ge     => BinaryOp::Ge,
+        lang_y::BinaryOp::Eq     => BinaryOp::Eq,
+        lang_y::BinaryOp::Neq    => BinaryOp::Neq,
+        lang_y::BinaryOp::LShift => BinaryOp::LShift,
+        lang_y::BinaryOp::RShift => BinaryOp::RShift,
+        lang_y::BinaryOp::LogAnd => panic!("Do not call convert_binary_op on BinaryOp::LogAnd"),
+        lang_y::BinaryOp::LogOr  => panic!("Do not call convert_binary_op on BinaryOp::LogOr"),
+    }
+}
+
 // Be able to access the type of an expression easily
 impl Expr {
     pub fn get_type(&self) -> Type {
         match self {
-            Expr::Variable { var : _, typ } | Expr::Read { index : _, val : _, typ }
+            Expr::Variable { var : _, typ } | Expr::DynConst { idx : _, typ }
+            | Expr::Read { index : _, val : _, typ }
             | Expr::Write { index : _, val : _, rep : _, typ }
             | Expr::Tuple { vals : _, typ } | Expr::Union { tag : _, val : _, typ }
             | Expr::Constant { val : _, typ } | Expr::UnaryExp { op : _, expr : _, typ }
@@ -301,6 +367,11 @@ impl Expr {
             => *typ
         }
     }
+}
+
+// Helper function to unparse types
+fn unparse_type(types : &TypeSolver, typ : Type, stringtab : &StringTable) -> String {
+    types.to_string(typ, &|n| stringtab.lookup_id(n).unwrap())
 }
 
 // Start of parsing and semantic analysis
@@ -773,8 +844,7 @@ fn process_type(typ : lang_y::Type, lexer : &dyn NonStreamingLexer<DefaultLexerT
                                                     ErrorMessage::KindError(
                                                         span_to_loc(arg_span, lexer),
                                                         "number".to_string(),
-                                                        types.to_string(typ,
-                                                            &|n| stringtab.lookup_id(n).unwrap())));
+                                                        unparse_type(types, typ, stringtab)));
                                             }
                                         },
                                     }
@@ -791,8 +861,7 @@ fn process_type(typ : lang_y::Type, lexer : &dyn NonStreamingLexer<DefaultLexerT
                                                     ErrorMessage::KindError(
                                                         span_to_loc(arg_span, lexer),
                                                         "integer".to_string(),
-                                                        types.to_string(typ,
-                                                            &|n| stringtab.lookup_id(n).unwrap())));
+                                                        unparse_type(types, typ, stringtab)));
                                             }
                                         },
                                     }
@@ -898,15 +967,14 @@ fn process_type_expr_as_expr(exp : lang_y::TypeExpr,
                     },
                     Some(Entity::Constant { value : (val, typ) }) => {
                         match val {
-                            Literal::Unsigned(val) =>
+                            Literal::Integer(val) =>
                                 Ok(DynamicConstant::Constant(*val as usize)),
                             _ =>
                                 Err(singleton_error(
                                         ErrorMessage::TypeError(
                                             span_to_loc(span, lexer),
                                             "usize".to_string(),
-                                            types.to_string(*typ,
-                                                &|n| stringtab.lookup_id(n).unwrap())))),
+                                            unparse_type(types, *typ, stringtab)))),
                         }
                     },
                     Some(Entity::Variable { .. }) =>
@@ -1081,8 +1149,7 @@ fn process_type_expr_as_type(exp : lang_y::TypeExpr,
                                                     ErrorMessage::KindError(
                                                         span_to_loc(arg_span, lexer),
                                                         "number".to_string(),
-                                                        types.to_string(typ,
-                                                            &|n| stringtab.lookup_id(n).unwrap())));
+                                                        unparse_type(types, typ, stringtab)));
                                             }
                                         },
                                     }
@@ -1099,8 +1166,7 @@ fn process_type_expr_as_type(exp : lang_y::TypeExpr,
                                                     ErrorMessage::KindError(
                                                         span_to_loc(arg_span, lexer),
                                                         "integer".to_string(),
-                                                        types.to_string(typ,
-                                                            &|n| stringtab.lookup_id(n).unwrap())));
+                                                        unparse_type(types, typ, stringtab)));
                                             }
                                         },
                                     }
@@ -1164,26 +1230,27 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
 
                     let var = env.uniq();
 
-                    let ((val, typ), exp_loc) =
+                    let (val, exp_loc) =
                         match init {
                             Some(exp) => {
                                 let loc = span_to_loc(exp.span(), lexer);
                                 (process_expr(exp, lexer, stringtab, env, types)?, loc)
                             },
                             None => {
-                                ((Expr::Zero { typ : ty }, ty), Location::fake())
+                                (Expr::Zero { typ : ty }, Location::fake())
                             },
                         };
+                    let typ = val.get_type();
 
                     env.insert(nm,
                                Entity::Variable { variable : var, typ : ty, is_const : false });
 
-                    if !types.can_coerce(ty, typ) {
+                    if !types.equal(ty, typ) {
                         Err(singleton_error(
                                 ErrorMessage::TypeError(
                                     exp_loc,
-                                    types.to_string(ty, &|n| stringtab.lookup_id(n).unwrap()),
-                                    types.to_string(typ, &|n| stringtab.lookup_id(n).unwrap()))))
+                                    unparse_type(types, ty, stringtab),
+                                    unparse_type(types, typ, stringtab))))
                     } else {
                         Ok((Stmt::AssignStmt { var : var, val : val }, true))
                     }
@@ -1196,239 +1263,223 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                 },
             }
         },
-        // HERE
-        /*
-        lang_y::Stmt::ConstStmt { span, var: _, init: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "constant bindings".to_string())))
-        },
-        lang_y::Stmt::AssignStmt { span: _, lhs, assign, assign_span, rhs } => {
-            let (var, typ, index) = process_lexpr(lhs, lexer, stringtab, env, builder,
-                                                  func, ssa, pred)?;
+        lang_y::Stmt::ConstStmt { span: _, var : VarBind { span : v_span, pattern, typ }, init } => {
+            match pattern {
+                SPattern::Variable { span, name } => {
+                    if typ.is_none() {
+                        return Err(singleton_error(
+                                ErrorMessage::NotImplemented(
+                                    span_to_loc(v_span, lexer),
+                                    "variable type inference".to_string())));
+                    }
 
-            let val = process_expr(rhs, lexer, stringtab, env, builder, func,
-                                   ssa, pred, &GoalType::KnownType(typ.clone()))?.0;
+                    if name.len() != 1 {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    "Bound variables must be local names, without a package separator".to_string())))?
+                    }
 
-            if assign == AssignOp::None {
-                if index.is_empty() {
-                    ssa.write_variable(var, pred, val);
-                } else {
-                    let init_value = ssa.read_variable(var, pred, builder);
+                    let nm = intern_package_name(&name, lexer, stringtab)[0];
+                    let ty = process_type(typ.expect("FROM ABOVE"), lexer, stringtab, env, types)?;
 
-                    let mut update_builder = builder.allocate_node(func);
-                    ssa.write_variable(var, pred, update_builder.id());
+                    let var = env.uniq();
 
-                    update_builder.build_write(init_value, val, index.into());
-                    let _ = builder.add_node(update_builder);
-                }
-                
-                Ok(Some(pred))
-            } else {
-                let op =
-                    match assign {
-                        AssignOp::None => panic!("Impossible"),
-                        AssignOp::Add => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator += cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Add
-                        },
-                        AssignOp::Sub => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator -= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Sub
-                        },
-                        AssignOp::Mul => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator *= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Mul
-                        },
-                        AssignOp::Div => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator /= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Div
-                        },
-                        AssignOp::Mod => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator %= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Rem
-                        },
-                        AssignOp::BitAnd => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator &= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::And
-                        },
-                        AssignOp::BitOr => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator |= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Or
-                        },
-                        AssignOp::Xor => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator ^= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Xor
-                        },
-                        AssignOp::LogAnd => {
-                            if !typ.is_boolean() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator &&= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            return Err(singleton_error(
-                                    ErrorMessage::NotImplemented(
-                                        span_to_loc(assign_span, lexer),
-                                        "&&= operator".to_string())));
-                        },
-                        AssignOp::LogOr => {
-                            if !typ.is_boolean() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator ||= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            return Err(singleton_error(
-                                    ErrorMessage::NotImplemented(
-                                        span_to_loc(assign_span, lexer),
-                                        "||= operator".to_string())));
-                        },
-                        AssignOp::LShift => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator <<= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::LSh
-                        },
-                        AssignOp::RShift => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator >>= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::RSh
-                        },
-                    };
-                
-                let var_value = ssa.read_variable(var, pred, builder);
-                let init_value = 
-                    if index.is_empty() {
-                        var_value
+                    let (val, exp_loc) =
+                        match init {
+                            Some(exp) => {
+                                let loc = span_to_loc(exp.span(), lexer);
+                                (process_expr(exp, lexer, stringtab, env, types)?, loc)
+                            },
+                            None => {
+                                (Expr::Zero { typ : ty }, Location::fake())
+                            },
+                        };
+                    let typ = val.get_type();
+
+                    env.insert(nm,
+                               Entity::Variable { variable : var, typ : ty, is_const : true });
+
+                    if !types.equal(ty, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    exp_loc,
+                                    unparse_type(types, ty, stringtab),
+                                    unparse_type(types, typ, stringtab))))
                     } else {
-                        let mut extract_builder = builder.allocate_node(func);
-                        let node = extract_builder.id();
-                        extract_builder.build_read(var_value, index.clone().into());
-                        let _ = builder.add_node(extract_builder);
-                        node
-                    };
-
-                let mut compute_builder = builder.allocate_node(func);
-                let compute_node = compute_builder.id();
-                compute_builder.build_binary(init_value, val, op);
-                let _ = builder.add_node(compute_builder);
-                
-                if index.is_empty() {
-                    ssa.write_variable(var, pred, compute_node);
-                } else {
-                    let mut update_builder  = builder.allocate_node(func);
-                    ssa.write_variable(var, pred, update_builder.id());
-                    update_builder.build_write(var_value, compute_node, index.into());
-                    let _ = builder.add_node(update_builder);
-                }
-                
-                Ok(Some(pred))
+                        Ok((Stmt::AssignStmt { var : var, val : val }, true))
+                    }
+                },
+                _ => {
+                    Err(singleton_error(
+                            ErrorMessage::NotImplemented(
+                                span_to_loc(v_span, lexer),
+                                "non-variable bindings".to_string())))
+                },
             }
         },
-        lang_y::Stmt::IfStmt { span: _, cond, thn, els } => {
-            // Setup control flow that we need
-            let (mut if_node, then_block, else_block) = ssa.create_cond(builder, pred);
+        lang_y::Stmt::AssignStmt { span: _, lhs, assign, assign_span, rhs } => {
+            let lhs_res = process_lexpr(lhs, lexer, stringtab, env, types);
+            let rhs_res = process_expr(rhs, lexer, stringtab, env, types);
+            let (((var, var_typ), (exp_typ, index)), val)
+                = append_errors2(lhs_res, rhs_res)?;
+            let typ = val.get_type();
 
-            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
-                                        func, ssa, pred,
-                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
+            // Perform the appropriate type checking
+            match assign {
+                AssignOp::None   => {
+                    if !types.equal(exp_typ, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    unparse_type(types, exp_typ, stringtab),
+                                    unparse_type(types, typ, stringtab))))?
+                    }
+                },
+                AssignOp::Add | AssignOp::Sub | AssignOp::Mul | AssignOp::Div => {
+                    if !types.equal(exp_typ, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    unparse_type(types, exp_typ, stringtab),
+                                    unparse_type(types, typ, stringtab))))?
+                    }
+                    if !types.is_number(exp_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, exp_typ, stringtab))))?
+                    }
+                },
+                AssignOp::Mod | AssignOp::BitAnd | AssignOp::BitOr | AssignOp::Xor
+                    | AssignOp::LShift | AssignOp::RShift => {
+                    if !types.equal(exp_typ, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    unparse_type(types, exp_typ, stringtab),
+                                    unparse_type(types, typ, stringtab))))?
+                    }
+                    if !types.is_integer(exp_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, exp_typ, stringtab))))?
+                    }
+                },
+                AssignOp::LogAnd | AssignOp::LogOr => {
+                    if !types.equal(exp_typ, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    unparse_type(types, exp_typ, stringtab),
+                                    unparse_type(types, typ, stringtab))))?
+                    }
+                    if !types.is_bool(exp_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(assign_span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, exp_typ, stringtab))))?
+                    }
+                },
+            }
 
-            env.open_scope();
-            let then_end = process_stmt(*thn, lexer, stringtab, env, builder,
-                                        func, ssa, then_block, loops, return_type,
-                                        inout_types, inout_vars);
-            env.close_scope();
-
-            let else_end =
-                match els {
-                    None => Ok(Some(else_block)),
-                    Some(els_stmt) => {
-                        env.open_scope();
-                        let res = process_stmt(*els_stmt, lexer, stringtab, env, builder,
-                                               func, ssa, else_block, loops, return_type,
-                                               inout_types, inout_vars);
-                        env.close_scope();
-                        res
+            // Construct the right-hand side for the normalized expression; for x= operations this
+            // will construct the read and the operation; the write is left for after this since it
+            // is common to all cases
+            let result_rhs = 
+                match assign {
+                    AssignOp::None   => {
+                        val
+                    },
+                    AssignOp::Add | AssignOp::Sub | AssignOp::Mul | AssignOp::Div
+                        | AssignOp::Mod | AssignOp::BitAnd | AssignOp::BitOr
+                        | AssignOp::Xor | AssignOp::LShift | AssignOp::RShift => {
+                        Expr::BinaryExp {
+                            op  : convert_assign_op(assign),
+                            lhs : Box::new(Expr::Read {
+                                    index : index.clone(),
+                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
+                                    typ : exp_typ }),
+                            rhs : Box::new(val),
+                            typ : typ }
+                    },
+                    // For x &&= y we convert to if x then y else false
+                    AssignOp::LogAnd => {
+                        Expr::CondExpr {
+                            cond : Box::new(Expr::Read {
+                                    index : index.clone(),
+                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
+                                    typ : exp_typ }),
+                            thn  : Box::new(val),
+                            // We know that the expected type is bool, so just use it to avoid
+                            // creating additional new types
+                            els  : Box::new(Expr::Constant {
+                                    val : (Literal::Bool(false), exp_typ),
+                                    typ : exp_typ }),
+                            typ  : typ }
+                    },
+                    // For x ||= y we convert to if x then true else y
+                    AssignOp::LogOr  => {
+                        Expr::CondExpr {
+                            cond : Box::new(Expr::Read {
+                                    index : index.clone(),
+                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
+                                    typ : exp_typ }),
+                            thn  : Box::new(Expr::Constant {
+                                    val : (Literal::Bool(true), exp_typ),
+                                    typ : exp_typ }),
+                            els  : Box::new(val),
+                            typ  : typ }
                     },
                 };
 
-            let ((cond_val, _), then_term, else_term) = append_errors3(cond_val, then_end, else_end)?;
+            Ok((Stmt::AssignStmt {
+                    var : var,
+                    val : Expr::Write {
+                            index : index,
+                            val   : Box::new(Expr::Variable { var : var, typ : var_typ }),
+                            rep   : Box::new(result_rhs),
+                            typ   : var_typ }}, true))
+        },
+        lang_y::Stmt::IfStmt { span: _, cond, thn, els } => {
+            let cond_span = cond.span();
+            let cond_res = process_expr(cond, lexer, stringtab, env, types);
 
-            if_node.build_if(pred, cond_val);
-            let _ = builder.add_node(if_node);
+            env.open_scope();
+            let thn_res  = process_stmt(*thn, lexer, stringtab, env, types,
+                                        in_loop, return_type, inout_vars, inout_types);
+            env.close_scope();
 
-            match (then_term, else_term) {
-                (None, els) => Ok(els),
-                (thn, None) => Ok(thn),
-                (Some(then_term), Some(else_term)) => {
-                    let join_node = ssa.create_block(builder);
-                    ssa.add_pred(join_node, then_term);
-                    ssa.add_pred(join_node, else_term);
-                    ssa.seal_block(join_node, builder);
-                    Ok(Some(join_node))
-                },
+            env.open_scope();
+            let els_res  =
+                match els { None => Ok((None, true)),
+                    Some(stmt) =>
+                        process_stmt(*stmt, lexer, stringtab, env, types,
+                                     in_loop, return_type, inout_vars, inout_types)
+                        .map(|(s, b)| (Some(s), b)), };
+            env.close_scope();
+
+            let (cond_exp, (thn_body, thn_fall), (els_body, els_fall))
+                = append_errors3(cond_res, thn_res, els_res)?;
+            let cond_typ = cond_exp.get_type();
+
+            if !types.is_bool(cond_typ) {
+                Err(singleton_error(
+                        ErrorMessage::TypeError(
+                            span_to_loc(cond_span, lexer),
+                            "bool".to_string(),
+                            unparse_type(types, cond_typ, stringtab))))?
             }
+
+            Ok((Stmt::IfStmt {
+                cond : cond_exp,
+                thn  : Box::new(thn_body),
+                els  : els_body.map(|s| Box::new(s)) },
+                thn_fall || els_fall))
         },
         lang_y::Stmt::MatchStmt { span, expr: _, body: _ } => {
             Err(singleton_error(
@@ -1438,18 +1489,6 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
         },
         lang_y::Stmt::ForStmt { span: _, var : VarBind { span : v_span, pattern, typ },
                                 init, bound, step, body } => {
-            let latch = ssa.create_block(builder);
-            let update = ssa.create_block(builder);
-
-            ssa.add_pred(latch, pred);
-            ssa.add_pred(latch, update);
-            ssa.seal_block(latch, builder);
-
-            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
-            let exit = ssa.create_block(builder);
-
-            ssa.add_pred(exit, false_proj);
-
             let (var, var_name, var_type) =
                 match pattern {
                     SPattern::Variable { span, name } => {
@@ -1463,10 +1502,10 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                         let nm = intern_package_name(&name, lexer, stringtab)[0];
                         let var_type =
                             match typ {
-                                None => Type::Primitive(Primitive::U64),
+                                None => types.new_primitive(types::Primitive::U64),
                                 Some(t) => {
-                                    let ty = process_type(t, lexer, stringtab, env)?;
-                                    if !ty.is_integer() {
+                                    let ty = process_type(t, lexer, stringtab, env, types)?;
+                                    if !types.is_integer(ty) {
                                         return Err(singleton_error(
                                                 ErrorMessage::SemanticError(
                                                     span_to_loc(v_span, lexer),
@@ -1486,19 +1525,20 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                                     "patterns in for loop arguments".to_string())));
                     },
                 };
-            
-            // Evaluate the initial value, bound, and step in the predecessor
-            let init_res = process_expr(init, lexer, stringtab, env, builder,
-                                        func, ssa, pred,
-                                        &GoalType::KnownType(var_type.clone()));
 
-            let bound_res = process_expr(bound, lexer, stringtab, env, builder,
-                                         func, ssa, pred,
-                                         &GoalType::KnownType(var_type.clone()));
+            // Evaluate the initial value, bound, and step
+            let init_span = init.span();
+            let bound_span = bound.span();
+
+            let init_res = process_expr(init, lexer, stringtab, env, types);
+            let bound_res = process_expr(bound, lexer, stringtab, env, types);
+
+            // The step is tracked as a pair of the step's amount (always positive) and whether the
+            // step should be positive or negative
             let (step_val, step_pos) =
                 match step {
                     None => {
-                        (build_int_const(&var_type, 1, builder, func), true)
+                        (1, true)
                     },
                     Some((negative, span, base)) => {
                         let val = u64::from_str_radix(lexer.span_str(span), base.base());
@@ -1511,174 +1551,197 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                                         "For loop step cannot be 0".to_string())));
                         }
 
-                        (build_int_const(&var_type, num, builder, func), !negative)
+                        (num, !negative)
                     },
                 };
 
-            let ((init_val, _), (bound_val, _)) = append_errors2(init_res, bound_res)?;
+            let (init_val, bound_val)
+                = append_errors2(init_res, bound_res)?;
+            let init_typ = init_val.get_type();
+            let bound_typ = bound_val.get_type();
 
-            // Setup initial value
-            ssa.write_variable(var, pred, init_val);
-           
-            // Build the update
-            let mut update_node = builder.allocate_node(func);
-            let updated = update_node.id();
-            let loop_var = ssa.read_variable(var, update, builder);
-            update_node.build_binary(loop_var, step_val,
-                                     if step_pos { BinaryOperator::Add }
-                                     else { BinaryOperator::Sub });
-            let _ = builder.add_node(update_node);
-            ssa.write_variable(var, update, updated);
+            // Verify that the types of the initial value and bound are correct
+            let mut type_errors = LinkedList::new();
+            if !types.equal(var_type, init_typ) {
+                type_errors.push_back(
+                    ErrorMessage::TypeError(
+                        span_to_loc(init_span, lexer),
+                        unparse_type(types, var_type, stringtab),
+                        unparse_type(types, init_typ, stringtab)));
+            }
+            if !types.equal(var_type, bound_typ) {
+                type_errors.push_back(
+                    ErrorMessage::TypeError(
+                        span_to_loc(bound_span, lexer),
+                        unparse_type(types, var_type, stringtab),
+                        unparse_type(types, bound_typ, stringtab)));
+            }
+            if !type_errors.is_empty() {
+                Err(type_errors)?
+            }
 
-            // Build the condition
-            let condition = {
-                let mut compare_node = builder.allocate_node(func);
-                let cond = compare_node.id();
-                let loop_var = ssa.read_variable(var, latch, builder);
-                
-                compare_node.build_binary(loop_var, bound_val,
-                                          if step_pos { BinaryOperator::LT }
-                                          else { BinaryOperator::GT });
-                
-                let _ = builder.add_node(compare_node);
-                cond
-            };
-
+            // Create the scope for the body
             env.open_scope();
-            loops.push((update, exit));
             env.insert(var_name, Entity::Variable {
                                     variable : var, typ : var_type, is_const : true });
 
-            let body_term = process_stmt(*body, lexer, stringtab, env, builder,
-                                         func, ssa, body_node, loops, return_type,
-                                         inout_types, inout_vars)?;
+            // Process the body
+            let (body, _)
+                = process_stmt(*body, lexer, stringtab, env, types, true,
+                               return_type, inout_vars, inout_types)?;
 
             env.close_scope();
-            loops.pop();
 
-            if_node.build_if(latch, condition);
-            let _ = builder.add_node(if_node);
+            // We bind the initial value of the loop counter
+            let init_eval = Stmt::AssignStmt { var : var, val : init_val };
 
-            match body_term { 
-                None => {},
-                Some(block) => { ssa.add_pred(update, block); },
-            }
+            // We create a new variable for the loop bound and we're going to bind the bound to
+            // that value before the loop so that it is only evaluated once
+            let bound_var = env.uniq();
+            let bound_eval = Stmt::AssignStmt { var : bound_var, val : bound_val };
 
-            ssa.seal_block(update, builder);
-            ssa.seal_block(exit, builder);
+            // The condition of the loop is var < bound, unless the step is negative in which case
+            // it is var > bound
+            let condition =
+                Expr::BinaryExp {
+                    op  : if step_pos { BinaryOp::Lt } else { BinaryOp::Gt },
+                    lhs : Box::new(Expr::Variable { var : var, typ : var_type }),
+                    rhs : Box::new(Expr::Variable { var : bound_var, typ : bound_typ }),
+                    typ : types.new_primitive(types::Primitive::Bool) };
 
-            Ok(Some(exit))
+            // The update of the loop is var = var + step, unless the step is negative in which
+            // case it is var = var - step
+            let update =
+                Stmt::AssignStmt {
+                    var : var,
+                    val : Expr::BinaryExp {
+                            op  : if step_pos { BinaryOp::Add } else { BinaryOp::Sub },
+                            lhs : Box::new(Expr::Variable { var : var, typ : var_type }),
+                            rhs : Box::new(Expr::Constant {
+                                                val : (Literal::Integer(step_val), var_type),
+                                                typ : var_type }),
+                            typ : var_type }};
+
+            // Finally, the entire loop is constructed as:
+            // Evaluate initial value
+            // Evaluate bound value
+            // Loop
+            // Note that the statement after a loop is always assumed to be reachable
+            Ok((Stmt::BlockStmt {
+                    body : vec![
+                        init_eval,
+                        bound_eval,
+                        Stmt::LoopStmt {
+                            cond : condition,
+                            update : Some(Box::new(update)),
+                            body : Box::new(body)
+                        }
+                    ]
+                }, true))
         },
         lang_y::Stmt::WhileStmt { span: _, cond, body } => {
-            let latch = ssa.create_block(builder);
-            ssa.add_pred(latch, pred);
-            
-            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
-            let exit = ssa.create_block(builder);
-
-            ssa.add_pred(exit, false_proj);
-
-            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
-                                        func, ssa, latch,
-                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
+            let cond_span = cond.span();
+            let cond_res = process_expr(cond, lexer, stringtab, env, types);
 
             env.open_scope();
-            loops.push((latch, exit));
-
-            let body_end = process_stmt(*body, lexer, stringtab, env, builder,
-                                        func, ssa, body_node, loops, return_type,
-                                        inout_types, inout_vars);
-
+            let body_res = process_stmt(*body, lexer, stringtab, env, types,
+                                        true, return_type, inout_vars, inout_types);
             env.close_scope();
-            loops.pop();
 
-            let ((condition, _), body_term) = append_errors2(cond_val, body_end)?;
+            let (cond_val, (body_stmt, _))
+                = append_errors2(cond_res, body_res)?;
+            let cond_typ = cond_val.get_type();
 
-            if_node.build_if(latch, condition);
-            let _ = builder.add_node(if_node);
-
-            match body_term {
-                None => {},
-                Some(block) => { ssa.add_pred(latch, block); },
+            if !types.is_bool(cond_typ) {
+                Err(singleton_error(
+                        ErrorMessage::TypeError(
+                            span_to_loc(cond_span, lexer),
+                            "bool".to_string(),
+                            unparse_type(types, cond_typ, stringtab))))?
             }
 
-            ssa.seal_block(latch, builder);
-            ssa.seal_block(exit, builder);
-
-            Ok(Some(exit))
+            // Again, the statement after a loop is always considered reachable
+            Ok((Stmt::LoopStmt {
+                cond : cond_val,
+                update : None,
+                body : Box::new(body_stmt) }, true))
         },
         lang_y::Stmt::ReturnStmt { span, expr } => {
-            let val =
-                if expr.is_none() && return_type.is_void() {
-                    let unit_const = builder.create_constant_prod(vec![].into());
-                    let mut unit_node = builder.allocate_node(func);
-                    let unit_val = unit_node.id();
-                    unit_node.build_constant(unit_const);
-                    let _ = builder.add_node(unit_node);
-                    unit_val
+            let return_val =
+                if expr.is_none() && types.is_void(return_type) {
+                    Expr::Constant {
+                        val : (Literal::Unit, return_type),
+                        typ : return_type }
                 } else if expr.is_none() {
-                    return Err(singleton_error(
+                    Err(singleton_error(
                             ErrorMessage::SemanticError(
                                 span_to_loc(span, lexer),
                                 format!("Expected return of type {} found no return value",
-                                        return_type.to_string(stringtab)))));
+                                        unparse_type(types, return_type, stringtab)))))?
                 } else {
-                    process_expr(expr.unwrap(), lexer, stringtab, env,
-                                 builder, func, ssa, pred,
-                                 &GoalType::KnownType(return_type.clone()))?.0
+                    let val = process_expr(expr.unwrap(), lexer, stringtab, env,
+                                           types)?;
+                    let typ = val.get_type();
+                    if !types.equal(return_type, typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    unparse_type(types, return_type, stringtab),
+                                    unparse_type(types, typ, stringtab))))?
+                    }
+                    val
                 };
 
-            build_return(return_type, val, pred, inout_types, inout_vars,
-                         builder, func, ssa);
-
-            Ok(None)
+            // We return a tuple of the return value and of the inout variables
+            // Statements after a return are never reachable
+            Ok((generate_return(return_val, inout_vars, inout_types, types),
+                false))
         },
         lang_y::Stmt::BreakStmt { span } => {
-            if loops.len() <= 0 {
-                return Err(singleton_error(
+            if !in_loop {
+                Err(singleton_error(
                         ErrorMessage::SemanticError(
                             span_to_loc(span, lexer),
-                            "Break not contained within loop".to_string())));
+                            "Break not contained within loop".to_string())))?
             }
 
-            let last_loop = loops.len() - 1;
-            let (_latch, exit) = loops[last_loop];
-            ssa.add_pred(exit, pred); // The block that contains this break now leads to the exit
-            
-            Ok(None) // Code after the break is unreachable
+            // Code after a break is unreachable
+            Ok((Stmt::BreakStmt {}, false))
         },
         lang_y::Stmt::ContinueStmt { span } => {
-            if loops.len() <= 0 {
-                return Err(singleton_error(
+            if !in_loop {
+                Err(singleton_error(
                         ErrorMessage::SemanticError(
                             span_to_loc(span, lexer),
-                            "Continue not contained within loop".to_string())));
+                            "Continue not contained within loop".to_string())))?
             }
 
-            let last_loop = loops.len() - 1;
-            let (latch, _exit) = loops[last_loop];
-            ssa.add_pred(latch, pred); // The block that contains this break now leads to the latch
-            
-            Ok(None) // Code after the continue is unreachable
+            // Code after a continue is unreachable
+            Ok((Stmt::ContinueStmt {}, false))
         },
         lang_y::Stmt::BlockStmt { span: _, body } => {
+            // Blocks create a new scope for variables declared in them
             env.open_scope();
 
-            let mut next = Some(pred);
+            let mut reachable = true;
             let mut errors = LinkedList::new();
+            let mut res = vec![];
+
             for stmt in body {
-                if next.is_none() {
-                    return Err(singleton_error(
+                if !reachable {
+                    Err(singleton_error(
                             ErrorMessage::SemanticError(
                                 span_to_loc(stmt.span(), lexer),
-                                "Unreachable statement".to_string())));
+                                "Unreachable statement".to_string())))?
                 }
 
-                match process_stmt(stmt, lexer, stringtab, env, builder, func,
-                                   ssa, next.expect("From above"), loops,
-                                   return_type, inout_types, inout_vars) {
+                match process_stmt(stmt, lexer, stringtab, env, types, in_loop,
+                                   return_type, inout_vars, inout_types) {
                     Err(mut errs) => { errors.append(&mut errs); },
-                    Ok(block) => { next = block; },
+                    Ok((stmt, post_reachable)) => {
+                        res.push(stmt);
+                        reachable = post_reachable;
+                    },
                 }
             }
 
@@ -1687,17 +1750,179 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
             if !errors.is_empty() {
                 Err(errors)
             } else {
-                Ok(next)
+                Ok((Stmt::BlockStmt { body : res }, reachable))
             }
         },
-        lang_y::Stmt::CallStmt { span, name: _, ty_args: _, args: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "function calls".to_string())))
+        lang_y::Stmt::CallStmt { span, name, ty_args, args } => {
+            // Call statements are lowered to call expressions which is made a statment using the
+            // ExprStmt constructor
+            // Code after a call is always reachable
+            Ok((Stmt::ExprStmt {
+                expr : process_expr(
+                           lang_y::Expr::CallExpr { span, name, ty_args, args },
+                           lexer, stringtab, env, types)? },
+                true))
         },
-        */
-        _ => todo!(),
+    }
+}
+
+// Process an l-expression to produce the variable that's modified and its type along with the type
+// of the piece being modified and a list of the index operations needed to access the accessed
+// piece
+// This should only be used for the left-hand side of an assignment since it will return an error
+// if the variable that is accessed is marked as constant
+fn process_lexpr(expr : lang_y::LExpr,
+                 lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+                 stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
+                 types : &mut TypeSolver)
+    -> Result<((usize, Type), (Type, Vec<Index>)), ErrorMessages> {
+    match expr {
+        lang_y::LExpr::VariableLExpr { span } => {
+            let nm = intern_id(&span, lexer, stringtab);
+            match env.lookup(&nm) {
+                Some(Entity::Variable { variable, typ, is_const }) => {
+                    if *is_const {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Variable {} is const, cannot assign to it",
+                                            lexer.span_str(span)))))
+                    } else {
+                        Ok(((*variable, *typ), (*typ, vec![])))
+                    }
+                },
+                Some(Entity::DynConst { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a dynamic constant, cannot assign to it",
+                                        lexer.span_str(span)))))
+                },
+                Some(Entity::Constant { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a constant, cannot assign to it",
+                                        lexer.span_str(span)))))
+                },
+                Some(Entity::Function { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a function, cannot assign to it",
+                                        lexer.span_str(span)))))
+                },
+                Some(Entity::Type { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a type, cannot assign to it",
+                                        lexer.span_str(span)))))
+                },
+                None => {
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                lexer.span_str(span).to_string())))
+                },
+            }
+        },
+        lang_y::LExpr::FieldLExpr { span, lhs, rhs } => {
+            let ((var, var_typ), (idx_typ, mut idx))
+                = process_lexpr(*lhs, lexer, stringtab, env, types)?;
+            let field_nm = intern_id(&rhs, lexer, stringtab);
+
+            match types.get_field(idx_typ, field_nm) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess field {}",
+                                        unparse_type(types, idx_typ, stringtab),
+                                        stringtab.lookup_id(field_nm).unwrap())))),
+                Some((field_idx, field_type)) => {
+                    idx.push(Index::Field(field_idx));
+                    Ok(((var, var_typ), (field_type, idx)))
+                },
+            }
+        },
+        lang_y::LExpr::NumFieldLExpr { span, lhs, rhs } => {
+            let ((var, var_typ), (idx_typ, mut idx))
+                = process_lexpr(*lhs, lexer, stringtab, env, types)?;
+
+            // Identify the field number; to do this we remove the first character of the string of
+            // the right-hand side since the ".###" is lexed as a single token
+            let num = lexer.span_str(rhs)[1..].parse::<usize>()
+                                              .expect("From lexical analysis");
+
+            match types.get_index(idx_typ, num) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess index {}",
+                                        unparse_type(types, idx_typ, stringtab),
+                                        num)))),
+                Some(field_type) => {
+                    idx.push(Index::Field(num));
+                    Ok(((var, var_typ), (field_type, idx)))
+                },
+            }
+        },
+        lang_y::LExpr::IndexLExpr { span, lhs, index } => {
+            let ((var, var_typ), (idx_typ, mut idx))
+                = process_lexpr(*lhs, lexer, stringtab, env, types)?;
+
+            let mut indices = vec![];
+            let mut errors = LinkedList::new();
+            for idx in index {
+                let idx_span = idx.span();
+                match process_expr(idx, lexer, stringtab, env, types) {
+                    Err(mut errs) => errors.append(&mut errs),
+                    Ok(exp) => {
+                        let typ = exp.get_type();
+                        if !types.is_u64(typ) {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(idx_span, lexer),
+                                    "usize".to_string(),
+                                    unparse_type(types, typ, stringtab)));
+                        } else {
+                            indices.push(exp);
+                        }
+                    },
+                }
+            }
+
+            if !errors.is_empty() {
+                Err(errors)?
+            }
+
+            if !types.is_array(idx_typ) {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Array index does not apply to type {}",
+                                    unparse_type(types, idx_typ, stringtab)))))?
+            }
+
+            let num_dims = types.get_num_dimensions(idx_typ).unwrap();
+            if indices.len() < num_dims {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            format!("fewer array indices than dimensions, array has {} dimensions but using {} indices",
+                                    num_dims, indices.len()))))
+            } else if indices.len() > num_dims {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Too many array indices, array has {} dimensions but using {} indices",
+                                    num_dims, indices.len()))))
+            } else {
+                idx.push(Index::Array(indices));
+                Ok(((var, var_typ),
+                    (types.get_element_type(idx_typ).unwrap(), idx)))
+            }
+        },
     }
 }
 
@@ -1707,14 +1932,1561 @@ fn process_expr_as_constant(expr : lang_y::Expr,
                             types : &mut TypeSolver)
     -> Result<Constant, ErrorMessages> {
 
-    todo!()
+    match expr {
+        lang_y::Expr::Variable { span, name } => {
+            if name.len() != 1 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+            let nm = intern_package_name(&name, lexer, stringtab)[0];
+
+            match env.lookup(&nm) {
+                Some(Entity::Variable { variable, typ, .. }) => {
+                    panic!("Constant should not be evaluated in an environment with variables")
+                },
+                Some(Entity::DynConst { value }) => {
+                    panic!("Constant should not be evaluated in an environment with dynamic constants")
+                },
+                Some(Entity::Constant { value }) => {
+                    Ok(value.clone())
+                },
+                Some(Entity::Function { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a function, expected a value",
+                                        stringtab.lookup_id(nm).unwrap())))),
+                Some(Entity::Type { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a type, expected a value",
+                                        stringtab.lookup_id(nm).unwrap())))),
+                None =>
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                stringtab.lookup_id(nm).unwrap())))
+            }
+        },
+        lang_y::Expr::Field { span, lhs, rhs } => {
+            let field_name = intern_id(&rhs, lexer, stringtab);
+            let (lit, typ) = process_expr_as_constant(*lhs, lexer, stringtab, env, types)?;
+
+            match types.get_field(typ, field_name) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess field {}",
+                                        unparse_type(types, typ, stringtab),
+                                        stringtab.lookup_id(field_name).unwrap())))),
+                Some((field_idx, _)) => {
+                    let Literal::Tuple(fields) = lit else { panic!("Wrong constant constructor") };
+                    Ok(fields[field_idx].clone())
+                },
+            }
+        },
+        lang_y::Expr::NumField { span, lhs, rhs } => {
+            let (lit, typ) = process_expr_as_constant(*lhs, lexer, stringtab, env, types)?;
+
+            let num = lexer.span_str(rhs)[1..].parse::<usize>()
+                                              .expect("From lexical analysis");
+
+            match types.get_index(typ, num) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess index {}",
+                                        unparse_type(types, typ, stringtab),
+                                        num)))),
+                Some(_) => {
+                    let Literal::Tuple(fields) = lit else { panic!("Wrong constant constructor") };
+                    Ok(fields[num].clone())
+                },
+            }
+        },
+        lang_y::Expr::ArrIndex { span, lhs, index } => {
+            Err(singleton_error(
+                    ErrorMessage::SemanticError(
+                        span_to_loc(span, lexer),
+                        format!("Arrays are not allowed in constants"))))
+        },
+        lang_y::Expr::Tuple { span : _, mut exprs } => {
+            if exprs.len() == 1 {
+                return process_expr_as_constant(exprs.pop().unwrap(), lexer, stringtab, env, types);
+            }
+            if exprs.len() == 0 {
+                return Ok((Literal::Unit, types.new_primitive(types::Primitive::Unit)));
+            }
+
+            let mut vals = vec![];
+            let mut typs = vec![];
+            let mut errors = LinkedList::new();
+
+            for exp in exprs {
+                match process_expr_as_constant(exp, lexer, stringtab, env, types) {
+                    Err(mut errs) => errors.append(&mut errs),
+                    Ok((lit, typ)) => {
+                        typs.push(typ);
+                        vals.push((lit, typ));
+                    },
+                }
+            }
+
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok((Literal::Tuple(vals), types.new_tuple(typs)))
+            }
+        },
+        lang_y::Expr::Struct { span, name, ty_args, exprs } => {
+            if name.len() != 1 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+
+            let struct_nm = intern_package_name(&name, lexer, stringtab)[0];
+            match env.lookup(&struct_nm) {
+                Some(Entity::Variable { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "variable".to_string())))
+                },
+                Some(Entity::DynConst { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "dynamic constant".to_string())))
+                },
+                Some(Entity::Constant { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "constant".to_string())))
+                },
+                Some(Entity::Function { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "function".to_string())))
+                },
+                None => {
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                stringtab.lookup_id(struct_nm).unwrap())))
+                },
+                Some(Entity::Type { type_args : kinds, value : typ }) => {
+                    if !types.is_struct(*typ) {
+                        Err(singleton_error(
+                                ErrorMessage::KindError(
+                                    span_to_loc(span, lexer),
+                                    "struct name".to_string(),
+                                    "non-struct type".to_string())))?
+                    }
+                    if kinds.len() != ty_args.len() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Expected {} type arguments, provided {}",
+                                            kinds.len(), ty_args.len()))))?
+                    }
+
+                    // Verify that the type arguments we are provided are correct and collect the
+                    // type variable and dynamic constant substitutions
+                    let mut type_vars = vec![];
+                    let mut dyn_consts = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for (arg, kind) in ty_args.into_iter().zip(kinds.iter()) {
+                        let arg_span = arg.span();
+                        match kind {
+                            lang_y::Kind::USize => {
+                                match process_type_expr_as_expr(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(val) => dyn_consts.push(val),
+                                }
+                            },
+                            lang_y::Kind::Type => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => type_vars.push(typ),
+                                }
+                            },
+                            lang_y::Kind::Number => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => {
+                                        if types.is_number(typ) {
+                                            type_vars.push(typ);
+                                        } else {
+                                            errors.push_back(
+                                                ErrorMessage::KindError(
+                                                    span_to_loc(arg_span, lexer),
+                                                    "number".to_string(),
+                                                    unparse_type(types, typ, stringtab)));
+                                        }
+                                    },
+                                }
+                            },
+                            lang_y::Kind::Integer => {
+                                    match process_type_expr_as_type(
+                                            arg, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(typ) => {
+                                            if types.is_integer(typ) {
+                                                type_vars.push(typ);
+                                            } else {
+                                                errors.push_back(
+                                                    ErrorMessage::KindError(
+                                                        span_to_loc(arg_span, lexer),
+                                                        "integer".to_string(),
+                                                        unparse_type(types, typ, stringtab)));
+                                            }
+                                        },
+                                    }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    let struct_type =
+                        if type_vars.len() == 0 && dyn_consts.len() == 0 {
+                            *typ
+                        } else {
+                            types.instantiate(*typ, &type_vars, &dyn_consts)
+                        };
+
+                    // Check each field and construct the appropriate tuple
+                    // Note that fields that are omitted will be initialized with their type's
+                    // default value
+                    let num_fields = types.get_num_struct_fields(struct_type).unwrap();
+
+                    // Values for the fields, in order
+                    let mut values : Vec<Option<Constant>> = vec![None; num_fields];
+
+                    for (field_name, expr) in exprs {
+                        let field_nm = intern_id(&field_name, lexer, stringtab);
+                        let expr_span = expr.span();
+
+                        match types.get_field(struct_type, field_nm) {
+                            None => {
+                                errors.push_back(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(field_name, lexer),
+                                        format!("Struct {} does not have field {}",
+                                                unparse_type(types, struct_type, stringtab),
+                                                stringtab.lookup_id(field_nm).unwrap())));
+                            },
+                            Some((idx, field_typ)) => {
+                                if values[idx].is_some() {
+                                    errors.push_back(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(field_name, lexer),
+                                            format!("Field {} defined multiple times",
+                                                    stringtab.lookup_id(field_nm).unwrap())));
+                                } else {
+                                    match process_expr_as_constant(expr, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok((lit, typ)) => {
+                                            if !types.equal(field_typ, typ) {
+                                                // Set the value at this index even though there's
+                                                // an error so that we also report if the field is
+                                                // defined multiple times
+                                                values[idx] 
+                                                    = Some((Literal::Unit, 
+                                                            types.new_primitive(types::Primitive::Unit)));
+                                                errors.push_back(
+                                                    ErrorMessage::TypeError(
+                                                        span_to_loc(expr_span, lexer),
+                                                        unparse_type(types, field_typ, stringtab),
+                                                        unparse_type(types, typ, stringtab)));
+                                            } else {
+                                                values[idx] = Some((lit, typ));
+                                            }
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    if values.iter().any(|n| n.is_none()) {
+                        Err(singleton_error(
+                                ErrorMessage::NotImplemented(
+                                    span_to_loc(span, lexer),
+                                    "constant struct with missing fields".to_string())))?
+                    }
+
+                    // Construct the list of field values, filling in zero values as needed
+                    let filled_fields
+                        = values.into_iter().map(|t| t.unwrap()).collect::<Vec<_>>();
+
+                    Ok((Literal::Tuple(filled_fields), struct_type))
+                },
+            }
+        },
+        lang_y::Expr::BoolLit { span : _, value } => {
+            let bool_typ = types.new_primitive(types::Primitive::Bool);
+            Ok((Literal::Bool(value), bool_typ))
+        },
+        lang_y::Expr::IntLit { span, base } => {
+            let res = u64::from_str_radix(lexer.span_str(span), base.base());
+            assert!(res.is_ok(), "Internal Error: Int literal is not an integer");
+
+            let num_typ = types.new_number();
+            Ok((Literal::Integer(res.unwrap()), num_typ))
+        },
+        lang_y::Expr::FloatLit { span } => {
+            let res = lexer.span_str(span).parse::<f64>();
+            assert!(res.is_ok(), "Internal Error: Float literal is not a float");
+
+            let float_typ = types.new_float();
+            Ok((Literal::Float(res.unwrap()), float_typ))
+        },
+        lang_y::Expr::UnaryExpr { span, op, expr } => {
+            let (expr_lit, expr_typ) 
+                = process_expr_as_constant(*expr, lexer, stringtab, env, types)?;
+
+            match op {
+                lang_y::UnaryOp::Negation => {
+                    if !types.is_number(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        Ok((match expr_lit {
+                                Literal::Integer(i) => Literal::Integer(- (i as i64) as u64),
+                                Literal::Float(f)   => Literal::Float(- f),
+                                _ => panic!("Incorrect literal constructor"),
+                            }, expr_typ))
+                    }
+                },
+                lang_y::UnaryOp::BitwiseNot => {
+                    if !types.is_integer(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        let Literal::Integer(i) = expr_lit 
+                            else { panic!("Incorrect literal constructor"); };
+                        Ok((Literal::Integer(! i), expr_typ))
+                    }
+                },
+                lang_y::UnaryOp::LogicalNot => {
+                    if !types.is_bool(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        let Literal::Bool(b) = expr_lit
+                            else { panic!("Incorrect literal constructor"); };
+                        Ok((Literal::Bool(! b), expr_typ))
+                    }
+                },
+            }
+        },
+        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
+
+            let lhs_res = process_expr_as_constant(*lhs, lexer, stringtab, env, types);
+            let rhs_res = process_expr_as_constant(*rhs, lexer, stringtab, env, types);
+
+            let ((lhs_lit, lhs_typ), (rhs_lit, rhs_typ)) 
+                = append_errors2(lhs_res, rhs_res)?;
+
+            // First, type-check
+            match op {
+                // Equality and inequality work on any types
+                lang_y::BinaryOp::Eq | lang_y::BinaryOp::Neq => {
+                    if !types.equal(lhs_typ, rhs_typ) {
+                        return Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    unparse_type(types, lhs_typ, stringtab),
+                                    unparse_type(types, rhs_typ, stringtab))));
+                    }
+                },
+                // These work on any numbers
+                lang_y::BinaryOp::Add   | lang_y::BinaryOp::Sub | lang_y::BinaryOp::Mul
+                | lang_y::BinaryOp::Div | lang_y::BinaryOp::Lt  | lang_y::BinaryOp::Le
+                | lang_y::BinaryOp::Gt  | lang_y::BinaryOp::Ge => {
+                    let mut errors = LinkedList::new();
+                    let lhs_number = types.is_number(lhs_typ);
+                    let rhs_number = types.is_number(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_number && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_number && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not numbers
+                        if !lhs_number {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_number {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+                lang_y::BinaryOp::Mod   | lang_y::BinaryOp::BitAnd | lang_y::BinaryOp::BitOr
+                | lang_y::BinaryOp::Xor | lang_y::BinaryOp::LShift | lang_y::BinaryOp::RShift
+                => {
+                    let mut errors = LinkedList::new();
+                    let lhs_integer = types.is_integer(lhs_typ);
+                    let rhs_integer = types.is_integer(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_integer && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_integer && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not integers
+                        if !lhs_integer {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_integer {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+                lang_y::BinaryOp::LogAnd | lang_y::BinaryOp::LogOr => {
+                    let mut errors = LinkedList::new();
+                    let lhs_bool = types.is_bool(lhs_typ);
+                    let rhs_bool = types.is_bool(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_bool && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_bool && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not bools
+                        if !lhs_bool {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_bool {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+            };
+
+            match op {
+                lang_y::BinaryOp::Add    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i + j), lhs_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Float((i as f64) + j), lhs_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Float(i + (j as f64)), lhs_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Float(i + j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Sub    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer((i as i64 - j as i64) as u64), lhs_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Float((i as f64) - j), lhs_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Float(i - (j as f64)), lhs_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Float(i - j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Mul    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i * j), lhs_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Float((i as f64) * j), lhs_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Float(i * (j as f64)), lhs_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Float(i * j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Div    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i / j), lhs_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Float((i as f64) / j), lhs_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Float(i / (j as f64)), lhs_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Float(i / j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Mod    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i % j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::BitAnd => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i & j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::BitOr  => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i | j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Xor    => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i ^ j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Lt     => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i < j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool(((i as f64)) < j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i < (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i < j), bool_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Le     => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i <= j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool((i as f64) <= j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i <= (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i <= j), bool_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Gt     => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i > j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool((i as f64) > j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i > (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i > j), bool_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Ge     => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i >= j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool((i as f64) >= j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i >= (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i >= j), bool_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::Eq     => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i == j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool((i as f64) == j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i == (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i == j), bool_typ)),
+                        (lhs_lit, rhs_lit)
+                            => Ok((Literal::Bool(lhs_lit == rhs_lit), bool_typ)),
+                    }
+                },
+                lang_y::BinaryOp::Neq    => {
+                    let bool_typ = types.new_primitive(types::Primitive::Bool);
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i != j), bool_typ)),
+                        (Literal::Integer(i), Literal::Float(j))
+                            => Ok((Literal::Bool((i as f64) != j), bool_typ)),
+                        (Literal::Float(i), Literal::Integer(j))
+                            => Ok((Literal::Bool(i != (j as f64)), bool_typ)),
+                        (Literal::Float(i), Literal::Float(j))
+                            => Ok((Literal::Bool(i != j), bool_typ)),
+                        (lhs_lit, rhs_lit)
+                            => Ok((Literal::Bool(lhs_lit != rhs_lit), bool_typ)),
+                    }
+                },
+                lang_y::BinaryOp::LShift => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i << j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::RShift => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Integer(i), Literal::Integer(j))
+                            => Ok((Literal::Integer(i >> j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::LogAnd => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Bool(i), Literal::Bool(j))
+                            => Ok((Literal::Bool(i && j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+                lang_y::BinaryOp::LogOr  => {
+                    match (lhs_lit, rhs_lit) {
+                        (Literal::Bool(i), Literal::Bool(j))
+                            => Ok((Literal::Bool(i || j), lhs_typ)),
+                        _ => panic!("Incorrect literal constructor"),
+                    }
+                },
+            }
+        },
+        lang_y::Expr::CastExpr { span, expr, typ } => {
+            // Cast between numeric types
+            let expr_res = process_expr_as_constant(*expr, lexer, stringtab, env, types);
+            let type_res = process_type(typ, lexer, stringtab, env, types);
+
+            let ((expr_lit, expr_typ), to_typ) = append_errors2(expr_res, type_res)?;
+
+            if !types.is_number(expr_typ) || !types.is_number(to_typ) {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Can only cast between numeric types, cannot cast {} to {}",
+                                    unparse_type(types, expr_typ, stringtab),
+                                    unparse_type(types, to_typ, stringtab)))))
+            } else {
+                if types.is_integer(to_typ) {
+                    Ok((match expr_lit {
+                         Literal::Integer(i) => Literal::Integer(i),
+                         Literal::Float(f)   => Literal::Integer(f as u64),
+                         _ => panic!("Incorrect literal constructor"),
+                       }, to_typ))
+                } else {
+                    Ok((match expr_lit {
+                         Literal::Integer(i) => Literal::Float(i as f64),
+                         Literal::Float(f)   => Literal::Float(f),
+                         _ => panic!("Incorrect literal constructor"),
+                       }, to_typ))
+                }
+            }
+        },
+        lang_y::Expr::CondExpr { span, cond, thn, els } => {
+            let cond_span = cond.span();
+
+            let cond_res = process_expr_as_constant(*cond, lexer, stringtab, env, types);
+            let thn_res  = process_expr_as_constant(*thn,  lexer, stringtab, env, types);
+            let els_res  = process_expr_as_constant(*els,  lexer, stringtab, env, types);
+
+            let ((cond_lit, cond_typ), (thn_lit, thn_typ), (els_lit, els_typ))
+                = append_errors3(cond_res, thn_res, els_res)?;
+
+            let mut errors = LinkedList::new();
+
+            if !types.is_bool(cond_typ) {
+                errors.push_back(
+                    ErrorMessage::TypeError(
+                        span_to_loc(cond_span, lexer),
+                        "bool".to_string(),
+                        unparse_type(types, cond_typ, stringtab)));
+            }
+            if !types.equal(thn_typ, els_typ) {
+                errors.push_back(
+                    ErrorMessage::SemanticError(
+                        span_to_loc(span, lexer),
+                        format!("Types of conditional branches do not match, have {} and {}",
+                                unparse_type(types, thn_typ, stringtab),
+                                unparse_type(types, els_typ, stringtab))));
+            }
+
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                let Literal::Bool(condition) = cond_lit else { panic!("Incorrect literal constructor"); };
+                if condition { Ok((thn_lit, thn_typ)) } else { Ok((els_lit, els_typ)) }
+            }
+        },
+        lang_y::Expr::CallExpr { span, name : _, ty_args : _, args : _ } => {
+            Err(singleton_error(
+                    ErrorMessage::SemanticError(
+                        span_to_loc(span, lexer),
+                        format!("Function calls cannot be evaluated as a constant"))))
+        },
+    }
 }
 
 fn process_expr(expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
                 stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
-                types : &mut TypeSolver) -> Result<(Expr, Type), ErrorMessages> {
+                types : &mut TypeSolver)
+    -> Result<Expr, ErrorMessages> {
 
-    todo!()
+    match expr {
+        lang_y::Expr::Variable { span, name } => {
+            if name.len() != 1 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+            let nm = intern_package_name(&name, lexer, stringtab)[0];
+
+            match env.lookup(&nm) {
+                Some(Entity::Variable { variable, typ, .. }) => {
+                    Ok(Expr::Variable { var : *variable, typ : *typ })
+                },
+                Some(Entity::DynConst { value }) => {
+                    let typ = types.new_primitive(types::Primitive::U64);
+                    Ok(Expr::DynConst { idx : *value, typ : typ })
+                },
+                Some(Entity::Constant { value : (lit, typ) }) => {
+                    Ok(Expr::Constant { val : (lit.clone(), *typ), typ : *typ })
+                },
+                Some(Entity::Function { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a function, expected a value",
+                                        stringtab.lookup_id(nm).unwrap())))),
+                Some(Entity::Type { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("{} is a type, expected a value",
+                                        stringtab.lookup_id(nm).unwrap())))),
+                None =>
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                stringtab.lookup_id(nm).unwrap())))
+            }
+        },
+        lang_y::Expr::Field { span, lhs, rhs } => {
+            let field_name = intern_id(&rhs, lexer, stringtab);
+            let exp = process_expr(*lhs, lexer, stringtab, env, types)?;
+            let exp_typ = exp.get_type();
+
+            match types.get_field(exp_typ, field_name) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess field {}",
+                                        unparse_type(types, exp_typ, stringtab),
+                                        stringtab.lookup_id(field_name).unwrap())))),
+                Some((field_idx, field_type)) =>
+                    Ok(Expr::Read {
+                        index : vec![Index::Field(field_idx)],
+                        val   : Box::new(exp),
+                        typ   : field_type }),
+            }
+        },
+        lang_y::Expr::NumField { span, lhs, rhs } => {
+            let exp = process_expr(*lhs, lexer, stringtab, env, types)?;
+            let exp_typ = exp.get_type();
+
+            let num = lexer.span_str(rhs)[1..].parse::<usize>()
+                                              .expect("From lexical analysis");
+
+            match types.get_index(exp_typ, num) {
+                None => Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(span, lexer),
+                                format!("Type {} does not possess index {}",
+                                        unparse_type(types, exp_typ, stringtab),
+                                        num)))),
+                Some(field_type) =>
+                    Ok(Expr::Read {
+                        index : vec![Index::Field(num)],
+                        val   : Box::new(exp),
+                        typ   : field_type }),
+            }
+        },
+        lang_y::Expr::ArrIndex { span, lhs, index } => {
+            let exp = process_expr(*lhs, lexer, stringtab, env, types)?;
+            let exp_typ = exp.get_type();
+
+            let mut indices = vec![];
+            let mut errors = LinkedList::new();
+            for idx in index {
+                let idx_span = idx.span();
+                match process_expr(idx, lexer, stringtab, env, types) {
+                    Err(mut errs) => errors.append(&mut errs),
+                    Ok(exp) => {
+                        let typ = exp.get_type();
+                        if !types.is_u64(typ) {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(idx_span, lexer),
+                                    "usize".to_string(),
+                                    unparse_type(types, typ, stringtab)));
+                        } else {
+                            indices.push(exp);
+                        }
+                    },
+                }
+            }
+
+            if !errors.is_empty() {
+                Err(errors)?
+            }
+
+            if !types.is_array(exp_typ) {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Array index does not apply to type {}",
+                                    unparse_type(types, exp_typ, stringtab)))))?
+            }
+
+            let num_dims = types.get_num_dimensions(exp_typ).unwrap();
+            if indices.len() < num_dims {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            format!("fewer array indices than dimensions, array has {} dimensions but using {} indices",
+                                    num_dims, indices.len()))))
+            } else if indices.len() > num_dims {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Too many array indices, array has {} dimensions but using {} indices",
+                                    num_dims, indices.len()))))
+            } else {
+                Ok(Expr::Read {
+                    index : vec![Index::Array(indices)],
+                    val   : Box::new(exp),
+                    typ   : types.get_element_type(exp_typ).unwrap() })
+            }
+        },
+        lang_y::Expr::Tuple { span : _, mut exprs } => {
+            if exprs.len() == 1 {
+                return process_expr(exprs.pop().unwrap(), lexer, stringtab, env, types);
+            }
+            if exprs.len() == 0 {
+                let unit_type = types.new_primitive(types::Primitive::Unit);
+                return Ok(Expr::Constant {
+                            val : (Literal::Unit, unit_type),
+                            typ : unit_type });
+            }
+
+            let mut vals = vec![];
+            let mut typs = vec![];
+            let mut errors = LinkedList::new();
+
+            for exp in exprs {
+                match process_expr(exp, lexer, stringtab, env, types) {
+                    Err(mut errs) => errors.append(&mut errs),
+                    Ok(val) => {
+                        typs.push(val.get_type());
+                        vals.push(val);
+                    },
+                }
+            }
+
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok(Expr::Tuple {
+                    vals : vals,
+                    typ  : types.new_tuple(typs) })
+            }
+        },
+        lang_y::Expr::Struct { span, name, ty_args, exprs } => {
+            if name.len() != 1 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+
+            let struct_nm = intern_package_name(&name, lexer, stringtab)[0];
+            match env.lookup(&struct_nm) {
+                Some(Entity::Variable { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "variable".to_string())))
+                },
+                Some(Entity::DynConst { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "dynamic constant".to_string())))
+                },
+                Some(Entity::Constant { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "constant".to_string())))
+                },
+                Some(Entity::Function { .. }) => {
+                    Err(singleton_error(
+                            ErrorMessage::KindError(
+                                span_to_loc(span, lexer),
+                                "struct name".to_string(),
+                                "function".to_string())))
+                },
+                None => {
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(span, lexer),
+                                stringtab.lookup_id(struct_nm).unwrap())))
+                },
+                Some(Entity::Type { type_args : kinds, value : typ }) => {
+                    if !types.is_struct(*typ) {
+                        Err(singleton_error(
+                                ErrorMessage::KindError(
+                                    span_to_loc(span, lexer),
+                                    "struct name".to_string(),
+                                    "non-struct type".to_string())))?
+                    }
+                    if kinds.len() != ty_args.len() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Expected {} type arguments, provided {}",
+                                            kinds.len(), ty_args.len()))))?
+                    }
+
+                    // Verify that the type arguments we are provided are correct and collect the
+                    // type variable and dynamic constant substitutions
+                    let mut type_vars = vec![];
+                    let mut dyn_consts = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for (arg, kind) in ty_args.into_iter().zip(kinds.iter()) {
+                        let arg_span = arg.span();
+                        match kind {
+                            lang_y::Kind::USize => {
+                                match process_type_expr_as_expr(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(val) => dyn_consts.push(val),
+                                }
+                            },
+                            lang_y::Kind::Type => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => type_vars.push(typ),
+                                }
+                            },
+                            lang_y::Kind::Number => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => {
+                                        if types.is_number(typ) {
+                                            type_vars.push(typ);
+                                        } else {
+                                            errors.push_back(
+                                                ErrorMessage::KindError(
+                                                    span_to_loc(arg_span, lexer),
+                                                    "number".to_string(),
+                                                    unparse_type(types, typ, stringtab)));
+                                        }
+                                    },
+                                }
+                            },
+                            lang_y::Kind::Integer => {
+                                    match process_type_expr_as_type(
+                                            arg, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(typ) => {
+                                            if types.is_integer(typ) {
+                                                type_vars.push(typ);
+                                            } else {
+                                                errors.push_back(
+                                                    ErrorMessage::KindError(
+                                                        span_to_loc(arg_span, lexer),
+                                                        "integer".to_string(),
+                                                        unparse_type(types, typ, stringtab)));
+                                            }
+                                        },
+                                    }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    let struct_type =
+                        if type_vars.len() == 0 && dyn_consts.len() == 0 {
+                            *typ
+                        } else {
+                            types.instantiate(*typ, &type_vars, &dyn_consts)
+                        };
+
+                    // Check each field and construct the appropriate tuple
+                    // Note that fields that are omitted will be initialized with their type's
+                    // default value
+                    let num_fields = types.get_num_struct_fields(struct_type).unwrap();
+
+                    // Values for the fields, in order
+                    let mut values : Vec<Option<Expr>> = vec![None; num_fields];
+
+                    for (field_name, expr) in exprs {
+                        let field_nm = intern_id(&field_name, lexer, stringtab);
+                        let expr_span = expr.span();
+
+                        match types.get_field(struct_type, field_nm) {
+                            None => {
+                                errors.push_back(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(field_name, lexer),
+                                        format!("Struct {} does not have field {}",
+                                                unparse_type(types, struct_type, stringtab),
+                                                stringtab.lookup_id(field_nm).unwrap())));
+                            },
+                            Some((idx, field_typ)) => {
+                                if values[idx].is_some() {
+                                    errors.push_back(
+                                        ErrorMessage::SemanticError(
+                                            span_to_loc(field_name, lexer),
+                                            format!("Field {} defined multiple times",
+                                                    stringtab.lookup_id(field_nm).unwrap())));
+                                } else {
+                                    match process_expr(expr, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(val) => {
+                                            let val_typ = val.get_type();
+                                            if !types.equal(field_typ, val_typ) {
+                                                // Set the value at this index even though there's
+                                                // an error so that we also report if the field is
+                                                // defined multiple times
+                                                values[idx] = Some(Expr::Zero { typ : field_typ });
+                                                errors.push_back(
+                                                    ErrorMessage::TypeError(
+                                                        span_to_loc(expr_span, lexer),
+                                                        unparse_type(types, field_typ, stringtab),
+                                                        unparse_type(types, val_typ, stringtab)));
+                                            } else {
+                                                values[idx] = Some(val);
+                                            }
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+
+                    // Construct the list of field values, filling in zero values as needed
+                    let filled_fields
+                        = values.into_iter().enumerate()
+                                .map(|(i, t)| t.unwrap_or(
+                                        Expr::Zero { 
+                                            typ : types.get_struct_field_type(struct_type, i).unwrap() }))
+                                .collect::<Vec<_>>();
+
+                    Ok(Expr::Tuple { vals : filled_fields,
+                                     typ  : struct_type })
+                },
+            }
+        },
+        lang_y::Expr::BoolLit { span : _, value } => {
+            let bool_typ = types.new_primitive(types::Primitive::Bool);
+            Ok(Expr::Constant {
+                val : (Literal::Bool(value), bool_typ),
+                typ : bool_typ })
+        },
+        lang_y::Expr::IntLit { span, base } => {
+            let res = u64::from_str_radix(lexer.span_str(span), base.base());
+            assert!(res.is_ok(), "Internal Error: Int literal is not an integer");
+
+            let num_typ = types.new_number();
+            Ok(Expr::Constant {
+                val : (Literal::Integer(res.unwrap()), num_typ),
+                typ : num_typ })
+        },
+        lang_y::Expr::FloatLit { span } => {
+            let res = lexer.span_str(span).parse::<f64>();
+            assert!(res.is_ok(), "Internal Error: Float literal is not a float");
+
+            let float_typ = types.new_float();
+            Ok(Expr::Constant {
+                val : (Literal::Float(res.unwrap()), float_typ),
+                typ : float_typ })
+        },
+        lang_y::Expr::UnaryExpr { span, op, expr } => {
+            let expr_val = process_expr(*expr, lexer, stringtab, env, types)?;
+            let expr_typ = expr_val.get_type();
+
+            match op {
+                lang_y::UnaryOp::Negation => {
+                    if !types.is_number(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        Ok(Expr::UnaryExp {
+                            op   : UnaryOp::Negation,
+                            expr : Box::new(expr_val),
+                            typ  : expr_typ })
+                    }
+                },
+                lang_y::UnaryOp::BitwiseNot => {
+                    if !types.is_integer(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        Ok(Expr::UnaryExp {
+                            op   : UnaryOp::BitwiseNot,
+                            expr : Box::new(expr_val),
+                            typ  : expr_typ })
+                    }
+                },
+                lang_y::UnaryOp::LogicalNot => {
+                    if !types.is_bool(expr_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, expr_typ, stringtab))))
+                    } else {
+                        // ! x is translated into if x then false else true
+                        let val_true = 
+                            Expr::Constant {
+                                val : (Literal::Bool(true), expr_typ),
+                                typ : expr_typ };
+                        let val_false =
+                            Expr::Constant {
+                                val : (Literal::Bool(false), expr_typ),
+                                typ : expr_typ };
+                        Ok(Expr::CondExpr {
+                            cond : Box::new(expr_val),
+                            thn  : Box::new(val_false),
+                            els  : Box::new(val_true),
+                            typ  : expr_typ })
+                    }
+                },
+            }
+        },
+        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
+
+            let lhs_res = process_expr(*lhs, lexer, stringtab, env, types);
+            let rhs_res = process_expr(*rhs, lexer, stringtab, env, types);
+
+            let (lhs_val, rhs_val) = append_errors2(lhs_res, rhs_res)?;
+            let lhs_typ = lhs_val.get_type();
+            let rhs_typ = rhs_val.get_type();
+
+            // First, type-check
+            match op {
+                // Equality and inequality work on any types
+                lang_y::BinaryOp::Eq | lang_y::BinaryOp::Neq => {
+                    if !types.equal(lhs_typ, rhs_typ) {
+                        return Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    unparse_type(types, lhs_typ, stringtab),
+                                    unparse_type(types, rhs_typ, stringtab))));
+                    }
+                },
+                // These work on any numbers
+                lang_y::BinaryOp::Add   | lang_y::BinaryOp::Sub | lang_y::BinaryOp::Mul
+                | lang_y::BinaryOp::Div | lang_y::BinaryOp::Lt  | lang_y::BinaryOp::Le
+                | lang_y::BinaryOp::Gt  | lang_y::BinaryOp::Ge => {
+                    let mut errors = LinkedList::new();
+                    let lhs_number = types.is_number(lhs_typ);
+                    let rhs_number = types.is_number(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_number && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_number && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not numbers
+                        if !lhs_number {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_number {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "number".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+                // These work on integer inputs
+                lang_y::BinaryOp::Mod   | lang_y::BinaryOp::BitAnd | lang_y::BinaryOp::BitOr
+                | lang_y::BinaryOp::Xor | lang_y::BinaryOp::LShift | lang_y::BinaryOp::RShift
+                => {
+                    let mut errors = LinkedList::new();
+                    let lhs_integer = types.is_integer(lhs_typ);
+                    let rhs_integer = types.is_integer(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_integer && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_integer && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not integers
+                        if !lhs_integer {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_integer {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "integer".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+                // These work on boolean inputs
+                lang_y::BinaryOp::LogAnd | lang_y::BinaryOp::LogOr => {
+                    let mut errors = LinkedList::new();
+                    let lhs_bool = types.is_bool(lhs_typ);
+                    let rhs_bool = types.is_bool(rhs_typ);
+                    let equal = types.equal(lhs_typ, rhs_typ);
+
+                    if lhs_bool && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(rhs_span, lexer),
+                                unparse_type(types, lhs_typ, stringtab),
+                                unparse_type(types, rhs_typ, stringtab)));
+                    } else if rhs_bool && !equal {
+                        errors.push_back(
+                            ErrorMessage::TypeError(
+                                span_to_loc(lhs_span, lexer),
+                                unparse_type(types, rhs_typ, stringtab),
+                                unparse_type(types, lhs_typ, stringtab)));
+                    } else {
+                        // The types are equal or both are not bools
+                        if !lhs_bool {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(lhs_span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, lhs_typ, stringtab)));
+                        }
+                        if !rhs_bool {
+                            errors.push_back(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(rhs_span, lexer),
+                                    "bool".to_string(),
+                                    unparse_type(types, rhs_typ, stringtab)));
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                },
+            };
+
+            match op {
+                // The binary operations are compiled into conditional expressions:
+                // x && y = if x then y    else false
+                // x || y = if x then true else y
+                lang_y::BinaryOp::LogAnd => {
+                    let false_val =
+                        Expr::Constant {
+                            val : (Literal::Bool(false), lhs_typ),
+                            typ : lhs_typ };
+                    Ok(Expr::CondExpr {
+                            cond : Box::new(lhs_val),
+                            thn  : Box::new(rhs_val),
+                            els  : Box::new(false_val),
+                            typ  : lhs_typ })
+                },
+                lang_y::BinaryOp::LogOr => {
+                    let true_val =
+                        Expr::Constant {
+                            val : (Literal::Bool(true), lhs_typ),
+                            typ : lhs_typ };
+                    Ok(Expr::CondExpr {
+                            cond : Box::new(lhs_val),
+                            thn  : Box::new(true_val),
+                            els  : Box::new(rhs_val),
+                            typ  : lhs_typ })
+                },
+                // For comparison operators, the resulting type is a boolean, while for all other
+                // operations the result is the same as the two operands
+                lang_y::BinaryOp::Lt   | lang_y::BinaryOp::Le
+                | lang_y::BinaryOp::Gt | lang_y::BinaryOp::Ge
+                | lang_y::BinaryOp::Eq | lang_y::BinaryOp::Neq => {
+                    Ok(Expr::BinaryExp {
+                        op  : convert_binary_op(op),
+                        lhs : Box::new(lhs_val),
+                        rhs : Box::new(rhs_val),
+                        typ : types.new_primitive(types::Primitive::Bool) })
+                },
+                _ => {
+                    Ok(Expr::BinaryExp {
+                        op  : convert_binary_op(op),
+                        lhs : Box::new(lhs_val),
+                        rhs : Box::new(rhs_val),
+                        typ : lhs_typ })
+                },
+            }
+        },
+        lang_y::Expr::CastExpr { span, expr, typ } => {
+            // For the moment at least, casting is only supported between numeric types, and all
+            // numeric types can be cast to each other
+            let expr_res = process_expr(*expr, lexer, stringtab, env, types);
+            let type_res = process_type(typ, lexer, stringtab, env, types);
+
+            let (expr_val, to_typ) = append_errors2(expr_res, type_res)?;
+            let expr_typ = expr_val.get_type();
+
+            if !types.is_number(expr_typ) || !types.is_number(to_typ) {
+                Err(singleton_error(
+                        ErrorMessage::SemanticError(
+                            span_to_loc(span, lexer),
+                            format!("Can only cast between numeric types, cannot cast {} to {}",
+                                    unparse_type(types, expr_typ, stringtab),
+                                    unparse_type(types, to_typ, stringtab)))))
+            } else {
+                Ok(Expr::CastExpr { expr : Box::new(expr_val),
+                                    typ  : to_typ })
+            }
+        },
+        lang_y::Expr::CondExpr { span, cond, thn, els } => {
+            let cond_span = cond.span();
+
+            let cond_res = process_expr(*cond, lexer, stringtab, env, types);
+            let thn_res  = process_expr(*thn,  lexer, stringtab, env, types);
+            let els_res  = process_expr(*els,  lexer, stringtab, env, types);
+
+            let (cond_val, thn_val, els_val)
+                = append_errors3(cond_res, thn_res, els_res)?;
+
+            let cond_typ = cond_val.get_type();
+            let thn_typ  = thn_val.get_type();
+            let els_typ  = els_val.get_type();
+
+            let mut errors = LinkedList::new();
+
+            if !types.is_bool(cond_typ) {
+                errors.push_back(
+                    ErrorMessage::TypeError(
+                        span_to_loc(cond_span, lexer),
+                        "bool".to_string(),
+                        unparse_type(types, cond_typ, stringtab)));
+            }
+            if !types.equal(thn_typ, els_typ) {
+                errors.push_back(
+                    ErrorMessage::SemanticError(
+                        span_to_loc(span, lexer),
+                        format!("Types of conditional branches do not match, have {} and {}",
+                                unparse_type(types, thn_typ, stringtab),
+                                unparse_type(types, els_typ, stringtab))));
+            }
+
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok(Expr::CondExpr {
+                    cond : Box::new(cond_val),
+                    thn  : Box::new(thn_val),
+                    els  : Box::new(els_val),
+                    typ  : thn_typ })
+            }
+        },
+        lang_y::Expr::CallExpr { span, name, ty_args, args } => {
+            // In the AST from the parser we have no way to distinguish between function calls and
+            // union construction. We have to identify which case we're in here. We do this by
+            // identifying whether the name (looking for the moment at just the first part of the
+            // name) and determining whether it's a type or a function. Obviously we then report
+            // errors if there are additional parts of the name
+            if name.len() > 2 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+
+            let nm = intern_package_name(&name, lexer, stringtab);
+
+            match env.lookup(&nm[0]) {
+                Some(Entity::Variable { .. })   | Some(Entity::DynConst { .. })
+                | Some(Entity::Constant { .. }) | Some(Entity::Function { .. })
+                | None if name.len() != 1 => {
+                    Err(singleton_error(
+                            ErrorMessage::NotImplemented(
+                                span_to_loc(span, lexer),
+                                "packages".to_string())))
+                },
+                None =>
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(name[0], lexer),
+                                stringtab.lookup_id(nm[0]).unwrap()))),
+                Some(Entity::Variable { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a variable, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::DynConst { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a dynamic constant, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::Constant { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a constant, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::Type { type_args, value }) => {
+                    todo!()
+                },
+                Some(Entity::Function { index, type_args, args : func_args, return_type }) => {
+                    todo!()
+                },
+            }
+        },
+    }
 }
 
 fn generate_return(expr : Expr, vars : &Vec<usize>, var_types : &Vec<Type>,

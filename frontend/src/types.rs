@@ -60,17 +60,17 @@ impl Primitive {
             _ => false,
         }
     }
-
-    fn is_unsigned(&self) -> bool {
-        match &self {
-            Primitive::U8 | Primitive::U16 | Primitive::U32 | Primitive::U64 => true,
-            _ => false,
-        }
-    }
     
     fn is_float(&self) -> bool {
         match &self {
             Primitive::F32 | Primitive::F64 => true,
+            _ => false,
+        }
+    }
+
+    fn is_bool(&self) -> bool {
+        match &self {
+            Primitive::Bool => true,
             _ => false,
         }
     }
@@ -121,11 +121,6 @@ enum TypeForm {
 
     // Constrained types
     AnyNumber, AnyInteger, AnyFloat,
-    // Types that can hold a value of the given primitive type (i.e. the primitive can be
-    // implicitly coerced into the ultimate type)
-    AtLeast(Primitive),
-    // Types that can be coerced into the given primitive type
-    AtMost(Primitive),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -220,8 +215,7 @@ impl TypeSolver {
 
             let solution : Either<IType, usize> =
                 match &self.types[typ] {
-                    TypeForm::Primitive(p) | TypeForm::AtLeast(p)
-                        | TypeForm::AtMost(p) => Either::Left(IType::Primitive(*p)),
+                    TypeForm::Primitive(p) => Either::Left(IType::Primitive(*p)),
                     TypeForm::Tuple(fields) => {
                         let mut needs = None;
                         let mut i_fields = vec![];
@@ -326,17 +320,37 @@ impl TypeSolver {
         self.solved[val].as_ref().expect("Failure to solve type constraints").clone()
     }
 
+    pub fn is_u64(&mut self, Type { val } : Type) -> bool {
+        match &self.types[val] {
+            TypeForm::Primitive(Primitive::U64) => true,
+            TypeForm::OtherType(t) => self.is_u64(*t),
+            TypeForm::AnyNumber | TypeForm::AnyInteger => {
+                self.types[val] = TypeForm::Primitive(Primitive::U64);
+                true
+            },
+            _ => false,
+        }
+    }
+
+    pub fn is_bool(&mut self, Type { val } : Type) -> bool {
+        match &self.types[val] {
+            TypeForm::Primitive(Primitive::Bool) => true,
+            TypeForm::OtherType(t) => self.is_bool(*t),
+            _ => false,
+        }
+    }
+
     pub fn is_void(&mut self, Type { val } : Type) -> bool {
         match &self.types[val] {
             TypeForm::Primitive(Primitive::Unit) => true,
+            TypeForm::OtherType(t) => self.is_void(*t),
             _ => false,
         }
     }
 
     pub fn is_number(&mut self, Type { val } : Type) -> bool {
         match &self.types[val] {
-            TypeForm::Primitive(p) | TypeForm::AtLeast(p) | TypeForm::AtMost(p)
-                => p.is_number(),
+            TypeForm::Primitive(p) => p.is_number(),
             TypeForm::OtherType(t) => self.is_number(*t),
             TypeForm::AnyNumber | TypeForm::AnyInteger | TypeForm::AnyFloat => true,
             TypeForm::TypeVar { name : _, index : _, is_num, .. } => *is_num,
@@ -346,8 +360,7 @@ impl TypeSolver {
 
     pub fn is_integer(&mut self, Type { val } : Type) -> bool {
         match &self.types[val] {
-            TypeForm::Primitive(p) | TypeForm::AtLeast(p) | TypeForm::AtMost(p)
-                => p.is_integer(),
+            TypeForm::Primitive(p) => p.is_integer(),
             TypeForm::OtherType(t) => self.is_integer(*t),
             TypeForm::TypeVar { name : _, index : _, is_num : _, is_int } => *is_int,
             TypeForm::AnyInteger => true,
@@ -361,8 +374,7 @@ impl TypeSolver {
    
     pub fn is_float(&mut self, Type { val } : Type) -> bool {
         match &self.types[val] {
-            TypeForm::Primitive(p) | TypeForm::AtLeast(p) | TypeForm::AtMost(p)
-                => p.is_float(),
+            TypeForm::Primitive(p) => p.is_float(),
             TypeForm::OtherType(t) => self.is_float(*t),
             TypeForm::AnyFloat => true,
             TypeForm::AnyNumber => {
@@ -413,12 +425,32 @@ impl TypeSolver {
         }
     }
 
-    pub fn get_field(&self, Type { val } : Type, name : usize) -> Option<Type> {
+    // Return the number of fields a struct has
+    pub fn get_num_struct_fields(&self, Type { val } : Type) -> Option<usize> {
+        match &self.types[val] {
+            TypeForm::Struct { name : _, id : _, fields, .. } => Some(fields.len()),
+            TypeForm::OtherType(t) => self.get_num_struct_fields(*t),
+            _ => None,
+        }
+    }
+
+    // Returns the position and type of a field in a type (if it exists)
+    pub fn get_field(&self, Type { val } : Type, name : usize) -> Option<(usize, Type)> {
         match &self.types[val] {
             TypeForm::Struct { name : _, id : _, fields, names } => {
-                names.get(&name).map(|idx| fields[*idx])
+                names.get(&name).map(|idx| (*idx, fields[*idx]))
             },
             TypeForm::OtherType(t) => self.get_field(*t, name),
+            _ => None,
+        }
+    }
+
+    // Returns the type of the field at a certain index in a struct
+    pub fn get_struct_field_type(&self, Type { val } : Type, idx : usize) -> Option<Type> {
+        match &self.types[val] {
+            TypeForm::Struct { name : _, id : _, fields, .. } =>
+                fields.get(idx).copied(),
+            TypeForm::OtherType(t) => self.get_struct_field_type(*t, idx),
             _ => None,
         }
     }
@@ -453,6 +485,14 @@ impl TypeSolver {
         match &self.types[val] {
             TypeForm::Array(_, dims) => Some(dims.to_vec()),
             TypeForm::OtherType(t) => self.get_dimensions(*t),
+            _ => None,
+        }
+    }
+
+    pub fn get_num_dimensions(&self, Type { val } : Type) -> Option<usize> {
+        match &self.types[val] {
+            TypeForm::Array(_, dims) => Some(dims.len()),
+            TypeForm::OtherType(t) => self.get_num_dimensions(*t),
             _ => None,
         }
     }
@@ -495,19 +535,6 @@ impl TypeSolver {
         }
     }
 
-    fn can_coerce_primitive(&mut self, goal : Primitive, Type { val : have } : Type) -> bool {
-        match &self.types[have] {
-            TypeForm::Primitive(have) => { todo!() },
-            TypeForm::OtherType(t) => self.can_coerce_primitive(goal, *t),
-            TypeForm::AnyNumber => { todo!() },
-            TypeForm::AnyInteger => { todo!() },
-            TypeForm::AnyFloat => { todo!() },
-            TypeForm::AtLeast(have) => { todo!() },
-            TypeForm::AtMost(have) => { todo!() },
-            _ => false,
-        }
-    }
-
     fn is_type_var_num(&self, num : usize, Type { val } : Type) -> bool {
         match &self.types[val] {
             TypeForm::TypeVar { name : _, index, .. } => *index == num,
@@ -516,51 +543,88 @@ impl TypeSolver {
         }
     }
 
-    pub fn can_coerce(&mut self, Type { val : goal } : Type, have : Type) -> bool {
-        match self.types[goal].clone() {
-            TypeForm::Primitive(p) => {
-                self.can_coerce_primitive(p, have)
+    pub fn equal(&mut self, Type { val : ty1 } : Type, Type { val : ty2 } : Type) -> bool {
+        if let TypeForm::OtherType(ty) = self.types[ty1] {
+            return self.equal(ty, Type { val : ty2 });
+        }
+        if let TypeForm::OtherType(ty) = self.types[ty2] {
+            return self.equal(Type { val : ty1 }, ty);
+        }
+
+        match (self.types[ty1].clone(), self.types[ty2].clone()) {
+            (TypeForm::Primitive(p1), TypeForm::Primitive(p2)) => p1 == p2,
+
+            (TypeForm::Primitive(p), TypeForm::AnyNumber)  if p.is_number() => {
+                self.types[ty2] = TypeForm::OtherType(Type { val : ty1 });
+                true
             },
-            TypeForm::Tuple(fs) => {
-                if !self.is_tuple(have) { return false; }
-                let have_fields = self.get_fields(have);
-                if fs.len() != have_fields.len() { return false; }
-                for (g_ty, h_ty) in fs.iter().zip(have_fields.iter()) {
-                    if !self.can_coerce(*g_ty, *h_ty) { return false; }
+            (TypeForm::Primitive(p), TypeForm::AnyInteger) if p.is_integer() => {
+                self.types[ty2] = TypeForm::OtherType(Type { val : ty1 });
+                true
+            },
+            (TypeForm::Primitive(p), TypeForm::AnyFloat)   if p.is_float() => {
+                self.types[ty2] = TypeForm::OtherType(Type { val : ty1 });
+                true
+            },
+
+            (TypeForm::AnyNumber,  TypeForm::Primitive(p)) if p.is_number() => {
+                self.types[ty1] = TypeForm::OtherType(Type { val : ty2 });
+                true
+            },
+            (TypeForm::AnyInteger, TypeForm::Primitive(p)) if p.is_number() => {
+                self.types[ty1] = TypeForm::OtherType(Type { val : ty2 });
+                true
+            },
+            (TypeForm::AnyFloat,   TypeForm::Primitive(p)) if p.is_float() => {
+                self.types[ty1] = TypeForm::OtherType(Type { val : ty2 });
+                true
+            },
+
+            (TypeForm::Tuple(f1), TypeForm::Tuple(f2)) if f1.len() == f2.len() => {
+                for (t1, t2) in f1.iter().zip(f2.iter()) {
+                    if !self.equal(*t1, *t2) { return false; }
                 }
                 true
             },
-            TypeForm::Array(elem, dims) => {
-                if !self.is_array(have) { return false; }
-                let have_elem = self.get_element_type(have).unwrap();
-                let have_dims = self.get_dimensions(have).unwrap();
 
-                self.can_coerce(elem, have_elem) && dims == have_dims
-            },
-            TypeForm::OtherType(other) => self.can_coerce(other, have),
-            TypeForm::TypeVar { name : _, index, .. } => {
-                self.is_type_var_num(index, have)
-            },
-            TypeForm::Struct { name : _, id, fields, .. } => {
-                todo!()
-            },
-            TypeForm::Union { name : _, id, constr, .. } => {
-                todo!()
+            (TypeForm::Array(t1, dm1), TypeForm::Array(t2, dm2)) =>
+                self.equal(t1, t2) && dm1 == dm2,
+
+            (TypeForm::TypeVar { name : _, index : idx1, .. },
+             TypeForm::TypeVar { name : _, index : idx2, .. }) => idx1 == idx2,
+
+            (TypeForm::Struct { name : _, id : id1, fields : fs1, .. },
+             TypeForm::Struct { name : _, id : id2, fields : fs2, .. })
+            | (TypeForm::Union {name : _, id : id1, constr : fs1, .. },
+               TypeForm::Union {name : _, id : id2, constr : fs2, .. })
+              if id1 == id2 && fs1.len() == fs2.len() => {
+                for (t1, t2) in fs1.iter().zip(fs2.iter()) {
+                    if !self.equal(*t1, *t2) { return false; }
+                }
+                true
             },
 
-            TypeForm::AnyNumber => { todo!() },
-            TypeForm::AnyInteger => { todo!() },
-            TypeForm::AnyFloat => { todo!() },
-            TypeForm::AtLeast(p) => { todo!() },
-            TypeForm::AtMost(p) => { todo!() },
+            (TypeForm::AnyNumber | TypeForm::AnyInteger | TypeForm::AnyFloat, 
+             TypeForm::AnyNumber)
+            | (TypeForm::AnyInteger, TypeForm::AnyInteger)
+            | (TypeForm::AnyFloat,   TypeForm::AnyFloat) => {
+                self.types[ty2] = TypeForm::OtherType(Type { val : ty1 });
+                true
+            },
+            (TypeForm::AnyNumber, TypeForm::AnyInteger)
+            | (TypeForm::AnyNumber, TypeForm::AnyFloat) => {
+                self.types[ty1] = TypeForm::OtherType(Type { val : ty2 });
+                true
+            },
+
+            _ => false,
         }
     }
 
     pub fn to_string(&self, Type { val } : Type, stringtab : &dyn Fn(usize) -> String) 
         -> String {
         match &self.types[val] {
-            TypeForm::Primitive(p) | TypeForm::AtLeast(p) | TypeForm::AtMost(p)
-                => p.to_string(),
+            TypeForm::Primitive(p) => p.to_string(),
             TypeForm::Tuple(fields) => {
                 "(" .to_string()
                 + &fields.iter().map(|t| self.to_string(*t, stringtab)).collect::<Vec<_>>().join(", ")
@@ -591,8 +655,7 @@ impl TypeSolver {
                        dynamic_constants : &Vec<DynamicConstant>) -> Type {
         match self.types[val].clone() {
             TypeForm::Primitive(_) => Type { val },
-            TypeForm::AnyNumber | TypeForm::AnyInteger | TypeForm::AnyFloat
-                | TypeForm::AtLeast(_) | TypeForm::AtMost(_) => {
+            TypeForm::AnyNumber | TypeForm::AnyInteger | TypeForm::AnyFloat => {
                 self.create_type(self.types[val].clone())
             },
             TypeForm::OtherType(t) =>
