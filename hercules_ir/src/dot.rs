@@ -1,21 +1,60 @@
-extern crate hercules_ir;
+extern crate rand;
 
 use std::collections::HashMap;
+use std::env::temp_dir;
 use std::fmt::Write;
+use std::fs::File;
+use std::io::Write as _;
+use std::process::Command;
 
-use self::hercules_ir::*;
+use self::rand::Rng;
+
+use crate::*;
 
 /*
- * Top level function to write a module out as a dot graph. Takes references to
- * many analysis results to generate a more informative dot graph.
+ * Top level function to compute a dot graph for a module, and immediately
+ * render it using xdot.
+ */
+pub fn xdot_module(
+    module: &ir::Module,
+    reverse_postorders: &Vec<Vec<NodeID>>,
+    doms: Option<&Vec<DomTree>>,
+    fork_join_maps: Option<&Vec<HashMap<NodeID, NodeID>>>,
+    plans: Option<&Vec<Plan>>,
+) {
+    let mut tmp_path = temp_dir();
+    let mut rng = rand::thread_rng();
+    let num: u64 = rng.gen();
+    tmp_path.push(format!("hercules_dot_{}.dot", num));
+    let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
+    let mut contents = String::new();
+    write_dot(
+        &module,
+        &reverse_postorders,
+        doms,
+        fork_join_maps,
+        plans,
+        &mut contents,
+    )
+    .expect("PANIC: Unable to generate output file contents.");
+    file.write_all(contents.as_bytes())
+        .expect("PANIC: Unable to write output file contents.");
+    Command::new("xdot")
+        .args([tmp_path])
+        .output()
+        .expect("PANIC: Couldn't execute xdot.");
+}
+
+/*
+ * Top level function to write a module out as a dot graph. Optionally takes
+ * references to many analysis results to generate a more informative dot graph.
  */
 pub fn write_dot<W: Write>(
     module: &ir::Module,
     reverse_postorders: &Vec<Vec<NodeID>>,
-    typing: &ModuleTyping,
-    doms: &Vec<DomTree>,
-    fork_join_maps: &Vec<HashMap<NodeID, NodeID>>,
-    plans: &Vec<Plan>,
+    doms: Option<&Vec<DomTree>>,
+    fork_join_maps: Option<&Vec<HashMap<NodeID, NodeID>>>,
+    plans: Option<&Vec<Plan>>,
     w: &mut W,
 ) -> std::fmt::Result {
     write_digraph_header(w)?;
@@ -23,28 +62,38 @@ pub fn write_dot<W: Write>(
     for function_id in (0..module.functions.len()).map(FunctionID::new) {
         let function = &module.functions[function_id.idx()];
         let reverse_postorder = &reverse_postorders[function_id.idx()];
-        let plan = &plans[function_id.idx()];
+        let plan = plans.map(|plans| &plans[function_id.idx()]);
         let mut reverse_postorder_node_numbers = vec![0; function.nodes.len()];
         for (idx, id) in reverse_postorder.iter().enumerate() {
             reverse_postorder_node_numbers[id.idx()] = idx;
         }
         write_subgraph_header(function_id, module, w)?;
 
-        let partition_to_node_map = plan.invert_partition_map();
+        let mut partition_to_node_map = plan.map(|plan| plan.invert_partition_map());
 
         // Step 1: draw IR graph itself. This includes all IR nodes and all edges
         // between IR nodes.
-        for partition_idx in 0..plan.num_partitions {
-            let partition_color = match plan.partition_devices[partition_idx] {
+        for partition_idx in 0..plan.map_or(1, |plan| plan.num_partitions) {
+            let partition_color = plan.map(|plan| match plan.partition_devices[partition_idx] {
                 Device::CPU => "lightblue",
                 Device::GPU => "darkseagreen",
+            });
+            if let Some(partition_color) = partition_color {
+                write_partition_header(function_id, partition_idx, module, partition_color, w)?;
+            }
+
+            let nodes_ids = if let Some(partition_to_node_map) = &mut partition_to_node_map {
+                let mut empty = vec![];
+                std::mem::swap(&mut partition_to_node_map[partition_idx], &mut empty);
+                empty
+            } else {
+                (0..function.nodes.len())
+                    .map(NodeID::new)
+                    .collect::<Vec<_>>()
             };
-            write_partition_header(function_id, partition_idx, module, partition_color, w)?;
-            for node_id in &partition_to_node_map[partition_idx] {
+            for node_id in nodes_ids.iter() {
                 let node = &function.nodes[node_id.idx()];
-                let dst_ty = &module.types[typing[function_id.idx()][node_id.idx()].idx()];
-                let dst_strictly_control = node.is_strictly_control();
-                let dst_control = dst_ty.is_control() || dst_strictly_control;
+                let dst_control = node.is_control();
 
                 // Control nodes are dark red, data nodes are dark blue.
                 let color = if dst_control { "darkred" } else { "darkblue" };
@@ -54,14 +103,12 @@ pub fn write_dot<W: Write>(
                     function_id,
                     color,
                     module,
-                    &plan.schedules[node_id.idx()],
+                    plan.map_or(&vec![], |plan| &plan.schedules[node_id.idx()]),
                     w,
                 )?;
 
                 for u in def_use::get_uses(&node).as_ref() {
-                    let src_ty = &module.types[typing[function_id.idx()][u.idx()].idx()];
-                    let src_strictly_control = function.nodes[u.idx()].is_strictly_control();
-                    let src_control = src_ty.is_control() || src_strictly_control;
+                    let src_control = function.nodes[u.idx()].is_control();
 
                     // An edge between control nodes is dashed. An edge between data
                     // nodes is filled. An edge between a control node and a data
@@ -101,40 +148,46 @@ pub fn write_dot<W: Write>(
                     )?;
                 }
             }
-            write_graph_footer(w)?;
+            if plans.is_some() {
+                write_graph_footer(w)?;
+            }
         }
 
         // Step 2: draw dominance edges in dark green. Don't draw post dominance
         // edges because then xdot lays out the graph strangely.
-        let dom = &doms[function_id.idx()];
-        for (child_id, (_, parent_id)) in dom.get_underlying_map() {
-            write_edge(
-                *child_id,
-                function_id,
-                *parent_id,
-                function_id,
-                true,
-                "darkgreen",
-                "dotted",
-                &module,
-                w,
-            )?;
+        if let Some(doms) = doms {
+            let dom = &doms[function_id.idx()];
+            for (child_id, (_, parent_id)) in dom.get_underlying_map() {
+                write_edge(
+                    *child_id,
+                    function_id,
+                    *parent_id,
+                    function_id,
+                    true,
+                    "darkgreen",
+                    "dotted",
+                    &module,
+                    w,
+                )?;
+            }
         }
 
         // Step 3: draw fork join edges in dark magenta.
-        let fork_join_map = &fork_join_maps[function_id.idx()];
-        for (fork_id, join_id) in fork_join_map {
-            write_edge(
-                *join_id,
-                function_id,
-                *fork_id,
-                function_id,
-                true,
-                "darkmagenta",
-                "dotted",
-                &module,
-                w,
-            )?;
+        if let Some(fork_join_maps) = fork_join_maps {
+            let fork_join_map = &fork_join_maps[function_id.idx()];
+            for (fork_id, join_id) in fork_join_map {
+                write_edge(
+                    *join_id,
+                    function_id,
+                    *fork_id,
+                    function_id,
+                    true,
+                    "darkmagenta",
+                    "dotted",
+                    &module,
+                    w,
+                )?;
+            }
         }
 
         write_graph_footer(w)?;

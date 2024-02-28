@@ -6,6 +6,7 @@ use std::iter::zip;
 use self::hercules_ir::dataflow::*;
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::dom::*;
+use self::hercules_ir::dot::*;
 use self::hercules_ir::ir::*;
 use self::hercules_ir::loops::*;
 use self::hercules_ir::subgraph::*;
@@ -24,6 +25,7 @@ pub enum Pass {
     GVN,
     Forkify,
     Verify,
+    Xdot,
 }
 
 /*
@@ -241,6 +243,16 @@ impl PassManager {
 
                     // Verification doesn't require clearing analysis results.
                     continue;
+                }
+                Pass::Xdot => {
+                    self.make_reverse_postorders();
+                    xdot_module(
+                        &self.module,
+                        self.reverse_postorders.as_ref().unwrap(),
+                        self.doms.as_ref(),
+                        self.fork_join_maps.as_ref(),
+                        None,
+                    );
                 }
             }
 
