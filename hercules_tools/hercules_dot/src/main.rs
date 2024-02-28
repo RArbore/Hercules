@@ -1,17 +1,13 @@
 extern crate clap;
+extern crate hercules_dot;
 extern crate rand;
 
-use std::env::temp_dir;
 use std::fs::File;
 use std::io::prelude::*;
-use std::process::Command;
 
 use clap::Parser;
 
-use rand::Rng;
-
-pub mod dot;
-use dot::*;
+use hercules_dot::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -76,38 +72,22 @@ fn main() {
         .collect();
 
     if args.output.is_empty() {
-        let mut tmp_path = temp_dir();
-        let mut rng = rand::thread_rng();
-        let num: u64 = rng.gen();
-        tmp_path.push(format!("hercules_dot_{}.dot", num));
-        let mut file = File::create(tmp_path.clone()).expect("PANIC: Unable to open output file.");
-        let mut contents = String::new();
-        write_dot(
+        xdot_module(
             &module,
             &reverse_postorders,
-            &typing,
-            &doms,
-            &fork_join_maps,
-            &plans,
-            &mut contents,
-        )
-        .expect("PANIC: Unable to generate output file contents.");
-        file.write_all(contents.as_bytes())
-            .expect("PANIC: Unable to write output file contents.");
-        Command::new("xdot")
-            .args([tmp_path])
-            .output()
-            .expect("PANIC: Couldn't execute xdot.");
+            Some(&doms),
+            Some(&fork_join_maps),
+            Some(&plans),
+        );
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
         write_dot(
             &module,
             &reverse_postorders,
-            &typing,
-            &doms,
-            &fork_join_maps,
-            &plans,
+            Some(&doms),
+            Some(&fork_join_maps),
+            Some(&plans),
             &mut contents,
         )
         .expect("PANIC: Unable to generate output file contents.");
