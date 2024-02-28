@@ -148,7 +148,9 @@ pub fn write_dot<W: Write>(
                     )?;
                 }
             }
-            write_graph_footer(w)?;
+            if plans.is_some() {
+                write_graph_footer(w)?;
+            }
         }
 
         // Step 2: draw dominance edges in dark green. Don't draw post dominance
