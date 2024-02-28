@@ -3,14 +3,6 @@ name = "hercules_dot"
 version = "0.1.0"
 authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
-[lib]
-name = "hercules_dot"
-path = "src/dot.rs"
-
-[[bin]]
-name = "hercules_dot"
-path = "src/main.rs"
-
 [dependencies]
 clap = { version = "*", features = ["derive"] }
 hercules_ir = { path = "../../hercules_ir" }

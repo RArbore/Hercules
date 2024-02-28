@@ -1,4 +1,3 @@
-extern crate hercules_ir;
 extern crate rand;
 
 use std::collections::HashMap;
@@ -8,9 +7,9 @@ use std::fs::File;
 use std::io::Write as _;
 use std::process::Command;
 
-use rand::Rng;
+use self::rand::Rng;
 
-use self::hercules_ir::*;
+use crate::*;
 
 /*
  * Top level function to compute a dot graph for a module, and immediately

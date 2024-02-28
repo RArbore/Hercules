@@ -190,6 +190,7 @@ dependencies = [
  "bitvec",
  "nom",
  "ordered-float",
+ "rand",
 ]
 
 [[package]]

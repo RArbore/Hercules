@@ -1,13 +1,10 @@
 extern crate clap;
-extern crate hercules_dot;
 extern crate rand;
 
 use std::fs::File;
 use std::io::prelude::*;
 
 use clap::Parser;
-
-use hercules_dot::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -72,7 +69,7 @@ fn main() {
         .collect();
 
     if args.output.is_empty() {
-        xdot_module(
+        hercules_ir::dot::xdot_module(
             &module,
             &reverse_postorders,
             Some(&doms),
@@ -82,7 +79,7 @@ fn main() {
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
-        write_dot(
+        hercules_ir::dot::write_dot(
             &module,
             &reverse_postorders,
             Some(&doms),
