@@ -1,8 +1,7 @@
 use crate::*;
 
 /*
- * Custom type for an immutable def_use map. This is a relatively efficient
- * storage of def_use edges, requiring 2 heap allocations.
+ * Custom type for an immutable def-use map.
  */
 #[derive(Debug, Clone)]
 pub struct ImmutableDefUseMap {
@@ -97,6 +96,17 @@ pub enum NodeUsesMut<'a> {
     Two([&'a mut NodeID; 2]),
     Three([&'a mut NodeID; 3]),
     Variable(Box<[&'a mut NodeID]>),
+}
+
+impl<'a> NodeUsesMut<'a> {
+    pub fn map(&mut self, old: NodeID, new: NodeID) {
+        let uses = self.as_mut();
+        for mut_ref in uses.into_iter() {
+            if **mut_ref == old {
+                **mut_ref = new;
+            }
+        }
+    }
 }
 
 impl<'a> AsRef<[NodeID]> for NodeUses<'a> {

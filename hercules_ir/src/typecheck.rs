@@ -49,7 +49,7 @@ impl Semilattice for TypeSemilattice {
                     Concrete(*id1)
                 } else {
                     // Error will only allocate when a type error has occurred.
-                    // In that case, we're less concerned about speed to the
+                    // In that case, we're less concerned about speed of the
                     // compiler, and more allocations are acceptable.
                     Error(format!(
                         "Couldn't reconcile two different concrete types, with IDs {} and {}.",
