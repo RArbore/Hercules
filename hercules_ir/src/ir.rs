@@ -255,46 +255,6 @@ pub enum TernaryOperator {
 
 impl Module {
     /*
-     * There are many transformations that need to iterate over the functions
-     * in a module, while having mutable access to the interned types,
-     * constants, and dynamic constants in a module. This code is really ugly,
-     * so write it once.
-     */
-    pub fn map<F>(self, mut func: F) -> Self
-    where
-        F: FnMut(
-            (Function, FunctionID),
-            (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>),
-        ) -> (Function, (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>)),
-    {
-        let Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        } = self;
-        let mut stuff = (types, constants, dynamic_constants);
-        let functions = functions
-            .into_iter()
-            .enumerate()
-            .map(|(idx, function)| {
-                let mut new_stuff = (vec![], vec![], vec![]);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                let (function, mut new_stuff) = func((function, FunctionID::new(idx)), new_stuff);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                function
-            })
-            .collect();
-        let (types, constants, dynamic_constants) = stuff;
-        Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        }
-    }
-
-    /*
      * Printing out types, constants, and dynamic constants fully requires a
      * reference to the module, since references to other types, constants, and
      * dynamic constants are done using IDs.
@@ -565,9 +525,11 @@ impl Function {
     /*
      * Many transformations will delete nodes. There isn't strictly a gravestone
      * node value, so use the start node as a gravestone value (for IDs other
-     * than 0). This function cleans up gravestoned nodes.
+     * than 0). This function cleans up gravestoned nodes. This function returns
+     * a map from old IDs to the new IDs, so that other datastructures can be
+     * updated.
      */
-    pub fn delete_gravestones(&mut self) {
+    pub fn delete_gravestones(&mut self) -> Vec<NodeID> {
         // Step 1: figure out which nodes are gravestones.
         let mut gravestones = (0..self.nodes.len())
             .filter(|x| *x != 0 && self.nodes[*x].is_start())
@@ -603,7 +565,7 @@ impl Function {
                 let old_id = **u;
                 let new_id = node_mapping[old_id.idx()];
                 if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
-                    panic!("While deleting gravestones, came across a use of a gravestoned node.");
+                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using {}.", idx, old_id.idx());
                 }
                 **u = new_id;
             }
@@ -613,6 +575,29 @@ impl Function {
         }
 
         std::mem::swap(&mut new_nodes, &mut self.nodes);
+
+        node_mapping
+    }
+}
+
+/*
+ * Some analysis results can be updated after gravestone deletions.
+ */
+pub trait GraveUpdatable {
+    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self;
+}
+
+impl<T: Clone> GraveUpdatable for Vec<T> {
+    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self {
+        let mut new_self = vec![];
+        for (data, (idx, mapping)) in
+            std::iter::zip(self.into_iter(), grave_mapping.iter().enumerate())
+        {
+            if idx != 0 && mapping.idx() == 0 {
+                new_self.push(data.clone());
+            }
+        }
+        new_self
     }
 }
 
@@ -848,6 +833,69 @@ impl Node {
         }
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
+
+    pub fn try_if(&self) -> Option<(NodeID, NodeID)> {
+        if let Node::If { control, cond } = self {
+            Some((*control, *cond))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_phi(&self) -> Option<(NodeID, &[NodeID])> {
+        if let Node::Phi { control, data } = self {
+            Some((*control, data))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_constant(&self) -> Option<ConstantID> {
+        if let Node::Constant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_dynamic_constant(&self) -> Option<DynamicConstantID> {
+        if let Node::DynamicConstant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_binary(&self, bop: BinaryOperator) -> Option<(NodeID, NodeID)> {
+        if let Node::Binary { left, right, op } = self
+            && *op == bop
+        {
+            Some((*left, *right))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_control_read(&self, branch: usize) -> Option<NodeID> {
+        if let Node::Read { collect, indices } = self
+            && indices.len() == 1
+            && indices[0] == Index::Control(branch)
+        {
+            Some(*collect)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_zero_constant(&self, constants: &Vec<Constant>) -> bool {
+        if let Node::Constant { id } = self
+            && constants[id.idx()].is_zero()
+        {
+            true
+        } else {
+            false
+        }
+    }
 
     /*
      * Read nodes can be considered control when following an if or match

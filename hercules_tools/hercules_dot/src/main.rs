@@ -32,36 +32,22 @@ fn main() {
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .expect("PANIC: Unable to read input file contents.");
-    let mut module =
+    let module =
         hercules_ir::parse::parse(&contents).expect("PANIC: Failed to parse Hercules IR file.");
-    let (def_uses, reverse_postorders, _typing, _subgraphs, _doms, _postdoms, _fork_join_maps) =
-        hercules_ir::verify::verify(&mut module)
-            .expect("PANIC: Failed to verify Hercules IR module.");
 
-    let mut module = module.map(
-        |(mut function, id), (types, mut constants, dynamic_constants)| {
-            hercules_opt::ccp::ccp(
-                &mut function,
-                &types,
-                &mut constants,
-                &def_uses[id.idx()],
-                &reverse_postorders[id.idx()],
-            );
-            hercules_opt::dce::dce(&mut function);
-            function.delete_gravestones();
+    let mut pm = hercules_opt::pass::PassManager::new(module);
+    pm.add_pass(hercules_opt::pass::Pass::Verify);
+    pm.add_pass(hercules_opt::pass::Pass::CCP);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
+    pm.add_pass(hercules_opt::pass::Pass::GVN);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
+    pm.add_pass(hercules_opt::pass::Pass::Forkify);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
+    let mut module = pm.run_passes();
 
-            let def_use = hercules_ir::def_use::def_use(&function);
-            hercules_opt::gvn::gvn(&mut function, &constants, &def_use);
-            hercules_opt::dce::dce(&mut function);
-            function.delete_gravestones();
-
-            (function, (types, constants, dynamic_constants))
-        },
-    );
     let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
         hercules_ir::verify::verify(&mut module)
             .expect("PANIC: Failed to verify Hercules IR module.");
-
     let plans: Vec<_> = module
         .functions
         .iter()
