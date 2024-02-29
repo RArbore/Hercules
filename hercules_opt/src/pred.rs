@@ -38,12 +38,20 @@ pub fn predication(
             let join_id = fork_join_map[fork_id];
             let mut stack = vec![join_id];
             while let Some(pop) = stack.pop() {
+                // Only detect cycles between fork and join.
                 if function.nodes[pop.idx()].is_fork() {
                     continue;
                 }
+
+                // Filter if there is a cycle or if there is a nested fork.
                 if visited[pop.idx()] || (function.nodes[pop.idx()].is_join() && pop != join_id) {
+                    eprintln!(
+                        "WARNING: Vectorize schedule attached to fork that cannot be vectorized."
+                    );
                     return false;
                 }
+
+                // Recurse up the control subgraph.
                 visited.set(pop.idx(), true);
                 stack.extend(
                     get_uses(&function.nodes[pop.idx()])
