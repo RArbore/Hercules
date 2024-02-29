@@ -565,7 +565,7 @@ impl Function {
                 let old_id = **u;
                 let new_id = node_mapping[old_id.idx()];
                 if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
-                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using {}.", idx, old_id.idx());
+                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using ID {}. Here's the user: {:?}", idx, old_id.idx(), node);
                 }
                 **u = new_id;
             }

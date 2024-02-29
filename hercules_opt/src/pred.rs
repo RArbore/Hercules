@@ -2,6 +2,7 @@ extern crate bitvec;
 extern crate hercules_ir;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use self::bitvec::prelude::*;
 
@@ -43,8 +44,12 @@ pub fn predication(
                     continue;
                 }
 
-                // Filter if there is a cycle or if there is a nested fork.
-                if visited[pop.idx()] || (function.nodes[pop.idx()].is_join() && pop != join_id) {
+                // Filter if there is a cycle, or if there is a nested fork, or
+                // if there is a match node.
+                if visited[pop.idx()]
+                    || (function.nodes[pop.idx()].is_join() && pop != join_id)
+                    || function.nodes[pop.idx()].is_match()
+                {
                     eprintln!(
                         "WARNING: Vectorize schedule attached to fork that cannot be vectorized."
                     );
@@ -58,12 +63,33 @@ pub fn predication(
                         .as_ref()
                         .iter()
                         .filter(|id| function.nodes[id.idx()].is_control()),
-                )
+                );
             }
 
             true
         })
         .collect();
 
-    println!("{:?}", actual_vector_forks);
+    // Convert control flow to predicated data flow.
+    for fork_id in actual_vector_forks.into_iter() {
+        // Worklist of control nodes - traverse control backwards breadth-first.
+        let mut queue = VecDeque::new();
+        let join_id = fork_join_map[&fork_id];
+        queue.push_back(join_id);
+
+        while let Some(pop) = queue.pop_front() {
+            // Stop at fork.
+            if function.nodes[pop.idx()].is_fork() {
+                continue;
+            }
+
+            // Add users of this control node to queue.
+            queue.extend(
+                get_uses(&function.nodes[pop.idx()])
+                    .as_ref()
+                    .iter()
+                    .filter(|id| function.nodes[id.idx()].is_control()),
+            );
+        }
+    }
 }
