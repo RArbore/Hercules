@@ -221,11 +221,14 @@ impl PassManager {
                     }
                 }
                 Pass::Predication => {
+                    self.make_doms();
                     self.make_fork_join_maps();
+                    let doms = self.doms.as_ref().unwrap();
                     let fork_join_maps = self.fork_join_maps.as_ref().unwrap();
                     for idx in 0..self.module.functions.len() {
                         predication(
                             &mut self.module.functions[idx],
+                            &doms[idx],
                             &fork_join_maps[idx],
                             &vec![],
                         )

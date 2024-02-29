@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use self::bitvec::prelude::*;
 
 use self::hercules_ir::def_use::*;
+use self::hercules_ir::dom::*;
 use self::hercules_ir::ir::*;
 use self::hercules_ir::schedule::*;
 
@@ -16,6 +17,7 @@ use self::hercules_ir::schedule::*;
  */
 pub fn predication(
     function: &mut Function,
+    dom: &DomTree,
     fork_join_map: &HashMap<NodeID, NodeID>,
     schedules: &Vec<Vec<Schedule>>,
 ) {
@@ -39,14 +41,24 @@ pub fn predication(
             let join_id = fork_join_map[fork_id];
             let mut stack = vec![join_id];
             while let Some(pop) = stack.pop() {
-                // Only detect cycles between fork and join.
-                if function.nodes[pop.idx()].is_fork() {
+                // Only detect cycles between fork and join, and don't revisit
+                // nodes.
+                if visited[pop.idx()] || function.nodes[pop.idx()].is_fork() {
                     continue;
                 }
 
                 // Filter if there is a cycle, or if there is a nested fork, or
-                // if there is a match node.
-                if visited[pop.idx()]
+                // if there is a match node. We know there is a loop if a node
+                // dominates one of its predecessors.
+                let control_uses: Vec<_> = get_uses(&function.nodes[pop.idx()])
+                    .as_ref()
+                    .iter()
+                    .filter(|id| function.nodes[id.idx()].is_control())
+                    .map(|x| *x)
+                    .collect();
+                if control_uses
+                    .iter()
+                    .any(|pred_id| dom.does_dom(pop, *pred_id))
                     || (function.nodes[pop.idx()].is_join() && pop != join_id)
                     || function.nodes[pop.idx()].is_match()
                 {
@@ -58,12 +70,7 @@ pub fn predication(
 
                 // Recurse up the control subgraph.
                 visited.set(pop.idx(), true);
-                stack.extend(
-                    get_uses(&function.nodes[pop.idx()])
-                        .as_ref()
-                        .iter()
-                        .filter(|id| function.nodes[id.idx()].is_control()),
-                );
+                stack.extend(control_uses);
             }
 
             true
@@ -74,21 +81,24 @@ pub fn predication(
     for fork_id in actual_vector_forks.into_iter() {
         // Worklist of control nodes - traverse control backwards breadth-first.
         let mut queue = VecDeque::new();
+        let mut visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
         let join_id = fork_join_map[&fork_id];
         queue.push_back(join_id);
 
         while let Some(pop) = queue.pop_front() {
-            // Stop at fork.
-            if function.nodes[pop.idx()].is_fork() {
+            // Stop at forks, and don't revisit nodes.
+            if visited[pop.idx()] || function.nodes[pop.idx()].is_fork() {
                 continue;
             }
+            println!("{:?}", pop);
 
             // Add users of this control node to queue.
+            visited.set(pop.idx(), true);
             queue.extend(
                 get_uses(&function.nodes[pop.idx()])
                     .as_ref()
                     .iter()
-                    .filter(|id| function.nodes[id.idx()].is_control()),
+                    .filter(|id| function.nodes[id.idx()].is_control() && !visited[id.idx()]),
             );
         }
     }
