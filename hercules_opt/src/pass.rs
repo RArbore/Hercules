@@ -24,6 +24,7 @@ pub enum Pass {
     CCP,
     GVN,
     Forkify,
+    Predication,
     Verify,
     Xdot,
 }
@@ -216,6 +217,17 @@ impl PassManager {
                             &mut self.module.dynamic_constants,
                             &def_uses[idx],
                             &loops[idx],
+                        )
+                    }
+                }
+                Pass::Predication => {
+                    self.make_fork_join_maps();
+                    let fork_join_maps = self.fork_join_maps.as_ref().unwrap();
+                    for idx in 0..self.module.functions.len() {
+                        predication(
+                            &mut self.module.functions[idx],
+                            &fork_join_maps[idx],
+                            &vec![],
                         )
                     }
                 }

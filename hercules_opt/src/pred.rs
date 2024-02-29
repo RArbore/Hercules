@@ -4,7 +4,6 @@ extern crate hercules_ir;
 use std::collections::HashMap;
 
 use self::bitvec::prelude::*;
-use self::bitvec::slice::*;
 
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::ir::*;
@@ -16,7 +15,7 @@ use self::hercules_ir::schedule::*;
  */
 pub fn predication(
     function: &mut Function,
-    fork_join_map: HashMap<NodeID, NodeID>,
+    fork_join_map: &HashMap<NodeID, NodeID>,
     schedules: &Vec<Vec<Schedule>>,
 ) {
     // Detect forks with vectorize schedules.
@@ -24,7 +23,7 @@ pub fn predication(
         .nodes
         .iter()
         .enumerate()
-        .filter(|(idx, n)| n.is_fork() && schedules[*idx].contains(&Schedule::Vectorize))
+        .filter(|(_, n)| n.is_fork()) // && schedules[*idx].contains(&Schedule::Vectorize))
         .map(|(idx, _)| NodeID::new(idx))
         .collect();
 
@@ -36,9 +35,13 @@ pub fn predication(
             // Detect cycles in control flow between fork and join. Start at the
             // join, and work backwards.
             let mut visited = bitvec![u8, Lsb0; 0; function.nodes.len()];
-            let mut stack = vec![fork_join_map[fork_id]];
+            let join_id = fork_join_map[fork_id];
+            let mut stack = vec![join_id];
             while let Some(pop) = stack.pop() {
-                if visited[pop.idx()] {
+                if function.nodes[pop.idx()].is_fork() {
+                    continue;
+                }
+                if visited[pop.idx()] || (function.nodes[pop.idx()].is_join() && pop != join_id) {
                     return false;
                 }
                 visited.set(pop.idx(), true);
@@ -53,4 +56,6 @@ pub fn predication(
             true
         })
         .collect();
+
+    println!("{:?}", actual_vector_forks);
 }
