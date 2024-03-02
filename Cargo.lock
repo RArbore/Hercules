@@ -288,6 +288,7 @@ dependencies = [
  "cfgrammar",
  "clap",
  "hercules_ir",
+ "hercules_opt",
  "lrlex",
  "lrpar",
  "ordered-float",

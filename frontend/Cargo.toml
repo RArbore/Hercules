@@ -20,3 +20,4 @@ lrlex = "0.13"
 lrpar = "0.13"
 ordered-float = "*"
 hercules_ir = { path = "../hercules_ir" }
+hercules_opt = { path = "../hercules_opt" }

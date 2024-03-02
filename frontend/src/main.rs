@@ -11,6 +11,7 @@ mod semant;
 use codegen::*;
 
 extern crate hercules_ir;
+use hercules_opt::pass;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -26,10 +27,22 @@ fn main() {
             let mut module = codegen_program(prg);
             println!("{}", module);
 
-            let _
-                = hercules_ir::verify::verify(&mut module)
-                    .expect("PANIC: Failed to verify Hercules IR modules.");
-            println!("Verification Succeeded");
+            let mut pm = hercules_opt::pass::PassManager::new(module);
+            pm.add_pass(hercules_opt::pass::Pass::Verify);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::CCP);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::DCE);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::GVN);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::DCE);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::Forkify);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            pm.add_pass(hercules_opt::pass::Pass::DCE);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
+            let _ = pm.run_passes();
         },
         Err(errs) => {
             for err in errs{

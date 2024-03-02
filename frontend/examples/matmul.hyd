@@ -1,0 +1,13 @@
+fn matmul<n : usize, m : usize, l : usize>(a : f32[n, m], b : f32[m, l]) : f32[n, l] {
+  let res : f32[n, l];
+
+  for i = 0 to n {
+    for j = 0 to l {
+      for k = 0 to m {
+        res[i, j] += a[i, k] * b[k, j];
+      }
+    }
+  }
+
+  return res;
+}
