@@ -1,8 +1,7 @@
 use crate::*;
 
 /*
- * Custom type for an immutable def_use map. This is a relatively efficient
- * storage of def_use edges, requiring 2 heap allocations.
+ * Custom type for an immutable def-use map.
  */
 #[derive(Debug, Clone)]
 pub struct ImmutableDefUseMap {
@@ -99,6 +98,17 @@ pub enum NodeUsesMut<'a> {
     Variable(Box<[&'a mut NodeID]>),
 }
 
+impl<'a> NodeUsesMut<'a> {
+    pub fn map(&mut self, old: NodeID, new: NodeID) {
+        let uses = self.as_mut();
+        for mut_ref in uses.into_iter() {
+            if **mut_ref == old {
+                **mut_ref = new;
+            }
+        }
+    }
+}
+
 impl<'a> AsRef<[NodeID]> for NodeUses<'a> {
     fn as_ref(&self) -> &[NodeID] {
         match self {
@@ -152,6 +162,12 @@ pub fn get_uses<'a>(node: &'a Node) -> NodeUses<'a> {
         Node::DynamicConstant { id: _ } => NodeUses::One([NodeID::new(0)]),
         Node::Unary { input, op: _ } => NodeUses::One([*input]),
         Node::Binary { left, right, op: _ } => NodeUses::Two([*left, *right]),
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op: _,
+        } => NodeUses::Three([*first, *second, *third]),
         Node::Call {
             function: _,
             dynamic_constants: _,
@@ -227,6 +243,12 @@ pub fn get_uses_mut<'a>(node: &'a mut Node) -> NodeUsesMut<'a> {
         Node::DynamicConstant { id: _ } => NodeUsesMut::Zero,
         Node::Unary { input, op: _ } => NodeUsesMut::One([input]),
         Node::Binary { left, right, op: _ } => NodeUsesMut::Two([left, right]),
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op: _,
+        } => NodeUsesMut::Three([first, second, third]),
         Node::Call {
             function: _,
             dynamic_constants: _,

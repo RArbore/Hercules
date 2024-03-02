@@ -77,7 +77,9 @@ pub enum Type {
  * interning constants during IR construction). Product, summation, and array
  * constants all contain their own type. This is only strictly necessary for
  * summation types, but provides a nice mechanism for sanity checking for
- * product and array types as well.
+ * product and array types as well. There is also a zero initializer constant,
+ * which stores its own type as well. The zero value of a summation is defined
+ * as the zero value of the first variant.
  */
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constant {
@@ -95,6 +97,7 @@ pub enum Constant {
     Product(TypeID, Box<[ConstantID]>),
     Summation(TypeID, u32, ConstantID),
     Array(TypeID, Box<[ConstantID]>),
+    Zero(TypeID),
 }
 
 /*
@@ -196,6 +199,12 @@ pub enum Node {
         right: NodeID,
         op: BinaryOperator,
     },
+    Ternary {
+        first: NodeID,
+        second: NodeID,
+        third: NodeID,
+        op: TernaryOperator,
+    },
     Call {
         function: FunctionID,
         dynamic_constants: Box<[DynamicConstantID]>,
@@ -216,6 +225,7 @@ pub enum Node {
 pub enum UnaryOperator {
     Not,
     Neg,
+    Cast(TypeID),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -238,47 +248,12 @@ pub enum BinaryOperator {
     RSh,
 }
 
-impl Module {
-    /*
-     * There are many transformations that need to iterate over the functions
-     * in a module, while having mutable access to the interned types,
-     * constants, and dynamic constants in a module. This code is really ugly,
-     * so write it once.
-     */
-    pub fn map<F>(self, mut func: F) -> Self
-    where
-        F: FnMut(
-            (Function, FunctionID),
-            (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>),
-        ) -> (Function, (Vec<Type>, Vec<Constant>, Vec<DynamicConstant>)),
-    {
-        let Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        } = self;
-        let mut stuff = (types, constants, dynamic_constants);
-        let functions = functions
-            .into_iter()
-            .enumerate()
-            .map(|(idx, function)| {
-                let mut new_stuff = (vec![], vec![], vec![]);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                let (function, mut new_stuff) = func((function, FunctionID::new(idx)), new_stuff);
-                std::mem::swap(&mut stuff, &mut new_stuff);
-                function
-            })
-            .collect();
-        let (types, constants, dynamic_constants) = stuff;
-        Module {
-            functions,
-            types,
-            constants,
-            dynamic_constants,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TernaryOperator {
+    Select,
+}
 
+impl Module {
     /*
      * Printing out types, constants, and dynamic constants fully requires a
      * reference to the module, since references to other types, constants, and
@@ -374,6 +349,7 @@ impl Module {
                 }
                 write!(w, "]")
             }
+            Constant::Zero(_) => write!(w, "zero"),
         }?;
 
         Ok(())
@@ -509,6 +485,18 @@ impl Module {
             coroutine: Box::new(coroutine),
         }
     }
+
+    /*
+     * Unfortunately, determining if a constant is an array requires both
+     * knowledge of constants and types, due to zero initializer constants.
+     */
+    pub fn is_array_constant(&self, cons_id: ConstantID) -> bool {
+        if let Constant::Zero(ty_id) = self.constants[cons_id.idx()] {
+            self.types[ty_id.idx()].is_array()
+        } else {
+            self.constants[cons_id.idx()].is_strictly_array()
+        }
+    }
 }
 
 struct CoroutineIterator<G, I>
@@ -537,9 +525,11 @@ impl Function {
     /*
      * Many transformations will delete nodes. There isn't strictly a gravestone
      * node value, so use the start node as a gravestone value (for IDs other
-     * than 0). This function cleans up gravestoned nodes.
+     * than 0). This function cleans up gravestoned nodes. This function returns
+     * a map from old IDs to the new IDs, so that other datastructures can be
+     * updated.
      */
-    pub fn delete_gravestones(&mut self) {
+    pub fn delete_gravestones(&mut self) -> Vec<NodeID> {
         // Step 1: figure out which nodes are gravestones.
         let mut gravestones = (0..self.nodes.len())
             .filter(|x| *x != 0 && self.nodes[*x].is_start())
@@ -575,7 +565,7 @@ impl Function {
                 let old_id = **u;
                 let new_id = node_mapping[old_id.idx()];
                 if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
-                    panic!("While deleting gravestones, came across a use of a gravestoned node.");
+                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using {}.", idx, old_id.idx());
                 }
                 **u = new_id;
             }
@@ -585,6 +575,29 @@ impl Function {
         }
 
         std::mem::swap(&mut new_nodes, &mut self.nodes);
+
+        node_mapping
+    }
+}
+
+/*
+ * Some analysis results can be updated after gravestone deletions.
+ */
+pub trait GraveUpdatable {
+    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self;
+}
+
+impl<T: Clone> GraveUpdatable for Vec<T> {
+    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self {
+        let mut new_self = vec![];
+        for (data, (idx, mapping)) in
+            std::iter::zip(self.into_iter(), grave_mapping.iter().enumerate())
+        {
+            if idx != 0 && mapping.idx() == 0 {
+                new_self.push(data.clone());
+            }
+        }
+        new_self
     }
 }
 
@@ -674,7 +687,7 @@ pub fn element_type(mut ty: TypeID, types: &Vec<Type>) -> TypeID {
 }
 
 impl Constant {
-    pub fn is_array(&self) -> bool {
+    pub fn is_strictly_array(&self) -> bool {
         if let Constant::Array(_, _) = self {
             true
         } else {
@@ -697,6 +710,7 @@ impl Constant {
             Constant::UnsignedInteger64(0) => true,
             Constant::Float32(ord) => *ord == ordered_float::OrderedFloat::<f32>(0.0),
             Constant::Float64(ord) => *ord == ordered_float::OrderedFloat::<f64>(0.0),
+            Constant::Zero(_) => true,
             _ => false,
         }
     }
@@ -820,6 +834,69 @@ impl Node {
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
 
+    pub fn try_if(&self) -> Option<(NodeID, NodeID)> {
+        if let Node::If { control, cond } = self {
+            Some((*control, *cond))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_phi(&self) -> Option<(NodeID, &[NodeID])> {
+        if let Node::Phi { control, data } = self {
+            Some((*control, data))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_constant(&self) -> Option<ConstantID> {
+        if let Node::Constant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_dynamic_constant(&self) -> Option<DynamicConstantID> {
+        if let Node::DynamicConstant { id } = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_binary(&self, bop: BinaryOperator) -> Option<(NodeID, NodeID)> {
+        if let Node::Binary { left, right, op } = self
+            && *op == bop
+        {
+            Some((*left, *right))
+        } else {
+            None
+        }
+    }
+
+    pub fn try_control_read(&self, branch: usize) -> Option<NodeID> {
+        if let Node::Read { collect, indices } = self
+            && indices.len() == 1
+            && indices[0] == Index::Control(branch)
+        {
+            Some(*collect)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_zero_constant(&self, constants: &Vec<Constant>) -> bool {
+        if let Node::Constant { id } = self
+            && constants[id.idx()].is_zero()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     /*
      * Read nodes can be considered control when following an if or match
      * node. However, it is sometimes useful to exclude such nodes when
@@ -829,9 +906,9 @@ impl Node {
         self.is_start()
             || self.is_region()
             || self.is_if()
+            || self.is_match()
             || self.is_fork()
             || self.is_join()
-            || self.is_return()
             || self.is_return()
     }
 
@@ -870,6 +947,12 @@ impl Node {
             Node::Binary {
                 left: _,
                 right: _,
+                op,
+            } => op.upper_case_name(),
+            Node::Ternary {
+                first: _,
+                second: _,
+                third: _,
                 op,
             } => op.upper_case_name(),
             Node::Call {
@@ -926,6 +1009,12 @@ impl Node {
                 right: _,
                 op,
             } => op.lower_case_name(),
+            Node::Ternary {
+                first: _,
+                second: _,
+                third: _,
+                op,
+            } => op.lower_case_name(),
             Node::Call {
                 function: _,
                 dynamic_constants: _,
@@ -965,6 +1054,7 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "Not",
             UnaryOperator::Neg => "Neg",
+            UnaryOperator::Cast(_) => "Cast",
         }
     }
 
@@ -972,6 +1062,7 @@ impl UnaryOperator {
         match self {
             UnaryOperator::Not => "not",
             UnaryOperator::Neg => "neg",
+            UnaryOperator::Cast(_) => "cast",
         }
     }
 }
@@ -1020,10 +1111,25 @@ impl BinaryOperator {
     }
 }
 
+impl TernaryOperator {
+    pub fn upper_case_name(&self) -> &'static str {
+        match self {
+            TernaryOperator::Select => "Select",
+        }
+    }
+
+    pub fn lower_case_name(&self) -> &'static str {
+        match self {
+            TernaryOperator::Select => "select",
+        }
+    }
+}
+
 /*
  * Rust things to make newtyped IDs usable.
  */
 
+#[macro_export]
 macro_rules! define_id_type {
     ($x: ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

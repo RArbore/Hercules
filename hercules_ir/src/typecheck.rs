@@ -49,7 +49,7 @@ impl Semilattice for TypeSemilattice {
                     Concrete(*id1)
                 } else {
                     // Error will only allocate when a type error has occurred.
-                    // In that case, we're less concerned about speed to the
+                    // In that case, we're less concerned about speed of the
                     // compiler, and more allocations are acceptable.
                     Error(format!(
                         "Couldn't reconcile two different concrete types, with IDs {} and {}.",
@@ -579,6 +579,8 @@ fn typeflow(
                         ))
                     }
                 }
+                // Zero constants need to store their type, and we trust it.
+                Constant::Zero(id) => Concrete(id),
             }
         }
         Node::DynamicConstant { id } => {
@@ -620,6 +622,17 @@ fn typeflow(
                         if !types[id.idx()].is_arithmetic() {
                             return Error(String::from(
                                 "Neg unary node input cannot have non-arithmetic type.",
+                            ));
+                        }
+                    }
+                    UnaryOperator::Cast(dst_id) => {
+                        let src_ty = &types[id.idx()];
+                        let dst_ty = &types[dst_id.idx()];
+                        if cast_compatible(src_ty, dst_ty) {
+                            return Concrete(*dst_id);
+                        } else {
+                            return Error(String::from(
+                                "Cast unary node has incompatible input and output types.",
                             ));
                         }
                     }
@@ -698,6 +711,37 @@ fn typeflow(
             }
 
             input_ty.clone()
+        }
+        Node::Ternary {
+            first: _,
+            second: _,
+            third: _,
+            op,
+        } => {
+            if inputs.len() != 3 {
+                return Error(String::from("Ternary node must have exactly three inputs."));
+            }
+
+            if let Concrete(id) = inputs[0] {
+                match op {
+                    TernaryOperator::Select => {
+                        if !types[id.idx()].is_bool() {
+                            return Error(String::from(
+                                "Select ternary node input cannot have non-bool condition input.",
+                            ));
+                        }
+
+                        let data_ty = TypeSemilattice::meet(inputs[1], inputs[2]);
+                        if let Concrete(data_id) = data_ty {
+                            return Concrete(data_id);
+                        } else {
+                            return data_ty;
+                        }
+                    }
+                }
+            }
+
+            Error(String::from("Unhandled ternary types."))
         }
         Node::Call {
             function: callee_id,
@@ -906,4 +950,13 @@ pub fn fork_join_map(
         }
     }
     fork_join_map
+}
+
+/*
+ * Determine if a given cast conversion is valid.
+ */
+pub fn cast_compatible(src_ty: &Type, dst_ty: &Type) -> bool {
+    // Can convert between any pair of primitive types, as long as the cast is
+    // not from a floating point type to a boolean type.
+    src_ty.is_primitive() && dst_ty.is_primitive() && !(src_ty.is_float() && dst_ty.is_bool())
 }

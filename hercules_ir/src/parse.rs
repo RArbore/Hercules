@@ -308,6 +308,7 @@ fn parse_node<'a>(
         "xor" => parse_binary(ir_text, context, BinaryOperator::Xor)?,
         "lsh" => parse_binary(ir_text, context, BinaryOperator::LSh)?,
         "rsh" => parse_binary(ir_text, context, BinaryOperator::RSh)?,
+        "select" => parse_ternary(ir_text, context, TernaryOperator::Select)?,
         "call" => parse_call(ir_text, context)?,
         "read" => parse_read(ir_text, context)?,
         "write" => parse_write(ir_text, context)?,
@@ -483,6 +484,27 @@ fn parse_binary<'a>(
     let left = context.borrow_mut().get_node_id(left);
     let right = context.borrow_mut().get_node_id(right);
     Ok((ir_text, Node::Binary { left, right, op }))
+}
+
+fn parse_ternary<'a>(
+    ir_text: &'a str,
+    context: &RefCell<Context<'a>>,
+    op: TernaryOperator,
+) -> nom::IResult<&'a str, Node> {
+    let (ir_text, (first, second, third)) =
+        parse_tuple3(parse_identifier, parse_identifier, parse_identifier)(ir_text)?;
+    let first = context.borrow_mut().get_node_id(first);
+    let second = context.borrow_mut().get_node_id(second);
+    let third = context.borrow_mut().get_node_id(third);
+    Ok((
+        ir_text,
+        Node::Ternary {
+            first,
+            second,
+            third,
+            op,
+        },
+    ))
 }
 
 fn parse_call<'a>(ir_text: &'a str, context: &RefCell<Context<'a>>) -> nom::IResult<&'a str, Node> {
@@ -876,7 +898,16 @@ fn parse_constant<'a>(
     ty: Type,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
-    let (ir_text, constant) = match ty.clone() {
+    let ty_id = context.borrow_mut().get_type_id(ty.clone());
+    let (ir_text, maybe_constant) = nom::combinator::opt(nom::combinator::map(
+        nom::bytes::complete::tag("zero"),
+        |_| Constant::Zero(ty_id),
+    ))(ir_text)?;
+    if let Some(cons) = maybe_constant {
+        return Ok((ir_text, cons));
+    }
+
+    let (ir_text, constant) = match ty {
         // There are not control constants.
         Type::Control(_) => Err(nom::Err::Error(nom::error::Error {
             input: ir_text,
@@ -893,13 +924,13 @@ fn parse_constant<'a>(
         Type::UnsignedInteger64 => parse_unsigned_integer64(ir_text)?,
         Type::Float32 => parse_float32(ir_text)?,
         Type::Float64 => parse_float64(ir_text)?,
-        Type::Product(tys) => parse_product_constant(
+        Type::Product(ref tys) => parse_product_constant(
             ir_text,
             context.borrow_mut().get_type_id(ty.clone()),
             tys,
             context,
         )?,
-        Type::Summation(tys) => parse_summation_constant(
+        Type::Summation(ref tys) => parse_summation_constant(
             ir_text,
             context.borrow_mut().get_type_id(ty.clone()),
             tys,
@@ -912,7 +943,6 @@ fn parse_constant<'a>(
             context,
         )?,
     };
-    context.borrow_mut().get_type_id(ty);
     Ok((ir_text, constant))
 }
 
@@ -997,7 +1027,7 @@ fn parse_float64<'a>(ir_text: &'a str) -> nom::IResult<&'a str, Constant> {
 fn parse_product_constant<'a>(
     ir_text: &'a str,
     prod_ty: TypeID,
-    tys: Box<[TypeID]>,
+    tys: &Box<[TypeID]>,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;
@@ -1032,7 +1062,7 @@ fn parse_product_constant<'a>(
 fn parse_summation_constant<'a>(
     ir_text: &'a str,
     sum_ty: TypeID,
-    tys: Box<[TypeID]>,
+    tys: &Box<[TypeID]>,
     context: &RefCell<Context<'a>>,
 ) -> nom::IResult<&'a str, Constant> {
     let ir_text = nom::character::complete::multispace0(ir_text)?.0;

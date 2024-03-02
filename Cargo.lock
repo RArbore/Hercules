@@ -275,6 +275,7 @@ name = "hercules_dot"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hercules_cg",
  "hercules_ir",
  "hercules_opt",
  "rand",
@@ -299,6 +300,7 @@ dependencies = [
  "bitvec",
  "nom",
  "ordered-float",
+ "rand",
 ]
 
 [[package]]
@@ -315,6 +317,7 @@ name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
  "hercules_ir",
+ "ordered-float",
 ]
 
 [[package]]

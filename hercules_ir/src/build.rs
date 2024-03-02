@@ -498,6 +498,21 @@ impl NodeBuilder {
         self.node = Node::Binary { left, right, op };
     }
 
+    pub fn build_ternary(
+        &mut self,
+        first: NodeID,
+        second: NodeID,
+        third: NodeID,
+        op: TernaryOperator,
+    ) {
+        self.node = Node::Ternary {
+            first,
+            second,
+            third,
+            op,
+        };
+    }
+
     pub fn build_call(
         &mut self,
         function: FunctionID,
