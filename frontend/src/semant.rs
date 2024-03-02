@@ -240,7 +240,7 @@ pub struct Function {
     pub name : String,
     pub num_dyn_consts : usize,
     pub num_type_args : usize,
-    pub arguments : Vec<Type>,
+    pub arguments : Vec<(usize, Type)>,
     pub return_type : Type,
     pub body : Stmt,
 }
@@ -661,7 +661,8 @@ fn analyze_program(
                     name           : lexer.span_str(name).to_string(),
                     num_dyn_consts : num_dyn_const,
                     num_type_args  : num_type_var,
-                    arguments      : arg_types.iter().map(|v| v.1).collect::<Vec<_>>(),
+                    arguments      : arg_types.iter().zip(arg_variables.iter())
+                                        .map(|(v, n)| (*n, v.1)).collect::<Vec<_>>(),
                     return_type    : pure_return_type,
                     body           : body });
             },
