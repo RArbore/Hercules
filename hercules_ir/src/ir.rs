@@ -1290,6 +1290,7 @@ impl IRDisplay for Node {
                 }
                 write!(f, ")")
             },
+            Node::Ternary { .. } => todo!(),
         }
     }
 }

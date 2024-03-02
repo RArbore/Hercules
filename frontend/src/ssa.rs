@@ -71,6 +71,7 @@ impl SSA {
         block
     }
 
+    // Add "pred" as a predecessor of "block"
     pub fn add_pred(&mut self, block : NodeID, pred : NodeID) {
         assert!(self.unsealed_blocks.contains_key(&block),
                 "Block must be unsealed to add predecessors");

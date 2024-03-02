@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::hercules_ir::ir::*;
+use crate::hercules_ir::build::*;
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Either<A, B> {
     Left(A),
@@ -123,26 +126,21 @@ enum TypeForm {
     AnyNumber, AnyInteger, AnyFloat,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub enum IType {
-    Primitive(Primitive),
-    Array(Box<IType>, Vec<DynamicConstant>),
-    Prod(Vec<IType>),
-    Sum(Vec<IType>),
-}
-
 pub struct TypeSolver {
     types : Vec<TypeForm>,
+}
 
+pub struct TypeSolverInst<'a> {
+    solver    : &'a TypeSolver,
     // A collection of current values for type variables, and variables that we've solved for in
     // that context
-    type_vars : Vec<IType>,
-    solved : Vec<Option<IType>>,
+    type_vars : Vec<TypeID>,
+    solved    : Vec<Option<TypeID>>,
 }
 
 impl TypeSolver {
     pub fn new() -> TypeSolver {
-        TypeSolver { types : vec![], type_vars : vec![], solved : vec![] }
+        TypeSolver { types : vec![] }
     }
 
     pub fn new_number(&mut self) -> Type {
@@ -191,133 +189,11 @@ impl TypeSolver {
         Type { val : idx }
     }
 
-    pub fn set_type_vars(&mut self, type_vars : Vec<IType>) {
-        self.type_vars = type_vars;
-        self.solved.clear();
-        self.solved.resize(self.types.len(), None);
-    }
-
-    pub fn lower_type(&mut self, Type { val } : Type) -> IType {
-        if self.solved[val].is_some() {
-            return self.solved[val].as_ref().unwrap().clone();
-        }
-
-        let mut worklist = VecDeque::from([val]);
-        let mut depends : HashMap<usize, HashSet<usize>> = HashMap::new();
-
-        while !worklist.is_empty() {
-            let typ = worklist.pop_front().unwrap();
-
-            // If this type is already solved, just continue.
-            // Since we don't depend on something unless its unsolved we only need to drain the set
-            // of dependences once
-            if self.solved[typ].is_some() { continue; }
-
-            let solution : Either<IType, usize> =
-                match &self.types[typ] {
-                    TypeForm::Primitive(p) => Either::Left(IType::Primitive(*p)),
-                    TypeForm::Tuple(fields) => {
-                        let mut needs = None;
-                        let mut i_fields = vec![];
-
-                        for Type { val } in fields {
-                            match &self.solved[*val] {
-                                Some(ty) => i_fields.push(ty.clone()),
-                                None => { needs = Some(*val); break; },
-                            }
-                        }
-
-                        if let Some(t) = needs {
-                            Either::Right(t)
-                        } else {
-                            Either::Left(IType::Prod(i_fields))
-                        }
-                    },
-                    TypeForm::Array(Type { val }, dims) => {
-                        match &self.solved[*val] {
-                            Some(ty) =>
-                                Either::Left(IType::Array(
-                                        Box::new(ty.clone()), dims.clone())),
-                            None => Either::Right(*val),
-                        }
-                    },
-                    TypeForm::OtherType(Type { val }) => {
-                        match &self.solved[*val] {
-                            Some(ty) => Either::Left(ty.clone()), 
-                            None => Either::Right(*val),
-                        }
-                    },
-                    TypeForm::TypeVar { name : _, index, .. } => {
-                        Either::Left(self.type_vars[*index].clone())
-                    },
-                    TypeForm::Struct { name : _, id : _, fields, .. } => {
-                        let mut needs = None;
-                        let mut i_fields = vec![];
-
-                        for Type { val } in fields {
-                            match &self.solved[*val] {
-                                Some(ty) => i_fields.push(ty.clone()),
-                                None => { needs = Some(*val); break; },
-                            }
-                        }
-
-                        if let Some(t) = needs {
-                            Either::Right(t)
-                        } else {
-                            Either::Left(IType::Prod(i_fields))
-                        }
-                    },
-                    TypeForm::Union { name : _, id : _, constr, .. } => {
-                        let mut needs = None;
-                        let mut i_constr = vec![];
-
-                        for Type { val } in constr {
-                            match &self.solved[*val] {
-                                Some(ty) => i_constr.push(ty.clone()),
-                                None => { needs = Some(*val); break; },
-                            }
-                        }
-
-                        if let Some(t) = needs {
-                            Either::Right(t)
-                        } else {
-                            Either::Left(IType::Sum(i_constr))
-                        }
-                    },
-                    TypeForm::AnyNumber | TypeForm::AnyInteger => {
-                        Either::Left(IType::Primitive(Primitive::I64))
-                    },
-                    TypeForm::AnyFloat => {
-                        Either::Left(IType::Primitive(Primitive::F64))
-                    },
-                };
-
-            match solution {
-                Either::Left(solution) => {
-                    self.solved.insert(typ, Some(solution));
-                    match depends.get_mut(&typ) {
-                        None => {},
-                        Some(set) => {
-                            for idx in set.drain() {
-                                worklist.push_back(idx);
-                            }
-                        },
-                    }
-                },
-                Either::Right(needs) => {
-                    match depends.get_mut(&needs) {
-                        None => {
-                            depends.insert(needs, HashSet::from([typ]));
-                        },
-                        Some(set) => {
-                            set.insert(typ);
-                        },
-                    }
-                },
-            }
-        }
-
-        self.solved[val].as_ref().expect("Failure to solve type constraints").clone()
+    pub fn create_instance(&self, type_vars : Vec<TypeID>) -> TypeSolverInst {
+        let num_vars = self.types.len();
+        TypeSolverInst { solver    : self,
+                         type_vars : type_vars,
+                         solved    : vec![None; num_vars] }
     }
 
     pub fn is_u64(&mut self, Type { val } : Type) -> bool {
@@ -705,6 +581,188 @@ impl TypeSolver {
                                                 names : names.clone() }) }
                 else { Type { val } }
             },
+        }
+    }
+}
+
+impl TypeSolverInst<'_> {
+    pub fn lower_type(&mut self, builder : &mut Builder, Type { val } : Type) -> TypeID {
+        if self.solved[val].is_some() {
+            return self.solved[val].unwrap();
+        }
+
+        let mut worklist = VecDeque::from([val]);
+        let mut depends : HashMap<usize, HashSet<usize>> = HashMap::new();
+
+        while !worklist.is_empty() {
+            let typ = worklist.pop_front().unwrap();
+
+            // If this type is already solved, just continue.
+            // Since we don't depend on something unless its unsolved we only need to drain the set
+            // of dependences once
+            if self.solved[typ].is_some() { continue; }
+
+            let solution : Either<TypeID, usize> =
+                match &self.solver.types[typ] {
+                    TypeForm::Primitive(p) => Either::Left(Self::build_primitive(builder, *p)),
+                    TypeForm::Tuple(fields) => {
+                        let mut needs = None;
+                        let mut i_fields = vec![];
+
+                        for Type { val } in fields {
+                            match &self.solved[*val] {
+                                Some(ty) => i_fields.push(ty.clone()),
+                                None => { needs = Some(*val); break; },
+                            }
+                        }
+
+                        if let Some(t) = needs {
+                            Either::Right(t)
+                        } else {
+                            Either::Left(Self::build_product(builder, i_fields))
+                        }
+                    },
+                    TypeForm::Array(Type { val }, dims) => {
+                        match &self.solved[*val] {
+                            Some(ty) =>
+                                Either::Left(Self::build_array(builder, *ty, dims)),
+                            None => Either::Right(*val),
+                        }
+                    },
+                    TypeForm::OtherType(Type { val }) => {
+                        match &self.solved[*val] {
+                            Some(ty) => Either::Left(*ty), 
+                            None => Either::Right(*val),
+                        }
+                    },
+                    TypeForm::TypeVar { name : _, index, .. } => {
+                        Either::Left(self.type_vars[*index])
+                    },
+                    TypeForm::Struct { name : _, id : _, fields, .. } => {
+                        let mut needs = None;
+                        let mut i_fields = vec![];
+
+                        for Type { val } in fields {
+                            match &self.solved[*val] {
+                                Some(ty) => i_fields.push(ty.clone()),
+                                None => { needs = Some(*val); break; },
+                            }
+                        }
+
+                        if let Some(t) = needs {
+                            Either::Right(t)
+                        } else {
+                            Either::Left(Self::build_product(builder, i_fields))
+                        }
+                    },
+                    TypeForm::Union { name : _, id : _, constr, .. } => {
+                        let mut needs = None;
+                        let mut i_constr = vec![];
+
+                        for Type { val } in constr {
+                            match &self.solved[*val] {
+                                Some(ty) => i_constr.push(ty.clone()),
+                                None => { needs = Some(*val); break; },
+                            }
+                        }
+
+                        if let Some(t) = needs {
+                            Either::Right(t)
+                        } else {
+                            Either::Left(Self::build_union(builder, i_constr))
+                        }
+                    },
+                    TypeForm::AnyNumber | TypeForm::AnyInteger =>
+                        Either::Left(Self::build_primitive(builder, Primitive::I64)),
+                    TypeForm::AnyFloat =>
+                        Either::Left(Self::build_primitive(builder, Primitive::F64)),
+                };
+
+            match solution {
+                Either::Left(solution) => {
+                    self.solved.insert(typ, Some(solution));
+                    match depends.get_mut(&typ) {
+                        None => {},
+                        Some(set) => {
+                            for idx in set.drain() {
+                                worklist.push_back(idx);
+                            }
+                        },
+                    }
+                },
+                Either::Right(needs) => {
+                    match depends.get_mut(&needs) {
+                        None => {
+                            depends.insert(needs, HashSet::from([typ]));
+                        },
+                        Some(set) => {
+                            set.insert(typ);
+                        },
+                    }
+                },
+            }
+        }
+
+        self.solved[val].expect("Failure to solve type constraints").clone()
+    }
+    
+    pub fn as_numeric_type(&mut self, builder : &mut Builder, ty : Type) -> Primitive {
+        let type_id = self.lower_type(builder, ty);
+        if type_id == builder.create_type_i8() { Primitive::I8 }
+        else if type_id == builder.create_type_i16() { Primitive::I16 }
+        else if type_id == builder.create_type_i32() { Primitive::I32 }
+        else if type_id == builder.create_type_i64() { Primitive::I64 }
+        else if type_id == builder.create_type_u8()  { Primitive::U8 }
+        else if type_id == builder.create_type_u16() { Primitive::U16 }
+        else if type_id == builder.create_type_u32() { Primitive::U32 }
+        else if type_id == builder.create_type_u64() { Primitive::U64 }
+        else if type_id == builder.create_type_f32() { Primitive::F32 }
+        else if type_id == builder.create_type_f64() { Primitive::F64 }
+        else { panic!("as_numeric_type() called on non-numeric type") }
+    }
+    
+    fn build_primitive(builder : &mut Builder, p : Primitive) -> TypeID {
+        match p {
+            Primitive::Bool => builder.create_type_bool(),
+            Primitive::I8   => builder.create_type_i8(),
+            Primitive::I16  => builder.create_type_i16(),
+            Primitive::I32  => builder.create_type_i32(),
+            Primitive::I64  => builder.create_type_i64(),
+            Primitive::U8   => builder.create_type_u8(),
+            Primitive::U16  => builder.create_type_u16(),
+            Primitive::U32  => builder.create_type_u32(),
+            Primitive::U64  => builder.create_type_u64(),
+            Primitive::F32  => builder.create_type_f32(),
+            Primitive::F64  => builder.create_type_f64(),
+            Primitive::Unit => builder.create_type_prod(vec![].into()),
+        }
+    }
+
+    fn build_product(builder : &mut Builder, tys : Vec<TypeID>) -> TypeID {
+        builder.create_type_prod(tys.into())
+    }
+
+    fn build_union(builder : &mut Builder, tys : Vec<TypeID>) -> TypeID {
+        builder.create_type_sum(tys.into())
+    }
+
+    fn build_array(builder : &mut Builder, elem : TypeID, dims : &Vec<DynamicConstant>) -> TypeID {
+        let extents = Self::build_dyn_consts(builder, dims);
+        builder.create_type_array(elem, extents.into())
+    }
+
+    pub fn build_dyn_consts(builder : &mut Builder, vals : &Vec<DynamicConstant>) -> Vec<DynamicConstantID> {
+        let mut res = vec![];
+        for val in vals {
+            res.push(Self::build_dyn_const(builder, val));
+        }
+        res
+    }
+
+    pub fn build_dyn_const(builder : &mut Builder, val : &DynamicConstant) -> DynamicConstantID {
+        match val {
+            DynamicConstant::Constant(val) => builder.create_dynamic_constant_constant(*val),
+            DynamicConstant::DynConst(_, num) => builder.create_dynamic_constant_parameter(*num),
         }
     }
 }

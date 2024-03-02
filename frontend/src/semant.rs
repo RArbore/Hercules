@@ -120,7 +120,7 @@ fn intern_package_name(
 }
 
 // A location in the program, used in error messages
-struct Location {
+pub struct Location {
     start_line : usize, start_column : usize,
     end_line   : usize, end_column   : usize,
 }
@@ -259,7 +259,8 @@ pub struct Function {
 pub enum Stmt {
     AssignStmt   { var : usize, val : Expr },
     IfStmt       { cond : Expr, thn : Box<Stmt>, els : Option<Box<Stmt>> },
-    MatchStmt    { expr : Expr, cases : Vec<usize>, body : Vec<Stmt> },
+    // TODO: Not implemented
+    //MatchStmt    { expr : Expr, cases : Vec<usize>, body : Vec<Stmt> },
     LoopStmt     { cond : Expr, update : Option<Box<Stmt>>, body : Box<Stmt> },
     ReturnStmt   { expr : Expr },
     BreakStmt    {},
@@ -1945,10 +1946,10 @@ fn process_expr_as_constant(expr : lang_y::Expr,
             let nm = intern_package_name(&name, lexer, stringtab)[0];
 
             match env.lookup(&nm) {
-                Some(Entity::Variable { variable, typ, .. }) => {
+                Some(Entity::Variable { .. }) => {
                     panic!("Constant should not be evaluated in an environment with variables")
                 },
-                Some(Entity::DynConst { value }) => {
+                Some(Entity::DynConst { .. }) => {
                     panic!("Constant should not be evaluated in an environment with dynamic constants")
                 },
                 Some(Entity::Constant { value }) => {
@@ -2009,7 +2010,7 @@ fn process_expr_as_constant(expr : lang_y::Expr,
                 },
             }
         },
-        lang_y::Expr::ArrIndex { span, lhs, index } => {
+        lang_y::Expr::ArrIndex { span, .. } => {
             Err(singleton_error(
                     ErrorMessage::SemanticError(
                         span_to_loc(span, lexer),
@@ -2309,7 +2310,7 @@ fn process_expr_as_constant(expr : lang_y::Expr,
                 },
             }
         },
-        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => {
+        lang_y::Expr::BinaryExpr { span : _, op, lhs, rhs } => {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
 
@@ -3178,7 +3179,7 @@ fn process_expr(expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexer
                 },
             }
         },
-        lang_y::Expr::BinaryExpr { span, op, lhs, rhs } => {
+        lang_y::Expr::BinaryExpr { span : _, op, lhs, rhs } => {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
 

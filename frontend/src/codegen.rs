@@ -1,1494 +1,617 @@
 extern crate hercules_ir;
 
+use std::collections::{HashMap, VecDeque};
+
+use self::hercules_ir::ir;
 use self::hercules_ir::ir::*;
 use self::hercules_ir::build::*;
 
 use crate::ssa::SSA;
-use crate::semant::{Prg, Function};
-use crate::types::{IType, TypeSolver, Type};
+use crate::semant;
+use crate::semant::{Prg, Function, Stmt, Expr, Literal, UnaryOp, BinaryOp};
+use crate::types::{TypeSolver, TypeSolverInst, Primitive, Either};
 
 // Loop info is a stack of the loop levels, recording the latch and exit block of each
 type LoopInfo = Vec<(NodeID, NodeID)>;
 
 pub fn codegen_program(prg : Prg) -> Module {
-    todo!()
+    CodeGenerator::build(prg)
 }
 
-/*
-fn codegen_function(func : &Function, type_args : Vec<IType>) {
-    let (funcId, entry)
-        = builder.create_function(/* name */             todo!(),
-                                  /* argument types */   todo!(),
-                                  /* return type */      todo!(),
-                                  /* number dyn const */ todo!()).unwrap();
-
-    let mut ssa : SSA = SSA::new(funcId, entry);
-
-    todo!()
+struct CodeGenerator<'a> {
+    builder   : Builder<'a>,
+    types     : &'a TypeSolver,
+    funcs     : &'a Vec<Function>,
+    uid       : usize,
+    // The function map tracks a map from function index and set of type variables to its function
+    // id in the builder
+    functions : HashMap<(usize, Vec<TypeID>), FunctionID>,
+    // The worklist tracks a list of functions to codegen, tracking the function's id, its
+    // type-solving instantiation (account for the type parameters), the function id, and the entry
+    // block id
+    worklist  : VecDeque<(usize, TypeSolverInst<'a>, FunctionID, NodeID)>,
 }
-*/
 
-/*
-fn prepare_program(
-    prg : lang_y::Prg, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable) -> Result<Module, ErrorMessages> {
+impl CodeGenerator<'_> {
+    fn build((types, funcs) : Prg) -> Module {
+        // Identify the functions (by index) which have no type arguments, these are the ones we
+        // ask for code to be generated for
+        let func_idx
+            = funcs.iter().enumerate()
+                  .filter_map(|(i, f)|
+                                if f.num_type_args == 0 { Some(i) } else { None });
 
-    for top in prg {
-        match top {
-            lang_y::Top::FuncDecl { span, public: _, attr: _, name, ty_vars, args, ty, body } => {
-                let mut idx = 0;
-                for (nm, ty) in arg_types {
-                    let mut node_builder = builder.allocate_node(func);
-                    let node = node_builder.id();
-                    node_builder.build_parameter(idx);
-                    let _ = builder.add_node(node_builder);
+        let mut codegen = CodeGenerator { builder   : Builder::create(),
+                                          types     : &types,
+                                          funcs     : &funcs,
+                                          uid       : 0,
+                                          functions : HashMap::new(),
+                                          worklist  : VecDeque::new(), };
 
-                    let variable = env.uniq();
-                    env.insert(nm,
-                               Entity::Variable {
-                                   variable : variable,
-                                   typ : ty,
-                                   is_const : false });
-                    arg_variables.push(variable);
+        // Add the identifed functions to the list to code-gen
+        func_idx.for_each(|i| { let _ = codegen.get_function(i, vec![]); });
 
-                    ssa.write_variable(variable, entry, node);
+        codegen.finish()
+    }
 
-                    idx += 1;
+    fn finish(mut self) -> Module {
+        while !self.worklist.is_empty() {
+            let (idx, mut type_inst, func, entry) = self.worklist.pop_front().unwrap();
+            self.codegen_function(&self.funcs[idx], &mut type_inst, func, entry);
+        }
+
+        self.builder.finish()
+    }
+
+    fn get_function(&mut self, func_idx : usize, ty_args : Vec<TypeID>) -> FunctionID {
+        let func_info = (func_idx, ty_args);
+        match self.functions.get(&func_info) {
+            Some(func_id) => *func_id,
+            None => {
+                let ty_args = func_info.1;
+
+                let func = &self.funcs[func_idx];
+                let mut solver_inst = self.types.create_instance(ty_args.clone());
+
+                // TODO: Ideally we would write out the type arguments, but now that they're
+                // lowered to TypeID we can't do that as far as I can tell
+                let name = format!("{}.{}", func.name, self.uid);
+                self.uid += 1;
+
+                let mut param_types = vec![];
+                for (_, ty) in func.arguments.iter() {
+                    param_types.push(solver_inst.lower_type(&mut self.builder, *ty));
                 }
 
-                let inout_variables = inout_args.iter().map(|i| arg_variables[*i]).collect::<Vec<_>>();
+                let return_type = solver_inst.lower_type(&mut self.builder, func.return_type);
 
-                // Finally, we have a properly built environment and we can
-                // start processing the body
-                match process_stmt(body, lexer, stringtab, &mut env, &mut builder, func, &mut ssa,
-                                   entry, &mut vec![], &return_type, &inout_types, &inout_variables)? {
+                let (func_id, entry)
+                    = self.builder.create_function(
+                        &name, param_types, return_type,
+                        func.num_dyn_consts as u32).unwrap();
+
+                self.functions.insert((func_idx, ty_args), func_id);
+                self.worklist.push_back((func_idx, solver_inst, func_id, entry));
+                func_id
+            },
+        }
+    }
+
+    fn codegen_function(&mut self, func : &Function, types : &mut TypeSolverInst,
+                        func_id : FunctionID, entry : NodeID) {
+        // Setup the SSA construction data structure
+        let mut ssa = SSA::new(func_id, entry);
+
+        // Create nodes for the arguments
+        for (idx, (var, _)) in func.arguments.iter().enumerate() {
+            let mut node_builder = self.builder.allocate_node(func_id);
+            ssa.write_variable(*var, entry, node_builder.id());
+            node_builder.build_parameter(idx);
+            let _ = self.builder.add_node(node_builder);
+        }
+
+        // Generate code for the body
+        let None = self.codegen_stmt(&func.body, types, &mut ssa,
+                                     func_id, entry, &mut vec![])
+            else { panic!("Generated code for a function missing a return") };
+    }
+
+    fn codegen_stmt(&mut self, stmt : &Stmt, types : &mut TypeSolverInst,
+                    ssa : &mut SSA, func_id : FunctionID, cur_block : NodeID,
+                    loops : &mut LoopInfo) -> Option<NodeID> {
+        match stmt {
+            Stmt::AssignStmt { var, val } => {
+                let (val, block) = self.codegen_expr(val, types, ssa, func_id, cur_block);
+                ssa.write_variable(*var, block, val);
+                Some(block)
+            },
+            Stmt::IfStmt { cond, thn, els } => {
+                let (val_cond, block_cond)
+                    = self.codegen_expr(cond, types, ssa, func_id, cur_block);
+                let (mut if_node, block_then, block_else)
+                    = ssa.create_cond(&mut self.builder, block_cond);
+
+                let then_end = self.codegen_stmt(thn, types, ssa,
+                                                 func_id, block_then, loops);
+                let else_end =
+                    match els {
+                        None => Some(block_else),
+                        Some(els_stmt) =>
+                            self.codegen_stmt(els_stmt, types, ssa,
+                                              func_id, block_else, loops),
+                    };
+
+                if_node.build_if(block_cond, val_cond);
+                let _ = self.builder.add_node(if_node);
+
+                match (then_end, else_end) {
+                    (None, els) => els,
+                    (thn, None) => thn,
+                    (Some(then_term), Some(else_term)) => {
+                        let block_join = ssa.create_block(&mut self.builder);
+                        ssa.add_pred(block_join, then_term);
+                        ssa.add_pred(block_join, else_term);
+                        ssa.seal_block(block_join, &mut self.builder);
+                        Some(block_join)
+                    },
+                }
+            },
+            Stmt::LoopStmt { cond, update, body } => {
+                // Create a block for the loop condition, which we enter into
+                let block_latch = ssa.create_block(&mut self.builder);
+                ssa.add_pred(block_latch, cur_block);
+
+                // Build the condition in the condition block
+                let (val_cond, block_cond)
+                    = self.codegen_expr(cond, types, ssa, func_id, cur_block);
+
+                let (mut if_node, body_block, false_proj)
+                    = ssa.create_cond(&mut self.builder, block_cond);
+                if_node.build_if(block_cond, val_cond);
+                let _ = self.builder.add_node(if_node);
+
+                // Create the exit block (what comes after the loop)
+                let block_exit = ssa.create_block(&mut self.builder);
+                ssa.add_pred(block_exit, false_proj);
+
+                // Determine the appropriate latch, i.e. where to jump at the end of an iteration
+                // or on a continue
+                // If there is no update code, simply jump to block_latch which contains the
+                // condition check, otherwise create a new block which leads to block_latch
+                // Note that in the latter case we seal block_latch since we know there are exactly
+                // two entrances into it (from the "actual" latch and the predecessor of the loop)
+                let latch =
+                    match update {
+                        None => block_latch,
+                        Some(upd_stmt) => {
+                            let block_update = ssa.create_block(&mut self.builder);
+                            let Some(update) 
+                                = self.codegen_stmt(upd_stmt, types, ssa, func_id, cur_block, loops)
+                                else { panic!("Loop's update does not continue control") };
+
+                            ssa.add_pred(block_latch, update);
+                            ssa.seal_block(block_latch, &mut self.builder);
+
+                            block_update
+                        },
+                    };
+
+                // Generate code for the body
+                loops.push((latch, block_exit));
+                let body_res = self.codegen_stmt(body, types, ssa, func_id, body_block, loops);
+                loops.pop();
+                // If the body of the loop can reach some block, we add that block as a predecessor
+                // of the latch
+                match body_res {
                     None => {},
                     Some(block) => {
-                        // The fact that some block is returned indicates that there is possibly
-                        // some path that does not reach a return. This is an error unless the
-                        // return type is "void"
-                        if return_type.is_void() {
-                            // Insert return at the end
-                            // ( (), (...return_variables...) )
-                            let unit_const = builder.create_constant_prod(vec![].into());
-                            let mut unit_build = builder.allocate_node(func);
-                            let unit_value = unit_build.id();
-                            unit_build.build_constant(unit_const);
-                            let _ = builder.add_node(unit_build);
-
-                            build_return(&return_type, unit_value, block,
-                                         &inout_types, &inout_variables,
-                                         &mut builder, func, &mut ssa);
-                        } else {
-                            return Err(singleton_error(
-                                    ErrorMessage::SemanticError(
-                                        span_to_loc(span, lexer),
-                                        "May reach end of control without return".to_string())));
-                        }
+                        ssa.add_pred(latch, block);
                     },
                 }
 
-                env.close_scope();
+                // Seal remaining open blocks
+                ssa.seal_block(block_exit, &mut self.builder);
+                ssa.seal_block(latch, &mut self.builder);
+
+                // It is always assumed a loop may be skipped and so control can reach after the
+                // loop
+                Some(block_exit)
+            },
+            Stmt::ReturnStmt { expr } => {
+                let (val_ret, block_ret)
+                    = self.codegen_expr(expr, types, ssa, func_id, cur_block);
+                let mut return_node = self.builder.allocate_node(func_id);
+                return_node.build_return(block_ret, val_ret);
+                let _ = self.builder.add_node(return_node);
+                None
+            },
+            Stmt::BreakStmt {} => {
+                let last_loop = loops.len() - 1;
+                let (_latch, exit) = loops[last_loop];
+                ssa.add_pred(exit, cur_block); // The block that contains this break now leads to
+                                               // the exit
+                None
+            },
+            Stmt::ContinueStmt {} => {
+                let last_loop = loops.len() - 1;
+                let (latch, _exit) = loops[last_loop];
+                ssa.add_pred(latch, cur_block); // The block that contains this continue now leads
+                                                // to the latch
+                None
+            },
+            Stmt::BlockStmt { body } => {
+                let mut block = Some(cur_block);
+                for stmt in body.iter() {
+                    block = self.codegen_stmt(stmt, types, ssa, func_id,
+                                              block.unwrap(), loops);
+                }
+                block
+            },
+            Stmt::ExprStmt { expr } => {
+                let (_val, block)
+                    = self.codegen_expr(expr, types, ssa, func_id, cur_block);
+                Some(block)
+            },
+        }
+    }
+    
+    // The codegen_expr function returns a pair of node IDs, the first is the node whose value is
+    // the given expression and the second is the node of a control node at which the value is
+    // available
+    fn codegen_expr(&mut self, expr : &Expr, types : &mut TypeSolverInst,
+                    ssa : &mut SSA, func_id : FunctionID, cur_block : NodeID) 
+        -> (NodeID, NodeID) {
+        match expr {
+            Expr::Variable { var, .. } => {
+                (ssa.read_variable(*var, cur_block, &mut self.builder),
+                 cur_block)
+            },
+            Expr::DynConst { idx, .. } => {
+                let mut node = self.builder.allocate_node(func_id);
+                let node_id = node.id();
+                let dyn_const = self.builder.create_dynamic_constant_parameter(*idx);
+                node.build_dynamicconstant(dyn_const);
+                let _ = self.builder.add_node(node);
+                (node_id, cur_block)
+            },
+            Expr::Read { index, val, .. } => {
+                let (collection, block)
+                    = self.codegen_expr(val, types, ssa, func_id, cur_block);
+                let (indices, end_block) 
+                    = self.codegen_indices(index, types, ssa, func_id, block);
+
+                let mut node = self.builder.allocate_node(func_id);
+                let node_id = node.id();
+                node.build_read(collection, indices.into());
+                let _ = self.builder.add_node(node);
+                (node_id, end_block)
+            },
+            Expr::Write { index, val, rep, .. } => {
+                let (collection, block)
+                    = self.codegen_expr(val, types, ssa, func_id, cur_block);
+                let (indices, idx_block) 
+                    = self.codegen_indices(index, types, ssa, func_id, block);
+                let (replace, end_block)
+                    = self.codegen_expr(rep, types, ssa, func_id, idx_block);
+
+                let mut node = self.builder.allocate_node(func_id);
+                let node_id = node.id();
+                node.build_write(collection, replace, indices.into());
+                let _ = self.builder.add_node(node);
+                (node_id, end_block)
+            },
+            Expr::Tuple { vals, typ } => {
+                let mut block = cur_block;
+                let mut values = vec![];
+                for expr in vals {
+                    let (val_expr, block_expr)
+                        = self.codegen_expr(expr, types, ssa, func_id, block);
+                    block = block_expr;
+                    values.push(val_expr);
+                }
+                
+                let tuple_type = types.lower_type(&mut self.builder, *typ);
+                (self.build_tuple(values, tuple_type, func_id), block)
+            },
+            Expr::Union { tag, val, typ } => {
+                let (value, block)
+                    = self.codegen_expr(val, types, ssa, func_id, cur_block);
+
+                let union_type = types.lower_type(&mut self.builder, *typ);
+                (self.build_union(*tag, value, union_type, func_id), block)
+            },
+            Expr::Constant { val, .. } => {
+                let const_id = self.build_constant(val, types);
+                
+                let mut val = self.builder.allocate_node(func_id);
+                let val_node = val.id();
+                val.build_constant(const_id);
+                let _ = self.builder.add_node(val);
+
+                (val_node, cur_block)
+            },
+            Expr::Zero { typ } => {
+                let type_id = types.lower_type(&mut self.builder, *typ);
+                let zero_const = self.builder.create_constant_zero(type_id);
+                let mut zero = self.builder.allocate_node(func_id);
+                let zero_val = zero.id();
+                zero.build_constant(zero_const);
+                let _ = self.builder.add_node(zero);
+
+                (zero_val, cur_block)
+            },
+            Expr::UnaryExp { op, expr, .. } => {
+                let (val, block)
+                    = self.codegen_expr(expr, types, ssa, func_id, cur_block);
+                
+                let mut expr = self.builder.allocate_node(func_id);
+                let expr_id = expr.id();
+                expr.build_unary(val,
+                                 match op {
+                                     UnaryOp::Negation => UnaryOperator::Neg,
+                                     UnaryOp::BitwiseNot => UnaryOperator::Not,
+                                 });
+                let _ = self.builder.add_node(expr);
+
+                (expr_id, block)
+            },
+            Expr::BinaryExp { op, lhs, rhs, .. } => {
+                let (val_lhs, block_lhs)
+                    = self.codegen_expr(lhs, types, ssa, func_id, cur_block);
+                let (val_rhs, block_rhs)
+                    = self.codegen_expr(rhs, types, ssa, func_id, block_lhs);
+
+                let mut expr = self.builder.allocate_node(func_id);
+                let expr_id = expr.id();
+                expr.build_binary(val_lhs, val_rhs,
+                                  match op {
+                                      BinaryOp::Add    => BinaryOperator::Add,
+                                      BinaryOp::Sub    => BinaryOperator::Sub,
+                                      BinaryOp::Mul    => BinaryOperator::Mul,
+                                      BinaryOp::Div    => BinaryOperator::Div,
+                                      BinaryOp::Mod    => BinaryOperator::Rem,
+                                      BinaryOp::BitAnd => BinaryOperator::And,
+                                      BinaryOp::BitOr  => BinaryOperator::Or,
+                                      BinaryOp::Xor    => BinaryOperator::Xor,
+                                      BinaryOp::Lt     => BinaryOperator::LT,
+                                      BinaryOp::Le     => BinaryOperator::LTE,
+                                      BinaryOp::Gt     => BinaryOperator::GT,
+                                      BinaryOp::Ge     => BinaryOperator::GTE,
+                                      BinaryOp::Eq     => BinaryOperator::EQ,
+                                      BinaryOp::Neq    => BinaryOperator::NE,
+                                      BinaryOp::LShift => BinaryOperator::LSh,
+                                      BinaryOp::RShift => BinaryOperator::RSh,
+                                  });
+                let _ = self.builder.add_node(expr);
+
+                (expr_id, block_rhs)
+            },
+            Expr::CastExpr { expr, typ } => {
+                let type_id = types.lower_type(&mut self.builder, *typ);
+                let (val, block)
+                    = self.codegen_expr(expr, types, ssa, func_id, cur_block);
+
+                let mut expr = self.builder.allocate_node(func_id);
+                let expr_id = expr.id();
+                expr.build_unary(val, UnaryOperator::Cast(type_id));
+                let _ = self.builder.add_node(expr);
+
+                (expr_id, block)
+            },
+            Expr::CondExpr { cond, thn, els, .. } => {
+                // Code-gen the condition
+                let (val_cond, block_cond)
+                    = self.codegen_expr(cond, types, ssa, func_id, cur_block);
+
+                // Create the if
+                let (mut if_builder, then_block, else_block)
+                    = ssa.create_cond(&mut self.builder, block_cond);
+                if_builder.build_if(block_cond, val_cond);
+                let _ = self.builder.add_node(if_builder);
+
+                // Code-gen the branches
+                let (then_val, block_then)
+                    = self.codegen_expr(thn, types, ssa, func_id, then_block);
+                let (else_val, block_else)
+                    = self.codegen_expr(els, types, ssa, func_id, else_block);
+
+                // Create the join in the control-flow
+                let join = ssa.create_block(&mut self.builder);
+                ssa.add_pred(join, block_then);
+                ssa.add_pred(join, block_else);
+                ssa.seal_block(join, &mut self.builder);
+
+                // Create a phi that joins the two branches
+                let mut phi = self.builder.allocate_node(func_id);
+                let phi_id = phi.id();
+                phi.build_phi(join, vec![then_val, else_val].into());
+                let _ = self.builder.add_node(phi);
+
+                (phi_id, join)
+            },
+            Expr::CallExpr { func, ty_args, dyn_consts, args, .. } => {
+                // We start by lowering the type arguments to TypeIDs
+                let mut type_params = vec![];
+                for typ in ty_args {
+                    type_params.push(types.lower_type(&mut self.builder, *typ));
+                }
+
+                // With the type arguments, we can now lookup the function
+                let func_id = self.get_function(*func, type_params);
+
+                // We then build the dynamic constants
+                let dynamic_constants
+                    = TypeSolverInst::build_dyn_consts(&mut self.builder, dyn_consts);
+
+                // Code gen for each argument in order
+                // For inouts, this becomes an ssa.read_variable
+                // We also record the variables which are our inouts
+                let mut block = cur_block;
+                let mut arg_vals = vec![];
+                let mut inouts = vec![];
+                for arg in args {
+                    match arg {
+                        Either::Left(exp) => {
+                            let (val, new_block)
+                                = self.codegen_expr(exp, types, ssa, func_id, block);
+                            block = new_block;
+                            arg_vals.push(val);
+                        },
+                        Either::Right(var) => {
+                            inouts.push(*var);
+                            arg_vals.push(ssa.read_variable(*var, block, &mut self.builder));
+                        },
+                    }
+                }
+
+                // Create the call expression
+                let mut call = self.builder.allocate_node(func_id);
+                let call_id = call.id();
+                call.build_call(func_id, dynamic_constants.into(), arg_vals.into());
+                let _ = self.builder.add_node(call);
+
+                // Read each of the "inout values" and perform the SSA update
+                let inouts_index = self.builder.create_field_index(1);
+                for (idx, var) in inouts.into_iter().enumerate() {
+                    let index = self.builder.create_field_index(idx);
+                    let mut read = self.builder.allocate_node(func_id);
+                    let read_id = read.id();
+                    read.build_read(call_id, vec![inouts_index.clone(), index].into());
+                    let _ = self.builder.add_node(read);
+
+                    ssa.write_variable(var, block, read_id);
+                }
+                
+                // Read the "actual return" value and return it
+                let value_index = self.builder.create_field_index(0);
+                let mut read = self.builder.allocate_node(func_id);
+                let read_id = read.id();
+                read.build_read(call_id, vec![value_index].into());
+                let _ = self.builder.add_node(read);
+
+                (read_id, block)
+            },
+        }
+    }
+
+    // Convert a list of Index from the semantic analysis into a list of indices for the builder.
+    // Note that this takes and returns a block since expressions may involve control flow
+    fn codegen_indices(&mut self, index : &Vec<semant::Index>, types : &mut TypeSolverInst,
+                       ssa : &mut SSA, func_id : FunctionID, cur_block : NodeID)
+        -> (Vec<ir::Index>, NodeID) {
+
+        let mut block = cur_block;
+        let mut built_index = vec![];
+        for idx in index {
+            match idx {
+                semant::Index::Field(idx) => {
+                    built_index.push(self.builder.create_field_index(*idx));
+                },
+                semant::Index::Variant(idx) => {
+                    built_index.push(self.builder.create_variant_index(*idx));
+                },
+                semant::Index::Array(exps) => {
+                    let mut expr_vals = vec![];
+                    for exp in exps {
+                        let (val, new_block) =
+                            self.codegen_expr(exp, types, ssa, func_id, block);
+                        block = new_block;
+                        expr_vals.push(val);
+                    }
+                    built_index.push(self.builder.create_position_index(expr_vals.into()));
+                },
+            }
+        }
+
+        (built_index, block)
+    }
+
+    fn build_tuple(&mut self, exprs : Vec<NodeID>, typ : TypeID, func_id : FunctionID) -> NodeID {
+        let zero_const = self.builder.create_constant_zero(typ);
+        
+        let mut zero = self.builder.allocate_node(func_id);
+        let zero_val = zero.id();
+        zero.build_constant(zero_const);
+        let _ = self.builder.add_node(zero);
+
+        let mut val = zero_val;
+        for (idx, exp) in exprs.into_iter().enumerate() {
+            let mut write = self.builder.allocate_node(func_id);
+            let write_id = write.id();
+            let index = self.builder.create_field_index(idx);
+
+            write.build_write(val, exp, vec![index].into());
+            let _ = self.builder.add_node(write);
+            val = write_id;
+        }
+
+        val
+    }
+    
+    fn build_union(&mut self, tag : usize, val : NodeID, typ : TypeID,
+                   func_id : FunctionID) -> NodeID {
+        let zero_const = self.builder.create_constant_zero(typ);
+        
+        let mut zero = self.builder.allocate_node(func_id);
+        let zero_val = zero.id();
+        zero.build_constant(zero_const);
+        let _ = self.builder.add_node(zero);
+
+        let mut write = self.builder.allocate_node(func_id);
+        let write_id = write.id();
+        let index = self.builder.create_variant_index(tag);
+
+        write.build_write(zero_val, val, vec![index].into());
+        let _ = self.builder.add_node(write);
+
+        write_id
+    }
+
+    fn build_constant<'a>(&mut self, (lit, typ) : &semant::Constant,
+                          types : &mut TypeSolverInst<'a>) -> ConstantID {
+        match lit {
+            Literal::Unit => {
+                self.builder.create_constant_prod(vec![].into())
+            },
+            Literal::Bool(val) => {
+                self.builder.create_constant_bool(*val)
+            },
+            Literal::Integer(val) => {
+                let p = types.as_numeric_type(&mut self.builder, *typ);
+                match p {
+                    Primitive::I8  => self.builder.create_constant_i8(*val as i8),
+                    Primitive::I16 => self.builder.create_constant_i16(*val as i16),
+                    Primitive::I32 => self.builder.create_constant_i32(*val as i32),
+                    Primitive::I64 => self.builder.create_constant_i64(*val as i64),
+                    Primitive::U8  => self.builder.create_constant_u8(*val as u8),
+                    Primitive::U16 => self.builder.create_constant_u16(*val as u16),
+                    Primitive::U32 => self.builder.create_constant_u32(*val as u32),
+                    Primitive::U64 => self.builder.create_constant_u64(*val as u64),
+                    Primitive::F32 => self.builder.create_constant_f32(*val as f32),
+                    Primitive::F64 => self.builder.create_constant_f64(*val as f64),
+                    _ => panic!("Internal error in build_constant for integer"),
+                }
+            },
+            Literal::Float(val) => {
+                let p = types.as_numeric_type(&mut self.builder, *typ);
+                match p {
+                    Primitive::F32 => self.builder.create_constant_f32(*val as f32),
+                    Primitive::F64 => self.builder.create_constant_f64(*val as f64),
+                    _ => panic!("Internal error in build_constant for float"),
+                }
+            },
+            Literal::Tuple(vals) => {
+                let mut constants = vec![];
+                for val in vals {
+                    constants.push(self.build_constant(val, types));
+                }
+                self.builder.create_constant_prod(constants.into())
+            },
+            Literal::Sum(tag, val) => {
+                let constant = self.build_constant(val, types);
+                let type_id = types.lower_type(&mut self.builder, *typ);
+                self.builder.create_constant_sum(type_id, *tag as u32, constant).unwrap()
             },
         }
     }
 }
-
-fn process_type_def(
-    def : lang_y::TyDef, name : usize,
-    lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &mut Env<usize, Entity>)
-    -> Result<Type, ErrorMessages> {
-    
-    match def {
-        lang_y::TyDef::TypeAlias { span: _, body } => {
-            process_type(body, lexer, stringtab, env)
-        },
-        lang_y::TyDef::Struct { span: _, public: _, fields } => {
-            // TODO: handle public correctly (and field public)
-            
-            let mut field_list = vec![];
-            let mut field_map = HashMap::new();
-            let mut errors = LinkedList::new();
-
-            for ObjField { span, public: _, name, typ } in fields {
-                let nm = intern_id(&name, lexer, stringtab);
-                match typ {
-                    None => {
-                        errors.push_back(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(span, lexer),
-                                "struct fields must have a type".to_string()));
-                    },
-                    Some(ty) => {
-                        match process_type(ty, lexer, stringtab, env) {
-                            Ok(typ) => {
-                                let idx = field_list.len();
-                                field_list.push(typ);
-                                field_map.insert(nm, idx);
-                            },
-                            Err(mut errs) => errors.append(&mut errs),
-                        }
-                    },
-                }
-            }
-
-            if !errors.is_empty() {
-                Err(errors)
-            } else {
-                Ok(Type::Struct { name : name,
-                                  id : env.uniq(),
-                                  fields : field_list,
-                                  names : field_map })
-            }
-        },
-        lang_y::TyDef::Union { span, public: _, fields: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "unions".to_string())))
-        },
-    }
-}
-
-fn process_type(
-    typ : lang_y::Type, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &Env<usize, Entity>)
-    -> Result<Type, ErrorMessages> {
-
-    match typ {
-        lang_y::Type::PrimType { span: _, typ } => {
-            Ok(Type::Primitive(typ))
-        },
-        lang_y::Type::TupleType { span: _, tys } => {
-            let mut fields = vec![];
-            let mut errors = LinkedList::new();
-
-            for ty in tys {
-                match process_type(ty, lexer, stringtab, env) {
-                    Ok(t) => fields.push(t),
-                    Err(mut errs) => errors.append(&mut errs),
-                }
-            }
-
-            if !errors.is_empty() {
-                Err(errors)
-            } else {
-                if fields.len() == 1 {
-                    Ok(fields.pop().expect("Length"))
-                } else {
-                    Ok(Type::Tuple(fields))
-                }
-            }
-        },
-        lang_y::Type::NamedType { span, name, args } => {
-            if args.len() > 0 {
-                Err(singleton_error(
-                        ErrorMessage::NotImplemented(
-                            span_to_loc(span, lexer),
-                            "type parameters".to_string())))
-            } else if name.len() != 1 {
-                Err(singleton_error(
-                        ErrorMessage::NotImplemented(
-                            span_to_loc(span, lexer),
-                            "packages".to_string())))
-            } else {
-                let id = intern_package_name(&name, lexer, stringtab);
-                let nm = id[0];
-                match env.lookup(&nm) {
-                    Some(Entity::Type { value }) => Ok(value.clone()),
-                    Some(_) =>
-                        Err(singleton_error(
-                                ErrorMessage::KindError(
-                                    span_to_loc(span, lexer),
-                                    "type".to_string(),
-                                    "value".to_string()))),
-                    None =>
-                        Err(singleton_error(
-                                ErrorMessage::UndefinedVariable(
-                                    span_to_loc(span, lexer),
-                                    stringtab.lookup_id(nm).unwrap()))),
-                }
-            }
-        },
-        lang_y::Type::ArrayType { span: _, elem, dims } => {
-            let mut dimensions = vec![];
-            let mut errors = LinkedList::new();
-
-            let element = process_type(*elem, lexer, stringtab, env);
-
-            for dim in dims {
-                match process_type_expr_as_expr(dim, lexer, stringtab, env) {
-                    Err(mut errs) => errors.append(&mut errs),
-                    Ok(ex) => dimensions.push(ex),
-                }
-            }
-
-            match element {
-                Err(mut errs) => {
-                    errs.append(&mut errors);
-                    Err(errs)
-                },
-                Ok(element_type) => {
-                    if !errors.is_empty() {
-                        Err(errors)
-                    } else {
-                        match element_type {
-                            Type::Array(inner_elem, mut inner_dims) => {
-                                dimensions.append(&mut inner_dims);
-                                Ok(Type::Array(inner_elem, dimensions))
-                            },
-                            elem_type => {
-                                Ok(Type::Array(Box::new(elem_type), dimensions))
-                            },
-                        }
-                    }
-                }
-            }
-        },
-    }
-}
-
-fn process_type_expr_as_expr(
-    exp : lang_y::TypeExpr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &Env<usize, Entity>)
-    -> Result<DynamicConstant, ErrorMessages> {
-
-    match exp {
-        lang_y::TypeExpr::PrimType { span, .. }
-        | lang_y::TypeExpr::TupleType { span, .. }
-        | lang_y::TypeExpr::ArrayTypeExpr { span, .. } =>
-            Err(singleton_error(
-                    ErrorMessage::KindError(
-                        span_to_loc(span, lexer),
-                        "dynamic constant expression".to_string(),
-                        "type".to_string()))),
-
-        lang_y::TypeExpr::NamedTypeExpr { span, name, args } => {
-            if args.len() > 0 {
-                Err(singleton_error(
-                        ErrorMessage::NotImplemented(
-                            span_to_loc(span, lexer),
-                            "type parameters".to_string())))
-            } else if name.len() != 1 {
-                Err(singleton_error(
-                        ErrorMessage::NotImplemented(
-                            span_to_loc(span, lexer),
-                            "packages".to_string())))
-            } else {
-                let id = intern_package_name(&name, lexer, stringtab);
-                let nm = id[0];
-                match env.lookup(&nm) {
-                    Some(Entity::DynConst { value }) => {
-                        Ok(DynamicConstant::DynConst(nm, *value))
-                    },
-                    Some(Entity::Variable { .. }) =>
-                        Err(singleton_error(
-                                ErrorMessage::KindError(
-                                    span_to_loc(span, lexer),
-                                    "dynamic constant expression".to_string(),
-                                    "runtime variable".to_string()))),
-                    Some(Entity::Type { .. }) =>
-                        Err(singleton_error(
-                                ErrorMessage::KindError(
-                                    span_to_loc(span, lexer),
-                                    "dynamic constant expression".to_string(),
-                                    "type".to_string()))),
-                    None =>
-                        Err(singleton_error(
-                                ErrorMessage::UndefinedVariable(
-                                    span_to_loc(span, lexer),
-                                    stringtab.lookup_id(nm).unwrap()))),
-                }
-            }
-        },
-        lang_y::TypeExpr::IntLiteral { span, base } => {
-            let res = usize::from_str_radix(lexer.span_str(span), base.base());
-            assert!(res.is_ok(), "Internal Error: Int literal is not an integer");
-            Ok(DynamicConstant::Constant(res.unwrap()))
-        },
-
-        lang_y::TypeExpr::Negative { span, .. }
-        | lang_y::TypeExpr::Add { span, .. }
-        | lang_y::TypeExpr::Sub { span, .. }
-        | lang_y::TypeExpr::Mul { span, .. } =>
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "expressions of dynamic constants".to_string()))),
-    }
-}
-
-// The return is the block that a statement after this statement should go in,
-// it may be None in the case of a return
-fn process_stmt<'a>(
-    stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
-    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
-    pred : NodeID, loops : &mut LoopInfo, return_type : &Type,
-    inout_types : &Vec<Type>, inout_vars : &Vec<usize>) -> Result<Option<NodeID>, ErrorMessages> {
-
-    match stmt {
-        lang_y::Stmt::LetStmt { span: _, var : VarBind { span : v_span, pattern, typ }, init } => {
-            match pattern {
-                SPattern::Variable { span, name } => {
-                    if typ.is_none() {
-                        return Err(singleton_error(
-                                ErrorMessage::NotImplemented(
-                                    span_to_loc(v_span, lexer),
-                                    "variable type inference".to_string())));
-                    }
-
-                    if name.len() != 1 {
-                        return Err(singleton_error(
-                                ErrorMessage::SemanticError(
-                                    span_to_loc(span, lexer),
-                                    "Bound variables must be local names, without a package separator".to_string())));
-                    }
-
-                    let nm = intern_package_name(&name, lexer, stringtab)[0];
-                    let ty = process_type(typ.expect("FROM ABOVE"), lexer, stringtab, env)?;
-
-                    let var = env.uniq();
-
-                    let val =
-                        match init {
-                            Some(exp) => {
-                                process_expr(exp, lexer, stringtab, env, builder, func, ssa,
-                                             pred, &GoalType::KnownType(ty.clone()))?.0
-                            },
-                            None => {
-                                let init = build_default(&ty, builder);
-                                let mut node_builder = builder.allocate_node(func);
-                                let node = node_builder.id();
-                                node_builder.build_constant(init);
-                                let _ = builder.add_node(node_builder);
-                                node
-                            },
-                        };
-
-                    env.insert(nm,
-                               Entity::Variable { variable : var, typ : ty, is_const : false });
-                    ssa.write_variable(var, pred, val);
-
-                    Ok(Some(pred))
-                },
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::NotImplemented(
-                                span_to_loc(v_span, lexer),
-                                "non-variable bindings".to_string())))
-                },
-            }
-        },
-        lang_y::Stmt::ConstStmt { span, var: _, init: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "constant bindings".to_string())))
-        },
-        lang_y::Stmt::AssignStmt { span: _, lhs, assign, assign_span, rhs } => {
-            let (var, typ, index) = process_lexpr(lhs, lexer, stringtab, env, builder,
-                                                  func, ssa, pred)?;
-
-            let val = process_expr(rhs, lexer, stringtab, env, builder, func,
-                                   ssa, pred, &GoalType::KnownType(typ.clone()))?.0;
-
-            if assign == AssignOp::None {
-                if index.is_empty() {
-                    ssa.write_variable(var, pred, val);
-                } else {
-                    let init_value = ssa.read_variable(var, pred, builder);
-
-                    let mut update_builder = builder.allocate_node(func);
-                    ssa.write_variable(var, pred, update_builder.id());
-
-                    update_builder.build_write(init_value, val, index.into());
-                    let _ = builder.add_node(update_builder);
-                }
-                
-                Ok(Some(pred))
-            } else {
-                let op =
-                    match assign {
-                        AssignOp::None => panic!("Impossible"),
-                        AssignOp::Add => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator += cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Add
-                        },
-                        AssignOp::Sub => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator -= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Sub
-                        },
-                        AssignOp::Mul => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator *= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Mul
-                        },
-                        AssignOp::Div => {
-                            if !typ.is_numeric() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator /= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Div
-                        },
-                        AssignOp::Mod => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator %= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Rem
-                        },
-                        AssignOp::BitAnd => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator &= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::And
-                        },
-                        AssignOp::BitOr => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator |= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Or
-                        },
-                        AssignOp::Xor => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator ^= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::Xor
-                        },
-                        AssignOp::LogAnd => {
-                            if !typ.is_boolean() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator &&= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            return Err(singleton_error(
-                                    ErrorMessage::NotImplemented(
-                                        span_to_loc(assign_span, lexer),
-                                        "&&= operator".to_string())));
-                        },
-                        AssignOp::LogOr => {
-                            if !typ.is_boolean() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator ||= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            return Err(singleton_error(
-                                    ErrorMessage::NotImplemented(
-                                        span_to_loc(assign_span, lexer),
-                                        "||= operator".to_string())));
-                        },
-                        AssignOp::LShift => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator <<= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::LSh
-                        },
-                        AssignOp::RShift => {
-                            if !typ.is_integer() {
-                                return Err(singleton_error(
-                                        ErrorMessage::SemanticError(
-                                            span_to_loc(assign_span, lexer),
-                                            format!("Operator >>= cannot be applied to type {}",
-                                                    typ.to_string(stringtab)))));
-                            }
-                            BinaryOperator::RSh
-                        },
-                    };
-                
-                let var_value = ssa.read_variable(var, pred, builder);
-                let init_value = 
-                    if index.is_empty() {
-                        var_value
-                    } else {
-                        let mut extract_builder = builder.allocate_node(func);
-                        let node = extract_builder.id();
-                        extract_builder.build_read(var_value, index.clone().into());
-                        let _ = builder.add_node(extract_builder);
-                        node
-                    };
-
-                let mut compute_builder = builder.allocate_node(func);
-                let compute_node = compute_builder.id();
-                compute_builder.build_binary(init_value, val, op);
-                let _ = builder.add_node(compute_builder);
-                
-                if index.is_empty() {
-                    ssa.write_variable(var, pred, compute_node);
-                } else {
-                    let mut update_builder  = builder.allocate_node(func);
-                    ssa.write_variable(var, pred, update_builder.id());
-                    update_builder.build_write(var_value, compute_node, index.into());
-                    let _ = builder.add_node(update_builder);
-                }
-                
-                Ok(Some(pred))
-            }
-        },
-        lang_y::Stmt::IfStmt { span: _, cond, thn, els } => {
-            // Setup control flow that we need
-            let (mut if_node, then_block, else_block) = ssa.create_cond(builder, pred);
-
-            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
-                                        func, ssa, pred,
-                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
-
-            env.open_scope();
-            let then_end = process_stmt(*thn, lexer, stringtab, env, builder,
-                                        func, ssa, then_block, loops, return_type,
-                                        inout_types, inout_vars);
-            env.close_scope();
-
-            let else_end =
-                match els {
-                    None => Ok(Some(else_block)),
-                    Some(els_stmt) => {
-                        env.open_scope();
-                        let res = process_stmt(*els_stmt, lexer, stringtab, env, builder,
-                                               func, ssa, else_block, loops, return_type,
-                                               inout_types, inout_vars);
-                        env.close_scope();
-                        res
-                    },
-                };
-
-            let ((cond_val, _), then_term, else_term) = append_errors3(cond_val, then_end, else_end)?;
-
-            if_node.build_if(pred, cond_val);
-            let _ = builder.add_node(if_node);
-
-            match (then_term, else_term) {
-                (None, els) => Ok(els),
-                (thn, None) => Ok(thn),
-                (Some(then_term), Some(else_term)) => {
-                    let join_node = ssa.create_block(builder);
-                    ssa.add_pred(join_node, then_term);
-                    ssa.add_pred(join_node, else_term);
-                    ssa.seal_block(join_node, builder);
-                    Ok(Some(join_node))
-                },
-            }
-        },
-        lang_y::Stmt::MatchStmt { span, expr: _, body: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "match statements".to_string())))
-        },
-        lang_y::Stmt::ForStmt { span: _, var : VarBind { span : v_span, pattern, typ },
-                                init, bound, step, body } => {
-            let latch = ssa.create_block(builder);
-            let update = ssa.create_block(builder);
-
-            ssa.add_pred(latch, pred);
-            ssa.add_pred(latch, update);
-            ssa.seal_block(latch, builder);
-
-            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
-            let exit = ssa.create_block(builder);
-
-            ssa.add_pred(exit, false_proj);
-
-            let (var, var_name, var_type) =
-                match pattern {
-                    SPattern::Variable { span, name } => {
-                        if name.len() != 1 {
-                            return Err(singleton_error(
-                                    ErrorMessage::SemanticError(
-                                        span_to_loc(span, lexer),
-                                        "Bound variables must be local names, without a package separator".to_string())));
-                        }
-
-                        let nm = intern_package_name(&name, lexer, stringtab)[0];
-                        let var_type =
-                            match typ {
-                                None => Type::Primitive(Primitive::U64),
-                                Some(t) => {
-                                    let ty = process_type(t, lexer, stringtab, env)?;
-                                    if !ty.is_integer() {
-                                        return Err(singleton_error(
-                                                ErrorMessage::SemanticError(
-                                                    span_to_loc(v_span, lexer),
-                                                    "For loop variables must be integers".to_string())));
-                                    }
-                                    ty
-                                },
-                            };
-
-                        let var = env.uniq();
-                        (var, nm, var_type)
-                    },
-                    _ => {
-                        return Err(singleton_error(
-                                ErrorMessage::NotImplemented(
-                                    span_to_loc(v_span, lexer),
-                                    "patterns in for loop arguments".to_string())));
-                    },
-                };
-            
-            // Evaluate the initial value, bound, and step in the predecessor
-            let init_res = process_expr(init, lexer, stringtab, env, builder,
-                                        func, ssa, pred,
-                                        &GoalType::KnownType(var_type.clone()));
-
-            let bound_res = process_expr(bound, lexer, stringtab, env, builder,
-                                         func, ssa, pred,
-                                         &GoalType::KnownType(var_type.clone()));
-            let (step_val, step_pos) =
-                match step {
-                    None => {
-                        (build_int_const(&var_type, 1, builder, func), true)
-                    },
-                    Some((negative, span, base)) => {
-                        let val = u64::from_str_radix(lexer.span_str(span), base.base());
-                        assert!(val.is_ok(), "Internal Error: Int literal is not an integer");
-                        let num = val.unwrap();
-                        if num == 0 {
-                            return Err(singleton_error(
-                                    ErrorMessage::SemanticError(
-                                        span_to_loc(span, lexer),
-                                        "For loop step cannot be 0".to_string())));
-                        }
-
-                        (build_int_const(&var_type, num, builder, func), !negative)
-                    },
-                };
-
-            let ((init_val, _), (bound_val, _)) = append_errors2(init_res, bound_res)?;
-
-            // Setup initial value
-            ssa.write_variable(var, pred, init_val);
-           
-            // Build the update
-            let mut update_node = builder.allocate_node(func);
-            let updated = update_node.id();
-            let loop_var = ssa.read_variable(var, update, builder);
-            update_node.build_binary(loop_var, step_val,
-                                     if step_pos { BinaryOperator::Add }
-                                     else { BinaryOperator::Sub });
-            let _ = builder.add_node(update_node);
-            ssa.write_variable(var, update, updated);
-
-            // Build the condition
-            let condition = {
-                let mut compare_node = builder.allocate_node(func);
-                let cond = compare_node.id();
-                let loop_var = ssa.read_variable(var, latch, builder);
-                
-                compare_node.build_binary(loop_var, bound_val,
-                                          if step_pos { BinaryOperator::LT }
-                                          else { BinaryOperator::GT });
-                
-                let _ = builder.add_node(compare_node);
-                cond
-            };
-
-            env.open_scope();
-            loops.push((update, exit));
-            env.insert(var_name, Entity::Variable {
-                                    variable : var, typ : var_type, is_const : true });
-
-            let body_term = process_stmt(*body, lexer, stringtab, env, builder,
-                                         func, ssa, body_node, loops, return_type,
-                                         inout_types, inout_vars)?;
-
-            env.close_scope();
-            loops.pop();
-
-            if_node.build_if(latch, condition);
-            let _ = builder.add_node(if_node);
-
-            match body_term { 
-                None => {},
-                Some(block) => { ssa.add_pred(update, block); },
-            }
-
-            ssa.seal_block(update, builder);
-            ssa.seal_block(exit, builder);
-
-            Ok(Some(exit))
-        },
-        lang_y::Stmt::WhileStmt { span: _, cond, body } => {
-            let latch = ssa.create_block(builder);
-            ssa.add_pred(latch, pred);
-            
-            let (mut if_node, body_node, false_proj) = ssa.create_cond(builder, latch);
-            let exit = ssa.create_block(builder);
-
-            ssa.add_pred(exit, false_proj);
-
-            let cond_val = process_expr(cond, lexer, stringtab, env, builder,
-                                        func, ssa, latch,
-                                        &GoalType::KnownType(Type::Primitive(Primitive::Bool)));
-
-            env.open_scope();
-            loops.push((latch, exit));
-
-            let body_end = process_stmt(*body, lexer, stringtab, env, builder,
-                                        func, ssa, body_node, loops, return_type,
-                                        inout_types, inout_vars);
-
-            env.close_scope();
-            loops.pop();
-
-            let ((condition, _), body_term) = append_errors2(cond_val, body_end)?;
-
-            if_node.build_if(latch, condition);
-            let _ = builder.add_node(if_node);
-
-            match body_term {
-                None => {},
-                Some(block) => { ssa.add_pred(latch, block); },
-            }
-
-            ssa.seal_block(latch, builder);
-            ssa.seal_block(exit, builder);
-
-            Ok(Some(exit))
-        },
-        lang_y::Stmt::ReturnStmt { span, expr } => {
-            let val =
-                if expr.is_none() && return_type.is_void() {
-                    let unit_const = builder.create_constant_prod(vec![].into());
-                    let mut unit_node = builder.allocate_node(func);
-                    let unit_val = unit_node.id();
-                    unit_node.build_constant(unit_const);
-                    let _ = builder.add_node(unit_node);
-                    unit_val
-                } else if expr.is_none() {
-                    return Err(singleton_error(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(span, lexer),
-                                format!("Expected return of type {} found no return value",
-                                        return_type.to_string(stringtab)))));
-                } else {
-                    process_expr(expr.unwrap(), lexer, stringtab, env,
-                                 builder, func, ssa, pred,
-                                 &GoalType::KnownType(return_type.clone()))?.0
-                };
-
-            build_return(return_type, val, pred, inout_types, inout_vars,
-                         builder, func, ssa);
-
-            Ok(None)
-        },
-        lang_y::Stmt::BreakStmt { span } => {
-            if loops.len() <= 0 {
-                return Err(singleton_error(
-                        ErrorMessage::SemanticError(
-                            span_to_loc(span, lexer),
-                            "Break not contained within loop".to_string())));
-            }
-
-            let last_loop = loops.len() - 1;
-            let (_latch, exit) = loops[last_loop];
-            ssa.add_pred(exit, pred); // The block that contains this break now leads to the exit
-            
-            Ok(None) // Code after the break is unreachable
-        },
-        lang_y::Stmt::ContinueStmt { span } => {
-            if loops.len() <= 0 {
-                return Err(singleton_error(
-                        ErrorMessage::SemanticError(
-                            span_to_loc(span, lexer),
-                            "Continue not contained within loop".to_string())));
-            }
-
-            let last_loop = loops.len() - 1;
-            let (latch, _exit) = loops[last_loop];
-            ssa.add_pred(latch, pred); // The block that contains this break now leads to the latch
-            
-            Ok(None) // Code after the continue is unreachable
-        },
-        lang_y::Stmt::BlockStmt { span: _, body } => {
-            env.open_scope();
-
-            let mut next = Some(pred);
-            let mut errors = LinkedList::new();
-            for stmt in body {
-                if next.is_none() {
-                    return Err(singleton_error(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(stmt.span(), lexer),
-                                "Unreachable statement".to_string())));
-                }
-
-                match process_stmt(stmt, lexer, stringtab, env, builder, func,
-                                   ssa, next.expect("From above"), loops,
-                                   return_type, inout_types, inout_vars) {
-                    Err(mut errs) => { errors.append(&mut errs); },
-                    Ok(block) => { next = block; },
-                }
-            }
-
-            env.close_scope();
-
-            if !errors.is_empty() {
-                Err(errors)
-            } else {
-                Ok(next)
-            }
-        },
-        lang_y::Stmt::CallStmt { span, name: _, ty_args: _, args: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "function calls".to_string())))
-        },
-    }
-}
-
-fn process_expr<'a>(
-    expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
-    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
-    block : NodeID, goal_type : &GoalType) -> Result<(NodeID, Type), ErrorMessages> {
-
-    match expr {
-        lang_y::Expr::Variable { span, name } => {
-            if name.len() != 1 {
-                return Err(singleton_error(
-                        ErrorMessage::NotImplemented(
-                            span_to_loc(span, lexer),
-                            "packages".to_string())));
-            }
-            let nm = intern_package_name(&name, lexer, stringtab)[0];
-            match env.lookup(&nm) {
-                Some(Entity::Variable { variable, typ, is_const: _ }) => {
-                    if goal_type.matches(typ) {
-                        Ok((ssa.read_variable(*variable, block, builder), typ.clone()))
-                    } else {
-                        Err(singleton_error(
-                                ErrorMessage::TypeError(
-                                    span_to_loc(span, lexer),
-                                    goal_type.to_string(stringtab),
-                                    typ.to_string(stringtab))))
-                    }
-                },
-                // NOTE: Should we handle cases of this being a type/dyn const
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::UndefinedVariable(
-                                span_to_loc(span, lexer),
-                                lexer.span_str(span).to_string())))
-                },
-            }
-        },
-        
-        lang_y::Expr::Field { span: _, lhs, rhs } => {
-            let field_name = intern_id(&rhs, lexer, stringtab);
-            let (res, typ) = process_expr(*lhs, lexer, stringtab, env, builder, func,
-                                          ssa, block,
-                                          &GoalType::StructType {
-                                              field : field_name,
-                                              field_type : Box::new(goal_type.clone()) })?;
-            match typ {
-                Type::Struct { name : _, id : _, mut fields, names } => {
-                    let index = names.get(&field_name).unwrap();
-                    let mut node_builder = builder.allocate_node(func);
-                    let node = node_builder.id();
-                    node_builder.build_read(res, vec![builder.create_field_index(*index)].into());
-                    let _ = builder.add_node(node_builder);
-                    Ok((node, fields.swap_remove(*index)))
-                },
-                _ => {
-                    panic!("Internal Error: Expected struct type")
-                },
-            }
-        },
-        lang_y::Expr::NumField { span: _, lhs, rhs } => {
-            let field_num = lexer.span_str(rhs)[1..].parse::<usize>()
-                                                    .expect("From lexical analysis");
-
-            let (res, typ) = process_expr(*lhs, lexer, stringtab, env, builder, func,
-                                          ssa, block,
-                                          &GoalType::TupleType {
-                                              index : field_num,
-                                              index_type : Box::new(goal_type.clone()) })?;
-
-            match typ {
-                Type::Tuple(mut fields) => {
-                    let mut node_builder = builder.allocate_node(func);
-                    let node = node_builder.id();
-                    node_builder.build_read(res, vec![builder.create_field_index(field_num)].into());
-                    let _ = builder.add_node(node_builder);
-                    Ok((node, fields.swap_remove(field_num)))
-                },
-                _ => {
-                    panic!("Internal Error: Expected tuple type")
-                },
-            }
-        },
-        lang_y::Expr::ArrIndex { span: _, lhs, index } => {
-            let array = process_expr(*lhs, lexer, stringtab, env, builder, func,
-                                     ssa, block,
-                                     &GoalType::ArrayType {
-                                         element_type : Box::new(goal_type.clone()),
-                                         num_dims : index.len() });
-
-            let mut indices = vec![];
-            let mut errors = LinkedList::new();
-            for idx in index {
-                match process_expr(idx, lexer, stringtab, env, builder, func, ssa, block,
-                                   &GoalType::KnownType(Type::Primitive(Primitive::USize))) {
-                    Err(mut errs) => errors.append(&mut errs),
-                    Ok((val, _)) => indices.push(val),
-                }
-            }
-
-            match array {
-                Err(mut errs) => {
-                    errs.append(&mut errors);
-                    Err(errs)
-                },
-                Ok((array_val, Type::Array(element_type, dims))) => {
-                    let mut node_builder = builder.allocate_node(func);
-                    let res = node_builder.id();
-                    node_builder.build_read(array_val, vec![builder.create_position_index(indices.clone().into())].into());
-                    let _ = builder.add_node(node_builder);
-
-                    assert!(indices.len() == dims.len(), "Array has wrong number of dimensions");
-                    Ok((res, *element_type))
-                },
-                _ => { panic!("Internal Error: Expected array type") },
-            }
-        },
-        
-        lang_y::Expr::Tuple { span, mut exprs } => {
-            if exprs.len() == 1 {
-                process_expr(exprs.pop().unwrap(), lexer, stringtab, env, builder, func, ssa,
-                             block, goal_type)
-            } else {
-                let field_tys =
-                    match goal_type {
-                        GoalType::KnownType(Type::Tuple(fields)) => {
-                            if fields.len() != exprs.len() {
-                                return Err(singleton_error(
-                                        ErrorMessage::TypeError(
-                                            span_to_loc(span, lexer),
-                                            goal_type.to_string(stringtab),
-                                            format!("(_{})", ", _".repeat(exprs.len()-1)))));
-                            }
-                            fields.iter().map(|t| GoalType::KnownType(t.clone())).collect::<Vec<_>>()
-                        },
-                        GoalType::TupleType { index, index_type } => {
-                            if *index >= exprs.len() {
-                                return Err(singleton_error(
-                                        ErrorMessage::TypeError(
-                                            span_to_loc(span, lexer),
-                                            goal_type.to_string(stringtab),
-                                            format!("(_{})", ", _".repeat(exprs.len()-1)))));
-                            }
-
-                            let mut tys = vec![];
-                            for i in 0..exprs.len() {
-                                tys.push(
-                                    if i == *index { *index_type.clone() }
-                                    else { GoalType::AnyType });
-                            }
-                            tys
-                        },
-                        GoalType::AnyType => {
-                            iter::repeat(GoalType::AnyType).take(exprs.len()).collect::<Vec<_>>()
-                        },
-                        _ => {
-                            return Err(singleton_error(
-                                    ErrorMessage::TypeError(
-                                        span_to_loc(span, lexer),
-                                        goal_type.to_string(stringtab),
-                                        "tuple".to_string())));
-                        },
-                    };
-
-                let mut vals = vec![];
-                let mut typs = vec![];
-                let mut errors = LinkedList::new();
-
-                for (exp, typ) in exprs.into_iter().zip(field_tys) {
-                    match process_expr(exp, lexer, stringtab, env, builder,
-                                       func, ssa, block, &typ) {
-                        Ok((val, ty)) => {
-                            vals.push(val);
-                            typs.push(ty);
-                        },
-                        Err(mut errs) => {
-                            errors.append(&mut errs);
-                        },
-                    }
-                }
-
-                if !errors.is_empty() {
-                    Err(errors)
-                } else {
-                    Ok((build_tuple(&typs, &vals, builder, func),
-                        Type::Tuple(typs)))
-                }
-            }
-        },
-        lang_y::Expr::Struct { span : _, name : _, ty_args : _, exprs : _ } => { todo!() },
-
-        lang_y::Expr::BoolLit { span, value } => {
-            if !goal_type.is_boolean() {
-                Err(singleton_error(
-                        ErrorMessage::TypeError(
-                            span_to_loc(span, lexer),
-                            goal_type.to_string(stringtab),
-                            "bool".to_string())))
-            } else {
-                let mut node = builder.allocate_node(func);
-                let const_val = builder.create_constant_bool(value);
-                let res = node.id();
-                node.build_constant(const_val);
-                let _ = builder.add_node(node);
-                Ok((res, goal_type.get_boolean().clone()))
-            }
-        },
-        lang_y::Expr::IntLit { span, base } => {
-            if !goal_type.is_integer() {
-                Err(singleton_error(
-                        ErrorMessage::TypeError(
-                            span_to_loc(span, lexer),
-                            goal_type.to_string(stringtab),
-                            "integer".to_string())))
-            } else {
-                let res = u64::from_str_radix(lexer.span_str(span), base.base());
-                assert!(res.is_ok(), "Internal Error: Int literal is not an integer");
-                Ok((build_int_const(goal_type.get_integer(), res.unwrap(), builder, func),
-                    goal_type.get_integer().clone()))
-            }
-        },
-        lang_y::Expr::FloatLit { span } => {
-            if !goal_type.is_float() {
-                Err(singleton_error(
-                        ErrorMessage::TypeError(
-                            span_to_loc(span, lexer),
-                            goal_type.to_string(stringtab),
-                            "floating point".to_string())))
-            } else {
-                Ok((build_float_const(goal_type.get_float(), lexer.span_str(span), builder, func),
-                    goal_type.get_float(). clone()))
-            }
-        },
-
-        lang_y::Expr::UnaryExpr { span, op, expr } => {
-            // All unary operators preserve the type of their argument
-            let (inner_goal, ir_op) =
-                match op {
-                    UnaryOp::Negation => {
-                        if !goal_type.is_numeric() {
-                            return Err(singleton_error(
-                                    ErrorMessage::TypeError(
-                                        span_to_loc(span, lexer),
-                                        goal_type.to_string(stringtab),
-                                        "numeric".to_string())))
-                        }
-
-                        (goal_type.as_numeric(), UnaryOperator::Neg)
-                    },
-                    UnaryOp::BitwiseNot => {
-                        if !goal_type.is_integer() {
-                            return Err(singleton_error(
-                                    ErrorMessage::TypeError(
-                                        span_to_loc(span, lexer),
-                                        goal_type.to_string(stringtab),
-                                        "integer".to_string())));
-                        }
-
-                        (goal_type.as_integer(), UnaryOperator::Not)
-                    },
-                    UnaryOp::LogicalNot => {
-                        if !goal_type.is_boolean() {
-                            return Err(singleton_error(
-                                    ErrorMessage::TypeError(
-                                        span_to_loc(span, lexer),
-                                        goal_type.to_string(stringtab),
-                                        "bool".to_string())));
-                        }
-
-                        return Err(singleton_error(
-                                ErrorMessage::NotImplemented(
-                                    span_to_loc(span, lexer),
-                                    "! operator".to_string())));
-                    },
-                };
-
-            let (ex, typ) = process_expr(*expr, lexer, stringtab, env, builder,
-                                         func, ssa, block, inner_goal)?;
-            let mut node = builder.allocate_node(func);
-            let res = node.id();
-
-            node.build_unary(ex, ir_op);
-            let _ = builder.add_node(node);
-
-            Ok((res, typ))
-        },
-        lang_y::Expr::BinaryExpr { span: _, op: _, lhs: _, rhs: _ } => { todo!() },
-        
-        lang_y::Expr::CastExpr { span: _, expr: _, typ: _ } => { todo!() },
-        lang_y::Expr::CondExpr { span: _, cond: _, thn: _, els: _ } => { todo!() },
-        lang_y::Expr::CallExpr { span, name: _, ty_args: _, args: _ } => {
-            Err(singleton_error(
-                    ErrorMessage::NotImplemented(
-                        span_to_loc(span, lexer),
-                        "function calls".to_string())))
-        },
-    }
-}
-
-fn process_lexpr<'a>(
-    expr : lang_y::LExpr, lexer : &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    stringtab : &mut StringTable, env : &mut Env<usize, Entity>,
-    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA,
-    block : NodeID) -> Result<(usize, Type, Vec<Index>), ErrorMessages> {
-
-    match expr {
-        lang_y::LExpr::VariableLExpr { span } => {
-            let nm = intern_id(&span, lexer, stringtab);
-            match env.lookup(&nm) {
-                Some(Entity::Variable { variable, typ, is_const }) => {
-                    if *is_const {
-                        return Err(singleton_error(
-                                ErrorMessage::SemanticError(
-                                    span_to_loc(span, lexer),
-                                    format!("Variable {} is const, cannot assign to it",
-                                            lexer.span_str(span)))));
-                    }
-
-                    Ok((*variable, typ.clone(), vec![]))
-                },
-                // NOTE: Should we handle cases of this being a type/dyn const
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::UndefinedVariable(
-                                span_to_loc(span, lexer),
-                                lexer.span_str(span).to_string())))
-                },
-            }
-        },
-        lang_y::LExpr::FieldLExpr { span, lhs, rhs } => {
-            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
-                                                    builder, func, ssa, block)?;
-            let field_str = lexer.span_str(rhs).to_string();
-            let field_nm = stringtab.lookup_string(field_str.clone());
-
-            match typ {
-                Type::Struct { name: _, id: _, ref fields, ref names } => {
-                    match names.get(&field_nm) {
-                        Some(index) => {
-                            idx.push(builder.create_field_index(*index));
-                            Ok((var, fields[*index].clone(), idx))
-                        },
-                        None => {
-                        Err(singleton_error(
-                                ErrorMessage::SemanticError(
-                                    span_to_loc(span, lexer),
-                                    format!("Operation .{} does not apply to type {}, does not contain field",
-                                            field_str, typ.to_string(stringtab)))))
-                        },
-                    }
-                },
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(span, lexer),
-                                format!("Operation .{} does not apply to type {}, expected a struct",
-                                        field_str, typ.to_string(stringtab)))))
-                },
-            }
-        },
-        lang_y::LExpr::NumFieldLExpr { span, lhs, rhs } => {
-            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
-                                                    builder, func, ssa, block)?;
-            let num = lexer.span_str(rhs)[1..].parse::<usize>()
-                                              .expect("From lexical analysis");
-
-            match typ {
-                Type::Tuple(ref fields) => {
-                    if num < fields.len() {
-                        idx.push(builder.create_field_index(num));
-                        Ok((var, fields[num].clone(), idx))
-                    } else {
-                        Err(singleton_error(
-                                ErrorMessage::SemanticError(
-                                    span_to_loc(span, lexer),
-                                    format!("Operation .{} does not apply to type {}, too few fields",
-                                            num, typ.to_string(stringtab)))))
-                    }
-                }
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(span, lexer),
-                                format!("Operation .{} does not apply to type {}, expected a tuple",
-                                        num, typ.to_string(stringtab)))))
-                },
-            }
-        },
-        lang_y::LExpr::IndexLExpr { span, lhs, index } => {
-            let (var, typ, mut idx) = process_lexpr(*lhs, lexer, stringtab, env,
-                                                    builder, func, ssa, block)?;
-            
-            let mut indices = vec![];
-            let mut errors = LinkedList::new();
-            for idx in index {
-                match process_expr(idx, lexer, stringtab, env, builder,
-                                   func, ssa, block,
-                                   &GoalType::KnownType(Type::Primitive(Primitive::USize))) {
-                    Ok((exp, _)) => indices.push(exp),
-                    Err(mut errs) => errors.append(&mut errs),
-                }
-            }
-
-            if !errors.is_empty() {
-                return Err(errors);
-            }
-
-            match typ {
-                Type::Array(element, dimensions) => {
-                    if indices.len() < dimensions.len() {
-                        // Too few dimensions are accessed
-                        Err(singleton_error(
-                                ErrorMessage::NotImplemented(
-                                    span_to_loc(span, lexer),
-                                    format!("fewer array indices that dimensions, value has {} dimensions but using {} indices",
-                                            dimensions.len(), indices.len()))))
-                    } else if indices.len() == dimensions.len() {
-                        // All dimenensions are accessed, left with the element type
-                        idx.push(builder.create_position_index(indices.into()));
-                        Ok((var, *element, idx))
-                    } else {
-                        // Too many dimensions are accessed
-                        Err(singleton_error(
-                                ErrorMessage::SemanticError(
-                                    span_to_loc(span, lexer),
-                                    format!("Too many array indices, value has {} dimensions but using {} indices",
-                                            dimensions.len(), indices.len()))))
-                    }
-                },
-                _ => {
-                    Err(singleton_error(
-                            ErrorMessage::SemanticError(
-                                span_to_loc(span, lexer),
-                                format!("Array index does not apply to type {}",
-                                        typ.to_string(stringtab)))))
-                },
-            }
-        },
-    }
-}
-
-fn build_dynamic_constant<'a>(c : &DynamicConstant, builder : &mut Builder<'a>) -> DynamicConstantID {
-    match c {
-        DynamicConstant::Constant(val) => builder.create_dynamic_constant_constant(*val),
-        DynamicConstant::DynConst(_, num) => builder.create_dynamic_constant_parameter(*num),
-    }
-}
-
-fn build_type<'a>(ty : &Type, builder : &mut Builder<'a>) -> TypeID {
-    match ty {
-        Type::Primitive(Primitive::Bool)  => builder.create_type_bool(),
-        Type::Primitive(Primitive::I8)    => builder.create_type_i8(),
-        Type::Primitive(Primitive::U8)    => builder.create_type_u8(),
-        Type::Primitive(Primitive::I16)   => builder.create_type_i16(),
-        Type::Primitive(Primitive::U16)   => builder.create_type_u16(),
-        Type::Primitive(Primitive::I32)   => builder.create_type_i32(),
-        Type::Primitive(Primitive::U32)   => builder.create_type_u32(),
-        Type::Primitive(Primitive::I64)   => builder.create_type_i64(),
-        Type::Primitive(Primitive::U64)   => builder.create_type_u64(),
-        Type::Primitive(Primitive::USize) => builder.create_type_u64(),
-        Type::Primitive(Primitive::F32)   => builder.create_type_f32(),
-        Type::Primitive(Primitive::F64)   => builder.create_type_f64(),
-        Type::Primitive(Primitive::Void)  => builder.create_type_prod(vec![].into()),
-
-        Type::Tuple(fields)
-        | Type::Struct { name : _, id : _, fields, names : _ } => {
-            let mut built = vec![];
-            for ty in fields {
-                built.push(build_type(ty, builder));
-            }
-            builder.create_type_prod(built.into())
-        },
-        Type::Array(elem, dims) => {
-            let elem_type = build_type(&*elem, builder);
-            let mut dims_built = vec![];
-            for dim in dims {
-                dims_built.push(build_dynamic_constant(dim, builder));
-            }
-            builder.create_type_array(elem_type, dims_built.into())
-        },
-    }
-}
-
-fn build_tuple<'a>(types : &Vec<Type>, vals : &Vec<NodeID>,
-                   builder : &mut Builder<'a>, func : FunctionID) -> NodeID {
-    assert!(types.len() == vals.len(), "Types and values must be same length to construct a tuple");
-
-    // Create constant
-    let mut inits = vec![];
-    for ty in types {
-        inits.push(build_default(ty, builder));
-    }
-
-    let init_const = builder.create_constant_prod(inits.into());
-    let mut init_val_builder = builder.allocate_node(func);
-    let init_val = init_val_builder.id();
-
-    init_val_builder.build_constant(init_const);
-    let _ = builder.add_node(init_val_builder);
-
-    // Write each field
-    let mut cur_value = init_val;
-    for (idx, val) in vals.iter().enumerate() {
-        let mut write_builder = builder.allocate_node(func);
-        let write_node = write_builder.id();
-
-        let index = builder.create_field_index(idx);
-
-        write_builder.build_write(cur_value, *val, vec![index].into());
-        let _ = builder.add_node(write_builder);
-
-        cur_value = write_node;
-    }
-
-    cur_value
-}
-
-fn build_default<'a>(ty : &Type, builder : &mut Builder<'a>) -> ConstantID {
-    match ty {
-        Type::Primitive(Primitive::Bool)  => builder.create_constant_bool(false),
-        Type::Primitive(Primitive::I8)    => builder.create_constant_i8(0),
-        Type::Primitive(Primitive::U8)    => builder.create_constant_u8(0),
-        Type::Primitive(Primitive::I16)   => builder.create_constant_i16(0),
-        Type::Primitive(Primitive::U16)   => builder.create_constant_u16(0),
-        Type::Primitive(Primitive::I32)   => builder.create_constant_i32(0),
-        Type::Primitive(Primitive::U32)   => builder.create_constant_u32(0),
-        Type::Primitive(Primitive::I64)   => builder.create_constant_i64(0),
-        Type::Primitive(Primitive::U64)   => builder.create_constant_u64(0),
-        Type::Primitive(Primitive::USize) => builder.create_constant_u64(0),
-        Type::Primitive(Primitive::F32)   => builder.create_constant_f32(0.0),
-        Type::Primitive(Primitive::F64)   => builder.create_constant_f64(0.0),
-        Type::Primitive(Primitive::Void)  => builder.create_constant_prod(vec![].into()),
-        
-        Type::Tuple(fields) 
-        | Type::Struct { name : _, id : _, fields, .. } => {
-            let mut defaults = vec![];
-            for ty in fields {
-                defaults.push(build_default(ty, builder));
-            }
-            builder.create_constant_prod(defaults.into())
-        },
-
-        Type::Array(_elem, _dims) => {
-            todo!("Cannot build default value for arrays") // FIXME
-        },
-    }
-}
-
-fn build_int_const<'a>(ty : &Type, val : u64, builder : &mut Builder<'a>,
-                       func : FunctionID) -> NodeID {
-    let const_val =
-        match ty {
-            Type::Primitive(Primitive::I8)    => builder.create_constant_i8(val as i8),
-            Type::Primitive(Primitive::U8)    => builder.create_constant_u8(val as u8),
-            Type::Primitive(Primitive::I16)   => builder.create_constant_i16(val as i16),
-            Type::Primitive(Primitive::U16)   => builder.create_constant_u16(val as u16),
-            Type::Primitive(Primitive::I32)   => builder.create_constant_i32(val as i32),
-            Type::Primitive(Primitive::U32)   => builder.create_constant_u32(val as u32),
-            Type::Primitive(Primitive::I64)   => builder.create_constant_i64(val as i64),
-            Type::Primitive(Primitive::U64)   => builder.create_constant_u64(val as u64),
-            Type::Primitive(Primitive::USize) => builder.create_constant_u64(val as u64),
-            _ => panic!("Internal Error: build_int_const should not be used on non-integer types"),
-        };
-
-    let mut node = builder.allocate_node(func);
-    let res = node.id();
-
-    node.build_constant(const_val);
-    let _ = builder.add_node(node);
-    res
-}
-
-fn build_float_const<'a>(ty : &Type, text : &str, builder : &mut Builder<'a>,
-                         func : FunctionID) -> NodeID {
-    let const_val =
-        match ty {
-            Type::Primitive(Primitive::F32) => {
-                builder.create_constant_f32(text.parse::<f32>().unwrap())
-            },
-            Type::Primitive(Primitive::F64) => {
-                builder.create_constant_f64(text.parse::<f64>().unwrap())
-            },
-            _ => panic!("Internal Error: build_float_const should not be used on non-floating point types"),
-        };
-
-    let mut node = builder.allocate_node(func);
-    let res = node.id();
-
-    node.build_constant(const_val);
-    let _ = builder.add_node(node);
-    res
-}
-
-fn build_return<'a>(return_type : &Type, return_value : NodeID, block : NodeID,
-                    inout_types : &Vec<Type>, inout_vars : &Vec<usize>,
-                    builder : &mut Builder<'a>, func : FunctionID, ssa : &mut SSA) {
-    let mut inout_vals = vec![];
-    for var in inout_vars {
-        let value = ssa.read_variable(*var, block, builder);
-        inout_vals.push(value);
-    }
-
-    let inout_values = build_tuple(inout_types, &inout_vals, builder, func);
-    let return_value = build_tuple(&vec![return_type.clone(), Type::Tuple(inout_types.clone())],
-                                   &vec![return_value, inout_values],
-                                   builder, func);
-
-    let mut return_builder = builder.allocate_node(func);
-    return_builder.build_return(block, return_value);
-    let _ = builder.add_node(return_builder);
-}
-*/

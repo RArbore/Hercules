@@ -370,6 +370,10 @@ impl<'a> Builder<'a> {
         Ok(self.intern_constant(Constant::Array(ty, cons), ty))
     }
 
+    pub fn create_constant_zero(&mut self, typ : TypeID) -> ConstantID {
+        self.intern_constant(Constant::Zero(typ), typ)
+    }
+
     pub fn create_dynamic_constant_constant(&mut self, val: usize) -> DynamicConstantID {
         self.intern_dynamic_constant(DynamicConstant::Constant(val))
     }
@@ -396,7 +400,7 @@ impl<'a> Builder<'a> {
 
     pub fn create_function(
         &mut self,
-        name: &'a str,
+        name: &str,
         param_types: Vec<TypeID>,
         return_type: TypeID,
         num_dynamic_constants: u32,

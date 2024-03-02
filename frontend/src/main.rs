@@ -8,7 +8,6 @@ mod ssa;
 mod types;
 mod semant;
 
-use semant::ErrorMessage;
 use codegen::*;
 
 extern crate hercules_ir;
