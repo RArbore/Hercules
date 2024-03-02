@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::hercules_ir::ir::*;
 use crate::hercules_ir::build::*;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Either<A, B> {
     Left(A),
     Right(B)
 }
 
-#[derive(Copy, Clone, Eq)]
+#[derive(Copy, Clone, Eq, Debug)]
 pub enum DynamicConstant {
     Constant(usize), // constant value
     DynConst(usize, usize) // name and dynamic constant number
@@ -41,7 +41,7 @@ impl DynamicConstant {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Primitive { Bool, U8, I8, U16, I16, U32, I32, U64, I64, F32, F64, Unit }
 
 impl Primitive {
@@ -96,14 +96,14 @@ impl Primitive {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Type { val : usize }
 
 // Type forms, which include both concrete types, as well as unsolved types that may have some
 // constraints. Note that constrained types are just primitives (particularly the numeric types)
 // because the type system ensures that we always know information about arrays, structs, unions,
 // and tuples
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum TypeForm {
     Primitive(Primitive),
     Tuple(Vec<Type>),
@@ -126,10 +126,12 @@ enum TypeForm {
     AnyNumber, AnyInteger, AnyFloat,
 }
 
+#[derive(Debug)]
 pub struct TypeSolver {
     types : Vec<TypeForm>,
 }
 
+#[derive(Debug)]
 pub struct TypeSolverInst<'a> {
     solver    : &'a TypeSolver,
     // A collection of current values for type variables, and variables that we've solved for in
@@ -160,7 +162,6 @@ impl TypeSolver {
     }
 
     pub fn new_tuple(&mut self, fields : Vec<Type>) -> Type {
-        assert!(fields.len() > 1);
         self.create_type(TypeForm::Tuple(fields))
     }
 
@@ -611,7 +612,7 @@ impl TypeSolverInst<'_> {
 
                         for Type { val } in fields {
                             match &self.solved[*val] {
-                                Some(ty) => i_fields.push(ty.clone()),
+                                Some(ty) => i_fields.push(*ty),
                                 None => { needs = Some(*val); break; },
                             }
                         }
@@ -644,7 +645,7 @@ impl TypeSolverInst<'_> {
 
                         for Type { val } in fields {
                             match &self.solved[*val] {
-                                Some(ty) => i_fields.push(ty.clone()),
+                                Some(ty) => i_fields.push(*ty),
                                 None => { needs = Some(*val); break; },
                             }
                         }
@@ -661,7 +662,7 @@ impl TypeSolverInst<'_> {
 
                         for Type { val } in constr {
                             match &self.solved[*val] {
-                                Some(ty) => i_constr.push(ty.clone()),
+                                Some(ty) => i_constr.push(*ty),
                                 None => { needs = Some(*val); break; },
                             }
                         }
@@ -680,7 +681,7 @@ impl TypeSolverInst<'_> {
 
             match solution {
                 Either::Left(solution) => {
-                    self.solved.insert(typ, Some(solution));
+                    self.solved[typ] = Some(solution);
                     match depends.get_mut(&typ) {
                         None => {},
                         Some(set) => {
@@ -699,11 +700,12 @@ impl TypeSolverInst<'_> {
                             set.insert(typ);
                         },
                     }
+                    worklist.push_back(needs);
                 },
             }
         }
 
-        self.solved[val].expect("Failure to solve type constraints").clone()
+        self.solved[val].expect("Failure to solve type constraints")
     }
     
     pub fn as_numeric_type(&mut self, builder : &mut Builder, ty : Type) -> Primitive {

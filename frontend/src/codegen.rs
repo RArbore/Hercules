@@ -75,7 +75,7 @@ impl CodeGenerator<'_> {
 
                 // TODO: Ideally we would write out the type arguments, but now that they're
                 // lowered to TypeID we can't do that as far as I can tell
-                let name = format!("{}.{}", func.name, self.uid);
+                let name = format!("{}_{}", func.name, self.uid);
                 self.uid += 1;
 
                 let mut param_types = vec![];
@@ -163,7 +163,7 @@ impl CodeGenerator<'_> {
 
                 // Build the condition in the condition block
                 let (val_cond, block_cond)
-                    = self.codegen_expr(cond, types, ssa, func_id, cur_block);
+                    = self.codegen_expr(cond, types, ssa, func_id, block_latch);
 
                 let (mut if_node, body_block, false_proj)
                     = ssa.create_cond(&mut self.builder, block_cond);
@@ -186,7 +186,7 @@ impl CodeGenerator<'_> {
                         Some(upd_stmt) => {
                             let block_update = ssa.create_block(&mut self.builder);
                             let Some(update) 
-                                = self.codegen_stmt(upd_stmt, types, ssa, func_id, cur_block, loops)
+                                = self.codegen_stmt(upd_stmt, types, ssa, func_id, block_update, loops)
                                 else { panic!("Loop's update does not continue control") };
 
                             ssa.add_pred(block_latch, update);

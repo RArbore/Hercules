@@ -35,7 +35,7 @@ enum Entity {
 }
 
 // Constant values
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Literal {
     Unit, Bool(bool), Integer(u64), Float(f64),
     Tuple(Vec<Constant>),
@@ -282,7 +282,7 @@ pub enum Stmt {
 //    either an expression or a variable number for the inout arguments
 //    TODO: Technically inout arguments could be any l-expression
 // 7. There's an additional Zero which is used to construct the default of a type
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Variable  { var : usize, typ : Type },
     DynConst  { idx : usize, typ : Type },
@@ -300,12 +300,12 @@ pub enum Expr {
                 args : Vec<Either<Expr, usize>>, typ : Type },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Index { Field(usize), Variant(usize), Array(Vec<Expr>) }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum UnaryOp  { Negation, BitwiseNot }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BinaryOp { Add, Sub, Mul, Div, Mod,
                     BitAnd, BitOr, Xor,
                     Lt, Le, Gt, Ge, Eq, Neq,
@@ -1390,6 +1390,19 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                 },
             }
 
+            let empty_index = index.is_empty();
+            let rhs_var = Expr::Variable { var : var, typ : var_typ };
+
+            let rhs_val =
+                if empty_index {
+                    rhs_var
+                } else {
+                    Expr::Read {
+                        index : index.clone(),
+                        val   : Box::new(rhs_var),
+                        typ   : exp_typ }
+                };
+
             // Construct the right-hand side for the normalized expression; for x= operations this
             // will construct the read and the operation; the write is left for after this since it
             // is common to all cases
@@ -1403,20 +1416,14 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                         | AssignOp::Xor | AssignOp::LShift | AssignOp::RShift => {
                         Expr::BinaryExp {
                             op  : convert_assign_op(assign),
-                            lhs : Box::new(Expr::Read {
-                                    index : index.clone(),
-                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
-                                    typ : exp_typ }),
+                            lhs : Box::new(rhs_val),
                             rhs : Box::new(val),
                             typ : typ }
                     },
                     // For x &&= y we convert to if x then y else false
                     AssignOp::LogAnd => {
                         Expr::CondExpr {
-                            cond : Box::new(Expr::Read {
-                                    index : index.clone(),
-                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
-                                    typ : exp_typ }),
+                            cond : Box::new(rhs_val),
                             thn  : Box::new(val),
                             // We know that the expected type is bool, so just use it to avoid
                             // creating additional new types
@@ -1428,10 +1435,7 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                     // For x ||= y we convert to if x then true else y
                     AssignOp::LogOr  => {
                         Expr::CondExpr {
-                            cond : Box::new(Expr::Read {
-                                    index : index.clone(),
-                                    val : Box::new(Expr::Variable { var : var, typ : var_typ }),
-                                    typ : exp_typ }),
+                            cond : Box::new(rhs_val),
                             thn  : Box::new(Expr::Constant {
                                     val : (Literal::Bool(true), exp_typ),
                                     typ : exp_typ }),
@@ -1440,13 +1444,20 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                     },
                 };
 
+            let write_exp =
+                if empty_index {
+                    result_rhs
+                } else {
+                    Expr::Write {
+                        index : index,
+                        val   : Box::new(Expr::Variable { var : var, typ : var_typ }),
+                        rep   : Box::new(result_rhs),
+                        typ   : var_typ }
+                };
+
             Ok((Stmt::AssignStmt {
                     var : var,
-                    val : Expr::Write {
-                            index : index,
-                            val   : Box::new(Expr::Variable { var : var, typ : var_typ }),
-                            rep   : Box::new(result_rhs),
-                            typ   : var_typ }}, true))
+                    val : write_exp }, true))
         },
         lang_y::Stmt::IfStmt { span: _, cond, thn, els } => {
             let cond_span = cond.span();

@@ -1246,7 +1246,7 @@ impl IRDisplay for Node {
             },
             Node::Constant { id } => {
                 write!(f, "constant(")?;
-                module.write_constant(*id, f)?;
+                module.constants[id.idx()].ir_fmt(f, module)?;
                 write!(f, ")")
             },
             Node::DynamicConstant { id } => {
@@ -1308,6 +1308,52 @@ impl IRDisplay for Index {
                     if i + 1 < indices.len() { write!(f, ", ")?; }
                 }
                 write!(f, ")")
+            },
+        }
+    }
+}
+
+impl IRDisplay for Constant {
+    fn ir_fmt(&self, f : &mut Formatter<'_>, module : &Module) -> std::fmt::Result {
+        match self {
+            Constant::Boolean(v) => write!(f, "{} : bool", v),
+            Constant::Integer8(v) => write!(f, "{} : i8", v),
+            Constant::Integer16(v) => write!(f, "{} : i16", v),
+            Constant::Integer32(v) => write!(f, "{} : i32", v),
+            Constant::Integer64(v) => write!(f, "{} : i64", v),
+            Constant::UnsignedInteger8(v) => write!(f, "{} : u8", v),
+            Constant::UnsignedInteger16(v) => write!(f, "{} : u16", v),
+            Constant::UnsignedInteger32(v) => write!(f, "{} : u32", v),
+            Constant::UnsignedInteger64(v) => write!(f, "{} : u64", v),
+            Constant::Float32(v) => write!(f, "{} : f32", v),
+            Constant::Float64(v) => write!(f, "{} : f64", v),
+            Constant::Product(t, cnsts) => {
+                write!(f, "(")?;
+                for i in 0..cnsts.len() {
+                    module.constants[cnsts[i].idx()].ir_fmt(f, module)?;
+                    write!(f, ", ")?;
+                }
+                write!(f, ") :")?;
+                module.write_type(*t, f)
+            },
+            Constant::Summation(t, tag, cnst) => {
+                write!(f, "{}(", tag)?;
+                module.constants[cnst.idx()].ir_fmt(f, module)?;
+                write!(f, ") : ")?;
+                module.write_type(*t, f)
+            },
+            Constant::Array(t, cnsts) => {
+                write!(f, "{{")?;
+                for i in 0..cnsts.len() {
+                    module.constants[cnsts[i].idx()].ir_fmt(f, module)?;
+                    write!(f, ", ")?;
+                }
+                write!(f, "}} : ")?;
+                module.write_type(*t, f)
+            },
+            Constant::Zero(t) => {
+                write!(f, "zero : ")?;
+                module.write_type(*t, f)
             },
         }
     }
