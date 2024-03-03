@@ -22,6 +22,7 @@ use crate::*;
 pub enum Pass {
     DCE,
     CCP,
+    Copy,
     GVN,
     Forkify,
     Verify,
@@ -189,6 +190,16 @@ impl PassManager {
                             &self.module.types,
                             &mut self.module.constants,
                             &def_uses[idx],
+                            &reverse_postorders[idx],
+                        );
+                    }
+                }
+                Pass::Copy => {
+                    self.make_reverse_postorders();
+                    let reverse_postorders = self.reverse_postorders.as_ref().unwrap();
+                    for idx in 0..self.module.functions.len() {
+                        copy_prop(
+                            &mut self.module.functions[idx],
                             &reverse_postorders[idx],
                         );
                     }
