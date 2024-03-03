@@ -221,13 +221,19 @@ impl PassManager {
                     }
                 }
                 Pass::Predication => {
+                    self.make_def_uses();
+                    self.make_reverse_postorders();
                     self.make_doms();
                     self.make_fork_join_maps();
+                    let def_uses = self.def_uses.as_ref().unwrap();
+                    let reverse_postorders = self.reverse_postorders.as_ref().unwrap();
                     let doms = self.doms.as_ref().unwrap();
                     let fork_join_maps = self.fork_join_maps.as_ref().unwrap();
                     for idx in 0..self.module.functions.len() {
                         predication(
                             &mut self.module.functions[idx],
+                            &def_uses[idx],
+                            &reverse_postorders[idx],
                             &doms[idx],
                             &fork_join_maps[idx],
                             &vec![],

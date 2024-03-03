@@ -766,6 +766,14 @@ impl Index {
         }
     }
 
+    pub fn try_control(&self) -> Option<usize> {
+        if let Index::Control(val) = self {
+            Some(*val)
+        } else {
+            None
+        }
+    }
+
     pub fn lower_case_name(&self) -> &'static str {
         match self {
             Index::Field(_) => "field",
@@ -833,6 +841,14 @@ impl Node {
         }
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
+
+    pub fn try_region(&self) -> Option<&[NodeID]> {
+        if let Node::Region { preds } = self {
+            Some(preds)
+        } else {
+            None
+        }
+    }
 
     pub fn try_if(&self) -> Option<(NodeID, NodeID)> {
         if let Node::If { control, cond } = self {
