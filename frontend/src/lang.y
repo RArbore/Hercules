@@ -160,10 +160,10 @@ FuncDecl -> Result<Top, ()>
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
                           name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : None,
                           body : $9? }) }
-  | PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmts
+  | PubOption 'fn' 'ID' TypeVars '(' Arguments ')' '->' Type Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $1?, attr : None, name : span_of_tok($3)?,
                           ty_vars : $4?, args : $6?, ty : Some($9?), body : $10? }) }
-  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' ':' Type Stmts
+  | 'FUNC_ATTR' PubOption 'fn' 'ID' TypeVars '(' Arguments ')' '->' Type Stmts
       { Ok(Top::FuncDecl{ span : $span, public : $2?, attr : Some(span_of_tok($1)?),
                           name : span_of_tok($4)?, ty_vars : $5?, args : $7?, ty : Some($10?),
                           body : $11? }) }

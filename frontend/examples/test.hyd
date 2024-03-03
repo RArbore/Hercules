@@ -1,7 +1,7 @@
 type foo = struct { var : usize; };
 type mat = i64[3, 3];
 
-fn test<n : usize>(inout x : u64, arr : u32[n, n]) : (u64, u64) {
+fn test<n : usize>(inout x : u64, arr : u32[n, n]) -> (u64, u64) {
   let y : (u64, u64);
   y.0 = 3;
   y.1 = 7;

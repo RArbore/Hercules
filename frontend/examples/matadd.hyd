@@ -1,0 +1,11 @@
+fn vec_add<n : usize, m : usize>(a : f32[n, m], b : f32[n, m]) -> f32[n, m] {
+  let res : f32[n, m];
+
+  for i = 0 to n {
+    for j = 0 to m {
+      res[i, j] = a[i, j] + b[i, j];
+    }
+  }
+
+  return res;
+}
