@@ -2,7 +2,6 @@ extern crate clap;
 
 use clap::Parser;
 
-mod cleanup;
 mod codegen;
 mod env;
 mod semant;
@@ -10,7 +9,6 @@ mod ssa;
 mod types;
 
 use codegen::*;
-use cleanup::clean_ir;
 
 extern crate hercules_ir;
 
@@ -29,12 +27,7 @@ fn main() {
 
             let mut pm = hercules_opt::pass::PassManager::new(module);
             pm.add_pass(hercules_opt::pass::Pass::Verify);
-            pm.add_pass(hercules_opt::pass::Pass::Xdot);
-            let mut module = pm.run_passes();
-
-            clean_ir(&mut module);
-
-            let mut pm = hercules_opt::pass::PassManager::new(module);
+            pm.add_pass(hercules_opt::pass::Pass::PhiElim);
             pm.add_pass(hercules_opt::pass::Pass::Verify);
             pm.add_pass(hercules_opt::pass::Pass::CCP);
             pm.add_pass(hercules_opt::pass::Pass::DCE);

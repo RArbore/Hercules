@@ -24,6 +24,7 @@ pub enum Pass {
     CCP,
     GVN,
     Forkify,
+    PhiElim,
     Verify,
     Xdot,
 }
@@ -217,6 +218,11 @@ impl PassManager {
                             &def_uses[idx],
                             &loops[idx],
                         )
+                    }
+                }
+                Pass::PhiElim => {
+                    for function in self.module.functions.iter_mut() {
+                        phi_elim(function);
                     }
                 }
                 Pass::Verify => {
