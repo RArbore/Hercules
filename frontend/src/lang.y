@@ -208,12 +208,12 @@ PatternsCommaS -> Result<Vec<Pattern>, ()>
   | PatternsCommaS ',' Pattern  { flatten($1, $3) }
   ;
 NamePatterns -> Result<Vec<(Id, Pattern)>, ()>
-  : 'ID' '=' Pattern                    { Ok(vec![(span_of_tok($1)?, $3?)]) }
-  | NamePatternsS ',' 'ID' '=' Pattern  { flatten($1, res_pair(span_of_tok($3), $5)) }
+  : 'ID' ':' Pattern                    { Ok(vec![(span_of_tok($1)?, $3?)]) }
+  | NamePatternsS ',' 'ID' ':' Pattern  { flatten($1, res_pair(span_of_tok($3), $5)) }
   ;
 NamePatternsS -> Result<Vec<(Id, Pattern)>, ()>
-  : 'ID' '=' Pattern                    { Ok(vec![(span_of_tok($1)?, $3?)]) }
-  | NamePatternsS ',' 'ID' '=' Pattern  { flatten($1, res_pair(span_of_tok($3), $5)) }
+  : 'ID' ':' Pattern                    { Ok(vec![(span_of_tok($1)?, $3?)]) }
+  | NamePatternsS ',' 'ID' ':' Pattern  { flatten($1, res_pair(span_of_tok($3), $5)) }
   ;
 
 Stmt -> Result<Stmt, ()>
