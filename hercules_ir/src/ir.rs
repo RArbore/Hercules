@@ -565,7 +565,7 @@ impl Function {
                 let old_id = **u;
                 let new_id = node_mapping[old_id.idx()];
                 if new_id == NodeID::new(0) && old_id != NodeID::new(0) {
-                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using {}.", idx, old_id.idx());
+                    panic!("While deleting gravestones, came across a use of a gravestoned node. The user has ID {} and was using ID {}. Here's the user: {:?}", idx, old_id.idx(), node);
                 }
                 **u = new_id;
             }
@@ -766,6 +766,14 @@ impl Index {
         }
     }
 
+    pub fn try_control(&self) -> Option<usize> {
+        if let Index::Control(val) = self {
+            Some(*val)
+        } else {
+            None
+        }
+    }
+
     pub fn lower_case_name(&self) -> &'static str {
         match self {
             Index::Field(_) => "field",
@@ -833,6 +841,14 @@ impl Node {
         }
     );
     define_pattern_predicate!(is_match, Node::Match { control: _, sum: _ });
+
+    pub fn try_region(&self) -> Option<&[NodeID]> {
+        if let Node::Region { preds } = self {
+            Some(preds)
+        } else {
+            None
+        }
+    }
 
     pub fn try_if(&self) -> Option<(NodeID, NodeID)> {
         if let Node::If { control, cond } = self {

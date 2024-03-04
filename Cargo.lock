@@ -206,6 +206,7 @@ dependencies = [
 name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
+ "bitvec",
  "hercules_ir",
  "ordered-float",
 ]
