@@ -80,13 +80,16 @@ impl DomTree {
         .1
     }
 
-    pub fn common_ancestor<I>(&self, x: I) -> NodeID
+    pub fn common_ancestor<I>(&self, x: I) -> Option<NodeID>
     where
         I: Iterator<Item = NodeID>,
     {
         let mut positions: HashMap<NodeID, u32> = x
             .map(|x| (x, if x == self.root { 0 } else { self.idom[&x].0 }))
             .collect();
+        if positions.len() == 0 {
+            return None;
+        }
         let mut current_level = *positions.iter().map(|(_, level)| level).max().unwrap();
         while positions.len() > 1 {
             let at_current_level: Vec<NodeID> = positions
@@ -102,7 +105,7 @@ impl DomTree {
             }
             current_level -= 1;
         }
-        positions.into_iter().next().unwrap().0
+        Some(positions.into_iter().next().unwrap().0)
     }
 
     pub fn chain<'a>(&'a self, bottom: NodeID, top: NodeID) -> DomChainIterator<'a> {

@@ -8,7 +8,7 @@ use crate::*;
  * consideration at some point during the compilation pipeline. Each schedule is
  * associated with a single node.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Schedule {
     ParallelReduce,
     Vectorize,

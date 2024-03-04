@@ -224,6 +224,9 @@ pub fn forkify(
         function.nodes[idx_phi.idx()] = Node::Start;
 
         // Delete old loop control nodes;
+        for user in def_use.get_users(*header) {
+            get_uses_mut(&mut function.nodes[user.idx()]).map(*header, fork_id);
+        }
         function.nodes[header.idx()] = Node::Start;
         function.nodes[loop_end.idx()] = Node::Start;
         function.nodes[loop_true_read.idx()] = Node::Start;
