@@ -157,61 +157,66 @@ impl CodeGenerator<'_> {
                 }
             },
             Stmt::LoopStmt { cond, update, body } => {
-                // Create a block for the loop condition, which we enter into
+                // We generate guarded loops, so the first step is to create
+                // a conditional branch, branching on the condition
+                let (val_guard, block_guard)
+                    = self.codegen_expr(cond, types, ssa, func_id, cur_block);
+                let (mut if_node, true_guard, false_proj)
+                    = ssa.create_cond(&mut self.builder, block_guard);
+                if_node.build_if(block_guard, val_guard);
+                let _ = self.builder.add_node(if_node);
+
+                // We then create a region for the exit (since there may be breaks)
+                let block_exit = ssa.create_block(&mut self.builder);
+                ssa.add_pred(block_exit, false_proj);
+
+                // Now, create a block for the loop's latch, we don't (currently) know any of its
+                // predecessors
                 let block_latch = ssa.create_block(&mut self.builder);
-                ssa.add_pred(block_latch, cur_block);
 
-                // Build the condition in the condition block
+                // Code-gen any update into the latch and then code-gen the condition
+                let block_updated =
+                    match update {
+                        None => block_latch,
+                        Some(stmt) =>
+                            self.codegen_stmt(stmt, types, ssa, func_id, block_latch, loops)
+                                .expect("Loop update should return control"),
+                    };
                 let (val_cond, block_cond)
-                    = self.codegen_expr(cond, types, ssa, func_id, block_latch);
+                    = self.codegen_expr(cond, types, ssa, func_id, block_updated);
 
-                let (mut if_node, body_block, false_proj)
+                let (mut if_node, true_proj, false_proj)
                     = ssa.create_cond(&mut self.builder, block_cond);
                 if_node.build_if(block_cond, val_cond);
                 let _ = self.builder.add_node(if_node);
 
-                // Create the exit block (what comes after the loop)
-                let block_exit = ssa.create_block(&mut self.builder);
+                // Add the false projection from the latch as a predecessor of the exit
                 ssa.add_pred(block_exit, false_proj);
 
-                // Determine the appropriate latch, i.e. where to jump at the end of an iteration
-                // or on a continue
-                // If there is no update code, simply jump to block_latch which contains the
-                // condition check, otherwise create a new block which leads to block_latch
-                // Note that in the latter case we seal block_latch since we know there are exactly
-                // two entrances into it (from the "actual" latch and the predecessor of the loop)
-                let latch =
-                    match update {
-                        None => block_latch,
-                        Some(upd_stmt) => {
-                            let block_update = ssa.create_block(&mut self.builder);
-                            let Some(update) 
-                                = self.codegen_stmt(upd_stmt, types, ssa, func_id, block_update, loops)
-                                else { panic!("Loop's update does not continue control") };
-
-                            ssa.add_pred(block_latch, update);
-                            ssa.seal_block(block_latch, &mut self.builder);
-
-                            block_update
-                        },
-                    };
+                // Create a block for the loop header, and add the true branches from the guard and
+                // latch as its only predecessors
+                let body_block = ssa.create_block(&mut self.builder);
+                ssa.add_pred(body_block, true_guard);
+                ssa.add_pred(body_block, true_proj);
+                ssa.seal_block(body_block, &mut self.builder);
 
                 // Generate code for the body
-                loops.push((latch, block_exit));
+                loops.push((block_latch, block_exit));
                 let body_res = self.codegen_stmt(body, types, ssa, func_id, body_block, loops);
                 loops.pop();
+
                 // If the body of the loop can reach some block, we add that block as a predecessor
                 // of the latch
                 match body_res {
                     None => {},
                     Some(block) => {
-                        ssa.add_pred(latch, block);
+                        ssa.add_pred(block_latch, block);
                     },
                 }
 
                 // Seal remaining open blocks
                 ssa.seal_block(block_exit, &mut self.builder);
-                ssa.seal_block(latch, &mut self.builder);
+                ssa.seal_block(block_latch, &mut self.builder);
 
                 // It is always assumed a loop may be skipped and so control can reach after the
                 // loop
