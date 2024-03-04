@@ -41,10 +41,12 @@ impl SSA {
         let left_proj = left_builder.id();
         let right_proj = right_builder.id();
 
-        let proj_left = builder.create_control_index(0);
+        // True branch
+        let proj_left = builder.create_control_index(1);
         left_builder.build_read(if_builder.id(), vec![proj_left].into());
 
-        let proj_right = builder.create_control_index(1);
+        // False branch
+        let proj_right = builder.create_control_index(0);
         right_builder.build_read(if_builder.id(), vec![proj_right].into());
 
         let _ = builder.add_node(left_builder);
