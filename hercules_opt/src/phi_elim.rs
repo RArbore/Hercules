@@ -42,6 +42,7 @@ pub fn phi_elim(function : &mut Function) {
                 let old_id = u.idx();
                 if let Some(replacement) = replace_nodes.get(&old_id) {
                     **u = *replacement;
+                    changed = true;
                 }
             }
 
