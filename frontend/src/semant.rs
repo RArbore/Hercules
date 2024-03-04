@@ -2726,13 +2726,199 @@ fn process_expr_as_constant(expr : lang_y::Expr,
                 if condition { Ok((thn_lit, thn_typ)) } else { Ok((els_lit, els_typ)) }
             }
         },
-        lang_y::Expr::CallExpr { span, name : _, ty_args : _, args : _ } => {
+        lang_y::Expr::CallExpr { span, name, ty_args, args } => {
             // While calls cannot be evaluated as constants, enum values can be, so we need to
             // distinguish whether this is actually a call or the construction of some enum value
-            Err(singleton_error(
-                    ErrorMessage::SemanticError(
-                        span_to_loc(span, lexer),
-                        format!("Function calls cannot be evaluated as a constant"))))
+            if name.len() > 2 {
+                Err(singleton_error(
+                        ErrorMessage::NotImplemented(
+                            span_to_loc(span, lexer),
+                            "packages".to_string())))?
+            }
+            
+            let nm = intern_package_name(&name, lexer, stringtab);
+
+            match env.lookup(&nm[0]) {
+                Some(Entity::Variable { .. })   | Some(Entity::DynConst { .. })
+                | Some(Entity::Constant { .. }) | Some(Entity::Function { .. })
+                | None if name.len() != 1 => {
+                    Err(singleton_error(
+                            ErrorMessage::NotImplemented(
+                                span_to_loc(span, lexer),
+                                "packages".to_string())))
+                },
+                None =>
+                    Err(singleton_error(
+                            ErrorMessage::UndefinedVariable(
+                                span_to_loc(name[0], lexer),
+                                stringtab.lookup_id(nm[0]).unwrap()))),
+                Some(Entity::Variable { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a variable, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::DynConst { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a dynamic constant, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::Constant { .. }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("{} is a constant, expected a function or union constructor",
+                                        stringtab.lookup_id(nm[0]).unwrap())))),
+                Some(Entity::Function { index : function, type_args : kinds, 
+                                        args : func_args, return_type }) =>
+                    Err(singleton_error(
+                            ErrorMessage::SemanticError(
+                                span_to_loc(name[0], lexer),
+                                format!("Function calls cannot be evaluated as a constant")))),
+                Some(Entity::Type { type_args : kinds, value : typ }) => {
+                    if !types.is_union(*typ) {
+                        if name.len() != 1 {
+                            Err(singleton_error(
+                                    ErrorMessage::NotImplemented(
+                                        span_to_loc(span, lexer),
+                                        "packages".to_string())))?
+                        } else {
+                            Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(name[0], lexer),
+                                        format!("{} is a type, expected a function or union constructor",
+                                                stringtab.lookup_id(nm[0]).unwrap()))))?
+                        }
+                    }
+                    if name.len() != 2 {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(name[0], lexer),
+                                    format!("Expected constructor name"))))?
+                    }
+
+                    if types.get_constructor_info(*typ, nm[1]).is_none() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(name[1], lexer),
+                                    format!("{} is not a constructor of type {}",
+                                            stringtab.lookup_id(nm[1]).unwrap(),
+                                            unparse_type(types, *typ, stringtab)))))?
+                    }
+                    
+                    // Now, we know that we are constructing some union, we need to verify that
+                    // the type arguments are appropriate
+                    if kinds.len() != ty_args.len() {
+                        Err(singleton_error(
+                                ErrorMessage::SemanticError(
+                                    span_to_loc(span, lexer),
+                                    format!("Expected {} type arguments, provided {}",
+                                            kinds.len(), ty_args.len()))))?
+                    }
+                    
+                    let mut type_vars = vec![];
+                    let mut dyn_consts = vec![];
+                    let mut errors = LinkedList::new();
+
+                    for (arg, kind) in ty_args.into_iter().zip(kinds.iter()) {
+                        let arg_span = arg.span();
+                        match kind {
+                            lang_y::Kind::USize => {
+                                match process_type_expr_as_expr(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(val) => dyn_consts.push(val),
+                                }
+                            },
+                            lang_y::Kind::Type => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => type_vars.push(typ),
+                                }
+                            },
+                            lang_y::Kind::Number => {
+                                match process_type_expr_as_type(
+                                        arg, lexer, stringtab, env, types) {
+                                    Err(mut errs) => errors.append(&mut errs),
+                                    Ok(typ) => {
+                                        if types.is_number(typ) {
+                                            type_vars.push(typ);
+                                        } else {
+                                            errors.push_back(
+                                                ErrorMessage::KindError(
+                                                    span_to_loc(arg_span, lexer),
+                                                    "number".to_string(),
+                                                    unparse_type(types, typ, stringtab)));
+                                        }
+                                    },
+                                }
+                            },
+                            lang_y::Kind::Integer => {
+                                    match process_type_expr_as_type(
+                                            arg, lexer, stringtab, env, types) {
+                                        Err(mut errs) => errors.append(&mut errs),
+                                        Ok(typ) => {
+                                            if types.is_integer(typ) {
+                                                type_vars.push(typ);
+                                            } else {
+                                                errors.push_back(
+                                                    ErrorMessage::KindError(
+                                                        span_to_loc(arg_span, lexer),
+                                                        "integer".to_string(),
+                                                        unparse_type(types, typ, stringtab)));
+                                            }
+                                        },
+                                    }
+                            },
+                        }
+                    }
+
+                    if !errors.is_empty() { return Err(errors); }
+                    
+                    let union_type =
+                        if type_vars.len() == 0 && dyn_consts.len() == 0 {
+                            *typ
+                        } else {
+                            types.instantiate(*typ, &type_vars, &dyn_consts)
+                        };
+                    let Some((constr_idx, constr_typ))
+                        = types.get_constructor_info(union_type, nm[1])
+                        else { panic!("From above"); };
+
+                    // Now, process the arguments to ensure they has the type needed by this
+                    // constructor
+                    // To do this, since unions take a single argument, we process the arguments as
+                    // a single tuple, reporting an error if inout is used anywhere
+                    for (is_inout, arg) in args.iter() {
+                        if *is_inout {
+                            Err(singleton_error(
+                                    ErrorMessage::SemanticError(
+                                        span_to_loc(arg.span(), lexer),
+                                        format!("Union constructors cannot be marked inout"))))?
+                        }
+                    }
+
+                    let (body_lit, body_typ)
+                        = process_expr_as_constant(
+                                lang_y::Expr::Tuple {
+                                    span : span,
+                                    exprs : args.into_iter().map(|(_, a)| a).collect::<Vec<_>>() },
+                                lexer, stringtab, env, types)?;
+
+                    if !types.equal(constr_typ, body_typ) {
+                        Err(singleton_error(
+                                ErrorMessage::TypeError(
+                                    span_to_loc(span, lexer),
+                                    unparse_type(types, constr_typ, stringtab),
+                                    unparse_type(types, body_typ, stringtab))))
+                    } else {
+                        Ok((Literal::Sum(constr_idx, Box::new((body_lit, body_typ))),
+                            body_typ))
+                    }
+                },
+            }
         },
     }
 }
@@ -3525,7 +3711,7 @@ fn process_expr(expr : lang_y::Expr, lexer : &dyn NonStreamingLexer<DefaultLexer
                                             unparse_type(types, *typ, stringtab)))))?
                     }
 
-                    // Now, we know that we are constructing some struct, we need to verify that
+                    // Now, we know that we are constructing some union, we need to verify that
                     // the type arguments are appropriate
                     if kinds.len() != ty_args.len() {
                         Err(singleton_error(
