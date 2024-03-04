@@ -26,6 +26,7 @@ fn main() {
     match prg {
         Ok(prg) => {
             let module = codegen_program(prg);
+
             let mut pm = hercules_opt::pass::PassManager::new(module);
             pm.add_pass(hercules_opt::pass::Pass::Verify);
             pm.add_pass(hercules_opt::pass::Pass::Xdot);
@@ -35,11 +36,11 @@ fn main() {
 
             let mut pm = hercules_opt::pass::PassManager::new(module);
             pm.add_pass(hercules_opt::pass::Pass::Verify);
-            pm.add_pass(hercules_opt::pass::Pass::Xdot);
             pm.add_pass(hercules_opt::pass::Pass::CCP);
             pm.add_pass(hercules_opt::pass::Pass::DCE);
             pm.add_pass(hercules_opt::pass::Pass::GVN);
             pm.add_pass(hercules_opt::pass::Pass::DCE);
+            pm.add_pass(hercules_opt::pass::Pass::Xdot);
             pm.add_pass(hercules_opt::pass::Pass::Forkify);
             pm.add_pass(hercules_opt::pass::Pass::DCE);
             pm.add_pass(hercules_opt::pass::Pass::Xdot);

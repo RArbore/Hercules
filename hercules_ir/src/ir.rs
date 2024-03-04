@@ -1255,10 +1255,10 @@ impl IRDisplay for Node {
                 write!(f, ")")
             },
             Node::Unary { input, op } => {
-                write!(f, "{}(arg_{})", op.lower_case_name(), input.0)
+                write!(f, "{}(var_{})", op.lower_case_name(), input.0)
             },
             Node::Binary { left, right, op } => {
-                write!(f, "{}(arg_{}, arg_{})", op.lower_case_name(), left.0, right.0)
+                write!(f, "{}(var_{}, var_{})", op.lower_case_name(), left.0, right.0)
             },
             Node::Call { function, dynamic_constants, args } => {
                 write!(f, "call<")?;
