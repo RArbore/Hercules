@@ -38,7 +38,7 @@ pub fn clean_ir(module : &mut Module) {
                 }
 
                 // Then, check if this node can be removed
-                if let Node::Phi { control, data } = node {
+                if let Node::Phi { control : _, data } = node {
                     // For a phi, we can remove it if all of its data inputs are the same node or
                     // self-cycles
                     let mut unique = Some(data[0]);
