@@ -535,7 +535,7 @@ fn analyze_program(
                     }
 
                     match pattern {
-                        SPattern::Variable { span, name } => {
+                        Pattern::Variable { span, name } => {
                             if name.len() != 1 {
                                 errors.push_back(
                                     ErrorMessage::SemanticError(
@@ -1213,7 +1213,7 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
     match stmt {
         lang_y::Stmt::LetStmt { span: _, var : VarBind { span : v_span, pattern, typ }, init } => {
             match pattern {
-                SPattern::Variable { span, name } => {
+                Pattern::Variable { span, name } => {
                     if typ.is_none() {
                         return Err(singleton_error(
                                 ErrorMessage::NotImplemented(
@@ -1268,7 +1268,7 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
         },
         lang_y::Stmt::ConstStmt { span: _, var : VarBind { span : v_span, pattern, typ }, init } => {
             match pattern {
-                SPattern::Variable { span, name } => {
+                Pattern::Variable { span, name } => {
                     if typ.is_none() {
                         return Err(singleton_error(
                                 ErrorMessage::NotImplemented(
@@ -1505,7 +1505,7 @@ fn process_stmt(stmt : lang_y::Stmt, lexer : &dyn NonStreamingLexer<DefaultLexer
                                 init, bound, step, body } => {
             let (var, var_name, var_type) =
                 match pattern {
-                    SPattern::Variable { span, name } => {
+                    Pattern::Variable { span, name } => {
                         if name.len() != 1 {
                             return Err(singleton_error(
                                     ErrorMessage::SemanticError(
@@ -2727,6 +2727,8 @@ fn process_expr_as_constant(expr : lang_y::Expr,
             }
         },
         lang_y::Expr::CallExpr { span, name : _, ty_args : _, args : _ } => {
+            // While calls cannot be evaluated as constants, enum values can be, so we need to
+            // distinguish whether this is actually a call or the construction of some enum value
             Err(singleton_error(
                     ErrorMessage::SemanticError(
                         span_to_loc(span, lexer),

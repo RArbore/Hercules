@@ -183,22 +183,20 @@ ArgBind -> Result<(Option<Span>, VarBind), ()>
   ;
 
 VarBind -> Result<VarBind, ()>
-  : SPattern          { Ok(VarBind{ span : $span, pattern : $1?, typ : None }) }
-  | SPattern ':' Type { Ok(VarBind{ span : $span, pattern : $1?, typ : Some($3?) }) }
+  : Pattern          { Ok(VarBind{ span : $span, pattern : $1?, typ : None }) }
+  | Pattern ':' Type { Ok(VarBind{ span : $span, pattern : $1?, typ : Some($3?) }) }
   ;
 
 Pattern -> Result<Pattern, ()>
-  : SPattern              { Ok(Pattern::SimplePattern{ span : $span, pat : $1? }) }
-  | PackageName SPattern  { Ok(Pattern::UnionPattern{ span : $span, name : $1?, pat : $2? }) }
-  ;
-SPattern -> Result<SPattern, ()>
-  : '_'                   { Ok(SPattern::Wildcard{ span : $span }) }
+  : '_'                   { Ok(Pattern::Wildcard { span : $span }) }
   | IntLit                { let (span, base) = $1?;
-                            Ok(SPattern::IntLit{ span : span, base : base }) }
-  | PackageName           { Ok(SPattern::Variable{ span : $span, name : $1? }) }
-  | '(' PatternsComma ')' { Ok(SPattern::TuplePat{ span : $span, pats : $2? }) }
+                            Ok(Pattern::IntLit { span : span, base : base }) }
+  | PackageName           { Ok(Pattern::Variable { span : $span, name : $1? }) }
+  | '(' PatternsComma ')' { Ok(Pattern::TuplePattern { span : $span, pats : $2? }) }
   | PackageName '{' NamePatterns '}'
-                          { Ok(SPattern::StructPat { span : $span, name : $1?, pats : $3? }) }
+                          { Ok(Pattern::StructPattern { span : $span, name : $1?, pats : $3? }) }
+  | PackageName '(' PatternsComma ')'
+                          { Ok(Pattern::UnionPattern { span : $span, name : $1?, pats : $3? }) }
   ;
 PatternsComma -> Result<Vec<Pattern>, ()>
   :                             { Ok(vec![]) }
@@ -604,7 +602,7 @@ pub struct ObjField { pub span : Span, pub public : bool, pub name : Id, pub typ
 #[derive(Debug)]
 pub struct TypeVar { pub span : Span, pub name : Id, pub kind : Kind }
 #[derive(Debug)]
-pub struct VarBind { pub span : Span, pub pattern : SPattern, pub typ : Option<Type> }
+pub struct VarBind { pub span : Span, pub pattern : Pattern, pub typ : Option<Type> }
 #[derive(Debug)]
 pub struct Case { pub span : Span, pub pat : Vec<Pattern>, pub body : Stmt }
 
@@ -655,17 +653,12 @@ pub enum Stmt {
 
 #[derive(Debug)]
 pub enum Pattern {
-  SimplePattern { span : Span, pat : SPattern },
-  UnionPattern  { span : Span, name : PackageName, pat : SPattern },
-}
-
-#[derive(Debug)]
-pub enum SPattern {
   Wildcard         { span : Span },
   IntLit           { span : Span, base : IntBase },
   Variable         { span : Span, name : PackageName },
-  TuplePat         { span : Span, pats : Vec<Pattern> },
-  StructPat        { span : Span, name : PackageName, pats : Vec<(Id, Pattern)> },
+  TuplePattern     { span : Span, pats : Vec<Pattern> },
+  StructPattern    { span : Span, name : PackageName, pats : Vec<(Id, Pattern)> },
+  UnionPattern     { span : Span, name : PackageName, pats : Vec<Pattern> },
 }
 
 #[derive(Debug)]
