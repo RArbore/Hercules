@@ -19,14 +19,15 @@ pub fn forkify(
 ) {
     // Ignore loops that are already fork-joins.
     let natural_loops = loops
-        .loops()
+        .bottom_up_loops()
+        .into_iter()
         .filter(|(k, _)| function.nodes[k.idx()].is_region());
 
     // Detect loops that have a simple loop induction variable. TODO: proper
     // affine analysis to recognize other cases of linear induction variables.
     let affine_loops: Vec<_> = natural_loops
         .into_iter()
-        .filter_map(|(header, (contents, _))| {
+        .filter_map(|(header, contents)| {
             // Get the single loop contained predecessor of the loop header.
             let header_uses = get_uses(&function.nodes[header.idx()]);
             let mut pred_loop = header_uses.as_ref().iter().filter(|id| contents[id.idx()]);
@@ -43,7 +44,7 @@ pub fn forkify(
             let (should_be_header, pred_datas) = function.nodes[phi.idx()].try_phi()?;
             let one_c_id = function.nodes[one.idx()].try_constant()?;
 
-            if should_be_header != *header || !constants[one_c_id.idx()].is_one() {
+            if should_be_header != header || !constants[one_c_id.idx()].is_one() {
                 return None;
             }
 
@@ -108,12 +109,12 @@ pub fn forkify(
         let header_uses: Vec<_> = header_uses.as_ref().into_iter().map(|x| *x).collect();
 
         // Get the control portions of the loop that need to be grafted.
-        let loop_pred = *header_uses
+        let loop_pred = header_uses
             .iter()
             .filter(|id| !contents[id.idx()])
             .next()
             .unwrap();
-        let loop_true_read = *header_uses
+        let loop_true_read = header_uses
             .iter()
             .filter(|id| contents[id.idx()])
             .next()
@@ -137,14 +138,14 @@ pub fn forkify(
 
         // Create fork and join nodes.
         let fork = Node::Fork {
-            control: loop_pred,
+            control: *loop_pred,
             factor: dc_id,
         };
         let fork_id = NodeID::new(function.nodes.len());
         function.nodes.push(fork);
 
         let join = Node::Join {
-            control: if *header == get_uses(&function.nodes[loop_end.idx()]).as_ref()[0] {
+            control: if header == get_uses(&function.nodes[loop_end.idx()]).as_ref()[0] {
                 fork_id
             } else {
                 function.nodes[loop_end.idx()].try_if().unwrap().0
@@ -158,7 +159,7 @@ pub fn forkify(
 
         // Convert reducing phi nodes to reduce nodes.
         let reduction_phis: Vec<_> = def_use
-            .get_users(*header)
+            .get_users(header)
             .iter()
             .filter(|id| **id != idx_phi && function.nodes[id.idx()].is_phi())
             .collect();
@@ -172,7 +173,7 @@ pub fn forkify(
                     .1
                     .iter(),
             )
-            .filter(|(c, _)| **c == loop_pred)
+            .filter(|(c, _)| **c == *loop_pred)
             .next()
             .unwrap()
             .1;
@@ -186,7 +187,7 @@ pub fn forkify(
                     .1
                     .iter(),
             )
-            .filter(|(c, _)| **c == loop_true_read)
+            .filter(|(c, _)| **c == *loop_true_read)
             .next()
             .unwrap()
             .1;
@@ -224,8 +225,8 @@ pub fn forkify(
         function.nodes[idx_phi.idx()] = Node::Start;
 
         // Delete old loop control nodes;
-        for user in def_use.get_users(*header) {
-            get_uses_mut(&mut function.nodes[user.idx()]).map(*header, fork_id);
+        for user in def_use.get_users(header) {
+            get_uses_mut(&mut function.nodes[user.idx()]).map(header, fork_id);
         }
         function.nodes[header.idx()] = Node::Start;
         function.nodes[loop_end.idx()] = Node::Start;
