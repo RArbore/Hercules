@@ -61,7 +61,8 @@ pub fn gcm(
             let highest =
                 dom.lowest_amongst(immediate_control_uses[idx].nodes(function.nodes.len() as u32));
             let lowest = dom
-                .common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32));
+                .common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32))
+                .unwrap_or(highest);
 
             // Collect into vector to reverse, since we want to traverse down
             // the dom tree, not up it.

@@ -5,4 +5,5 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
 [dependencies]
 ordered-float = "*"
+bitvec = "*"
 hercules_ir = { path = "../hercules_ir" }

@@ -2,6 +2,7 @@ extern crate bitvec;
 
 use std::collections::hash_map;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use self::bitvec::prelude::*;
 
@@ -33,6 +34,29 @@ impl LoopTree {
 
     pub fn loops(&self) -> hash_map::Iter<'_, NodeID, (BitVec<u8, Lsb0>, NodeID)> {
         self.loops.iter()
+    }
+
+    /*
+     * Sometimes, we need to iterate the loop tree bottom-up. Just assemble the
+     * order upfront.
+     */
+    pub fn bottom_up_loops(&self) -> Vec<(NodeID, &BitVec<u8, Lsb0>)> {
+        let mut bottom_up = vec![];
+        let mut children_count: HashMap<NodeID, u32> = self.loops.iter().map(|(k, _)| (*k, 0)).collect();
+        children_count.insert(self.root, 0);
+        for (_, (_, parent)) in self.loops.iter() {
+            *children_count.get_mut(&parent).unwrap() += 1;
+        }
+        let mut worklist: VecDeque<_> = self.loops.iter().map(|(k, v)| (*k, &v.0)).collect();
+        while let Some(pop) = worklist.pop_front() {
+            if children_count[&pop.0] == 0 {
+                *children_count.get_mut(&self.loops[&pop.0].1).unwrap() -= 1;
+                bottom_up.push(pop);
+            } else {
+                worklist.push_back(pop);
+            }
+        }
+        bottom_up
     }
 }
 
