@@ -224,6 +224,8 @@ impl PassManager {
                 Pass::PhiElim => {
                     for function in self.module.functions.iter_mut() {
                         phi_elim(function);
+                    }
+                }
                 Pass::Predication => {
                     self.make_def_uses();
                     self.make_reverse_postorders();
