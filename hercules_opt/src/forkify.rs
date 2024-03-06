@@ -154,9 +154,6 @@ pub fn forkify(
         let join_id = NodeID::new(function.nodes.len());
         function.nodes.push(join);
 
-        // Reconnect control nodes.
-        get_uses_mut(&mut function.nodes[loop_dst.idx()]).map(loop_false_read, join_id);
-
         // Convert reducing phi nodes to reduce nodes.
         let reduction_phis: Vec<_> = def_use
             .get_users(header)
@@ -219,15 +216,18 @@ pub fn forkify(
         let thread_id = Node::ThreadID { control: fork_id };
         let thread_id_id = NodeID::new(function.nodes.len());
         function.nodes.push(thread_id);
+
         for user in def_use.get_users(idx_phi) {
             get_uses_mut(&mut function.nodes[user.idx()]).map(idx_phi, thread_id_id);
         }
-        function.nodes[idx_phi.idx()] = Node::Start;
-
-        // Delete old loop control nodes;
         for user in def_use.get_users(header) {
             get_uses_mut(&mut function.nodes[user.idx()]).map(header, fork_id);
         }
+        for user in def_use.get_users(loop_false_read) {
+            get_uses_mut(&mut function.nodes[user.idx()]).map(loop_false_read, join_id);
+        }
+
+        function.nodes[idx_phi.idx()] = Node::Start;
         function.nodes[header.idx()] = Node::Start;
         function.nodes[loop_end.idx()] = Node::Start;
         function.nodes[loop_true_read.idx()] = Node::Start;
