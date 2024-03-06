@@ -55,6 +55,32 @@ impl Plan {
     }
 }
 
+impl GraveUpdatable for Plan {
+    /*
+     * Plans must be "repairable", in the sense that the IR that's referred to
+     * may change after many passes. Since a plan is an explicit side data
+     * structure, it must be updated after every change in the IR.
+     */
+    fn map_gravestones(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
+        let Plan {
+            mut schedules,
+            partitions,
+            partition_devices,
+            num_partitions,
+        } = self;
+
+        // Schedules of old nodes just get dropped. Since schedules don't hold
+        // necessary semantic information, we are free to drop them arbitrarily.
+        schedules = schedules.map_gravestones(function, grave_mapping);
+        schedules.resize(function.nodes.len(), vec![]);
+
+        // Once we've repaired the plan, now we are free to try and infer new
+        // schedules about the nodes added by previous passes.
+
+        todo!()
+    }
+}
+
 /*
  * A "default" plan should be available, where few schedules are used and
  * conservative partitioning is enacted. Only schedules that can be proven safe

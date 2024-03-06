@@ -526,7 +526,7 @@ impl Function {
      * Many transformations will delete nodes. There isn't strictly a gravestone
      * node value, so use the start node as a gravestone value (for IDs other
      * than 0). This function cleans up gravestoned nodes. This function returns
-     * a map from old IDs to the new IDs, so that other datastructures can be
+     * a map from old IDs to the new IDs, so that other data structures can be
      * updated.
      */
     pub fn delete_gravestones(&mut self) -> Vec<NodeID> {
@@ -584,11 +584,11 @@ impl Function {
  * Some analysis results can be updated after gravestone deletions.
  */
 pub trait GraveUpdatable {
-    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self;
+    fn map_gravestones(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self;
 }
 
 impl<T: Clone> GraveUpdatable for Vec<T> {
-    fn map_gravestones(&self, grave_mapping: &Vec<NodeID>) -> Self {
+    fn map_gravestones(self, _function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
         let mut new_self = vec![];
         for (data, (idx, mapping)) in
             std::iter::zip(self.into_iter(), grave_mapping.iter().enumerate())
