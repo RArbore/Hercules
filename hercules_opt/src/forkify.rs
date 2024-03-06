@@ -134,7 +134,6 @@ pub fn forkify(
             })
             .next()
             .unwrap();
-        let loop_dst = def_use.get_users(loop_false_read)[0];
 
         // Create fork and join nodes.
         let fork = Node::Fork {
