@@ -1,4 +1,5 @@
 extern crate hercules_ir;
+extern crate take_mut;
 
 use std::collections::HashMap;
 use std::iter::zip;
@@ -9,6 +10,7 @@ use self::hercules_ir::dom::*;
 use self::hercules_ir::dot::*;
 use self::hercules_ir::ir::*;
 use self::hercules_ir::loops::*;
+use self::hercules_ir::schedule::*;
 use self::hercules_ir::subgraph::*;
 use self::hercules_ir::typecheck::*;
 use self::hercules_ir::verify::*;
@@ -49,6 +51,9 @@ pub struct PassManager {
     postdoms: Option<Vec<DomTree>>,
     fork_join_maps: Option<Vec<HashMap<NodeID, NodeID>>>,
     loops: Option<Vec<LoopTree>>,
+
+    // Current plan. Keep track of the last time the plan was updated.
+    plans: Option<Vec<Plan>>,
 }
 
 impl PassManager {
@@ -64,6 +69,7 @@ impl PassManager {
             postdoms: None,
             fork_join_maps: None,
             loops: None,
+            plans: None,
         }
     }
 
@@ -168,6 +174,18 @@ impl PassManager {
                     })
                     .collect(),
             );
+        }
+    }
+
+    fn repair_plans(&mut self) {
+        let plans = &mut self.plans;
+        let functions = &self.module.functions;
+        if let Some(plans) = plans.as_mut() {
+            take_mut::take(plans, |plans| {
+                zip(plans, functions.iter())
+                    .map(|(plan, function)| plan.repair(function, &vec![]))
+                    .collect()
+            });
         }
     }
 
