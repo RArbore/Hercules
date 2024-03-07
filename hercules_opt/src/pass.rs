@@ -52,6 +52,7 @@ pub struct PassManager {
     pub doms: Option<Vec<DomTree>>,
     pub postdoms: Option<Vec<DomTree>>,
     pub fork_join_maps: Option<Vec<HashMap<NodeID, NodeID>>>,
+    pub fork_join_nests: Option<Vec<HashMap<NodeID, Vec<NodeID>>>>,
     pub loops: Option<Vec<LoopTree>>,
     pub antideps: Option<Vec<Vec<(NodeID, NodeID)>>>,
     pub bbs: Option<Vec<Vec<NodeID>>>,
@@ -72,6 +73,7 @@ impl PassManager {
             doms: None,
             postdoms: None,
             fork_join_maps: None,
+            fork_join_nests: None,
             loops: None,
             antideps: None,
             bbs: None,
@@ -165,6 +167,26 @@ impl PassManager {
         }
     }
 
+    pub fn make_fork_join_nests(&mut self) {
+        if self.fork_join_nests.is_none() {
+            self.make_doms();
+            self.make_fork_join_maps();
+            self.fork_join_nests = Some(
+                zip(
+                    self.module.functions.iter(),
+                    zip(
+                        self.doms.as_ref().unwrap().iter(),
+                        self.fork_join_maps.as_ref().unwrap().iter(),
+                    ),
+                )
+                .map(|(function, (dom, fork_join_map))| {
+                    compute_fork_join_nesting(function, dom, fork_join_map)
+                })
+                .collect(),
+            );
+        }
+    }
+
     pub fn make_loops(&mut self) {
         if self.loops.is_none() {
             self.make_control_subgraphs();
@@ -248,7 +270,7 @@ impl PassManager {
         }
     }
 
-    pub fn run_passes(mut self) -> Module {
+    pub fn run_passes(&mut self) {
         for pass in self.passes.clone().iter() {
             match pass {
                 Pass::DCE => {
@@ -378,8 +400,6 @@ impl PassManager {
             }
             self.clear_analyses();
         }
-
-        self.module
     }
 
     fn clear_analyses(&mut self) {
@@ -393,5 +413,11 @@ impl PassManager {
         self.loops = None;
         self.antideps = None;
         self.bbs = None;
+
+        // Don't clear the plan - this is repaired, not reconstructed.
+    }
+
+    pub fn get_module(self) -> Module {
+        self.module
     }
 }

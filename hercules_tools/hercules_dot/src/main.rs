@@ -46,6 +46,7 @@ fn main() {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
 
+        pm.run_passes();
         pm.make_reverse_postorders();
         pm.make_doms();
         pm.make_fork_join_maps();
@@ -56,7 +57,7 @@ fn main() {
         let fork_join_maps = pm.fork_join_maps.as_ref().unwrap().clone();
         let plans = pm.plans.as_ref().unwrap().clone();
 
-        let module = pm.run_passes();
+        let module = pm.get_module();
 
         hercules_ir::dot::write_dot(
             &module,
