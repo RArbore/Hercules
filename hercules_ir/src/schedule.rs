@@ -54,15 +54,13 @@ impl Plan {
 
         map
     }
-}
 
-impl GraveUpdatable for Plan {
     /*
      * Plans must be "repairable", in the sense that the IR that's referred to
      * may change after many passes. Since a plan is an explicit side data
      * structure, it must be updated after every change in the IR.
      */
-    fn map_gravestones(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
+    pub fn repair(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
         // Unpack the plan.
         let old_inverse_partition_map = self.invert_partition_map();
         let Plan {
@@ -74,7 +72,7 @@ impl GraveUpdatable for Plan {
 
         // Schedules of old nodes just get dropped. Since schedules don't hold
         // necessary semantic information, we are free to drop them arbitrarily.
-        schedules = schedules.map_gravestones(function, grave_mapping);
+        schedules = schedules.map_gravestones(grave_mapping);
         schedules.resize(function.nodes.len(), vec![]);
 
         // Delete now empty partitions. First, filter out deleted nodes from the
@@ -166,14 +164,12 @@ impl GraveUpdatable for Plan {
         }
 
         // Reconstruct the whole plan.
-        let plan = Plan {
+        Plan {
             schedules,
             partitions,
             partition_devices: new_devices,
             num_partitions,
-        };
-
-        plan
+        }
     }
 }
 
