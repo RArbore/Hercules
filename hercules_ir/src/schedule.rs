@@ -154,7 +154,6 @@ impl Plan {
                 }
             }
             new_node_ids.push_back(id);
-            println!("{:?}", new_node_ids);
         }
 
         // Reconstruct the partitions vector.
