@@ -86,7 +86,7 @@ impl Plan {
                         contents
                             .into_iter()
                             .filter_map(|id| {
-                                if id.idx() == 0 || grave_mapping[id.idx()].idx() == 0 {
+                                if id.idx() == 0 || grave_mapping[id.idx()].idx() != 0 {
                                     Some(grave_mapping[id.idx()])
                                 } else {
                                     None
@@ -154,11 +154,12 @@ impl Plan {
                 }
             }
             new_node_ids.push_back(id);
+            println!("{:?}", new_node_ids);
         }
 
         // Reconstruct the partitions vector.
         let num_partitions = new_devices.len();
-        let mut partitions = vec![PartitionID::new(0); num_partitions];
+        let mut partitions = vec![PartitionID::new(0); function.nodes.len()];
         for (k, v) in node_id_to_partition_id {
             partitions[k.idx()] = v;
         }

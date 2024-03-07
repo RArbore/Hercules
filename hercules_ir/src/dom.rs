@@ -18,6 +18,7 @@ pub struct DomChainIterator<'a> {
     dom: &'a DomTree,
     iter: Option<NodeID>,
     top: NodeID,
+    bottom: NodeID,
 }
 
 impl DomTree {
@@ -113,6 +114,7 @@ impl DomTree {
             dom: self,
             iter: Some(bottom),
             top,
+            bottom,
         }
     }
 
@@ -121,6 +123,7 @@ impl DomTree {
             dom: self,
             iter: Some(bottom),
             top: self.root,
+            bottom,
         }
     }
 
@@ -140,7 +143,10 @@ impl<'a> Iterator for DomChainIterator<'a> {
             } else if let Some(iter) = self.dom.imm_dom(iter) {
                 self.iter = Some(iter);
             } else {
-                panic!("In DomChainIterator, top node doesn't dominate bottom node.")
+                panic!(
+                    "In DomChainIterator, top node ({:?}) doesn't dominate bottom node ({:?}).",
+                    self.top, self.bottom
+                )
             }
             Some(ret)
         } else {

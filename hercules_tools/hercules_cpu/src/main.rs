@@ -35,6 +35,8 @@ fn main() {
     pm.add_pass(hercules_opt::pass::Pass::DCE);
     pm.add_pass(hercules_opt::pass::Pass::Forkify);
     pm.add_pass(hercules_opt::pass::Pass::DCE);
+    pm.add_pass(hercules_opt::pass::Pass::Predication);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
     let mut module = pm.run_passes();
 
     let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
@@ -45,7 +47,7 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_cg::antideps::array_antideps(
+            hercules_ir::antideps::array_antideps(
                 function,
                 &def_uses[idx],
                 &module.types,
@@ -59,7 +61,7 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_cg::gcm::gcm(
+            hercules_ir::gcm::gcm(
                 function,
                 &def_uses[idx],
                 &reverse_postorders[idx],
@@ -76,7 +78,7 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(idx, function)| {
-            hercules_cg::gcm::compute_fork_join_nesting(function, &doms[idx], &fork_join_maps[idx])
+            hercules_ir::gcm::compute_fork_join_nesting(function, &doms[idx], &fork_join_maps[idx])
         })
         .collect();
 

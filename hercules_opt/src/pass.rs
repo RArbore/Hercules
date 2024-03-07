@@ -4,10 +4,12 @@ extern crate take_mut;
 use std::collections::HashMap;
 use std::iter::zip;
 
+use self::hercules_ir::antideps::*;
 use self::hercules_ir::dataflow::*;
 use self::hercules_ir::def_use::*;
 use self::hercules_ir::dom::*;
 use self::hercules_ir::dot::*;
+use self::hercules_ir::gcm::*;
 use self::hercules_ir::ir::*;
 use self::hercules_ir::loops::*;
 use self::hercules_ir::schedule::*;
@@ -28,7 +30,7 @@ pub enum Pass {
     Forkify,
     Predication,
     Verify,
-    Xdot,
+    Xdot(bool),
 }
 
 /*
@@ -43,17 +45,19 @@ pub struct PassManager {
     passes: Vec<Pass>,
 
     // Cached analysis results.
-    def_uses: Option<Vec<ImmutableDefUseMap>>,
-    reverse_postorders: Option<Vec<Vec<NodeID>>>,
-    typing: Option<ModuleTyping>,
-    control_subgraphs: Option<Vec<Subgraph>>,
-    doms: Option<Vec<DomTree>>,
-    postdoms: Option<Vec<DomTree>>,
-    fork_join_maps: Option<Vec<HashMap<NodeID, NodeID>>>,
-    loops: Option<Vec<LoopTree>>,
+    pub def_uses: Option<Vec<ImmutableDefUseMap>>,
+    pub reverse_postorders: Option<Vec<Vec<NodeID>>>,
+    pub typing: Option<ModuleTyping>,
+    pub control_subgraphs: Option<Vec<Subgraph>>,
+    pub doms: Option<Vec<DomTree>>,
+    pub postdoms: Option<Vec<DomTree>>,
+    pub fork_join_maps: Option<Vec<HashMap<NodeID, NodeID>>>,
+    pub loops: Option<Vec<LoopTree>>,
+    pub antideps: Option<Vec<Vec<(NodeID, NodeID)>>>,
+    pub bbs: Option<Vec<Vec<NodeID>>>,
 
     // Current plan. Keep track of the last time the plan was updated.
-    plans: Option<Vec<Plan>>,
+    pub plans: Option<Vec<Plan>>,
 }
 
 impl PassManager {
@@ -69,6 +73,8 @@ impl PassManager {
             postdoms: None,
             fork_join_maps: None,
             loops: None,
+            antideps: None,
+            bbs: None,
             plans: None,
         }
     }
@@ -77,13 +83,13 @@ impl PassManager {
         self.passes.push(pass);
     }
 
-    fn make_def_uses(&mut self) {
+    pub fn make_def_uses(&mut self) {
         if self.def_uses.is_none() {
             self.def_uses = Some(self.module.functions.iter().map(def_use).collect());
         }
     }
 
-    fn make_reverse_postorders(&mut self) {
+    pub fn make_reverse_postorders(&mut self) {
         if self.reverse_postorders.is_none() {
             self.make_def_uses();
             self.reverse_postorders = Some(
@@ -97,7 +103,7 @@ impl PassManager {
         }
     }
 
-    fn make_typing(&mut self) {
+    pub fn make_typing(&mut self) {
         if self.typing.is_none() {
             self.make_reverse_postorders();
             self.typing = Some(
@@ -106,7 +112,7 @@ impl PassManager {
         }
     }
 
-    fn make_control_subgraphs(&mut self) {
+    pub fn make_control_subgraphs(&mut self) {
         if self.control_subgraphs.is_none() {
             self.make_def_uses();
             self.control_subgraphs = Some(
@@ -117,7 +123,7 @@ impl PassManager {
         }
     }
 
-    fn make_doms(&mut self) {
+    pub fn make_doms(&mut self) {
         if self.doms.is_none() {
             self.make_control_subgraphs();
             self.doms = Some(
@@ -131,7 +137,7 @@ impl PassManager {
         }
     }
 
-    fn make_postdoms(&mut self) {
+    pub fn make_postdoms(&mut self) {
         if self.postdoms.is_none() {
             self.make_control_subgraphs();
             self.postdoms = Some(
@@ -145,7 +151,7 @@ impl PassManager {
         }
     }
 
-    fn make_fork_join_maps(&mut self) {
+    pub fn make_fork_join_maps(&mut self) {
         if self.fork_join_maps.is_none() {
             self.make_typing();
             self.fork_join_maps = Some(
@@ -159,7 +165,7 @@ impl PassManager {
         }
     }
 
-    fn make_loops(&mut self) {
+    pub fn make_loops(&mut self) {
         if self.loops.is_none() {
             self.make_control_subgraphs();
             self.make_doms();
@@ -177,15 +183,68 @@ impl PassManager {
         }
     }
 
-    fn repair_plans(&mut self) {
-        let plans = &mut self.plans;
-        let functions = &self.module.functions;
-        if let Some(plans) = plans.as_mut() {
-            take_mut::take(plans, |plans| {
-                zip(plans, functions.iter())
-                    .map(|(plan, function)| plan.repair(function, &vec![]))
-                    .collect()
-            });
+    pub fn make_antideps(&mut self) {
+        if self.antideps.is_none() {
+            self.make_def_uses();
+            self.antideps = Some(
+                zip(
+                    self.def_uses.as_ref().unwrap().iter(),
+                    self.module.functions.iter(),
+                )
+                .map(|(def_use, function)| antideps(function, def_use))
+                .collect(),
+            );
+        }
+    }
+
+    pub fn make_bbs(&mut self) {
+        if self.antideps.is_none() {
+            self.make_def_uses();
+            self.make_reverse_postorders();
+            self.make_doms();
+            self.make_antideps();
+            self.make_loops();
+            let def_uses = self.def_uses.as_ref().unwrap().iter();
+            let reverse_postorders = self.reverse_postorders.as_ref().unwrap().iter();
+            let doms = self.doms.as_ref().unwrap().iter();
+            let antideps = self.antideps.as_ref().unwrap().iter();
+            let loops = self.loops.as_ref().unwrap().iter();
+            self.bbs = Some(
+                zip(
+                    self.module.functions.iter(),
+                    zip(
+                        def_uses,
+                        zip(reverse_postorders, zip(doms, zip(antideps, loops))),
+                    ),
+                )
+                .map(
+                    |(function, (def_use, (reverse_postorder, (dom, (antideps, loops)))))| {
+                        gcm(function, def_use, reverse_postorder, dom, antideps, loops)
+                    },
+                )
+                .collect(),
+            );
+        }
+    }
+
+    pub fn make_plans(&mut self) {
+        if self.plans.is_none() {
+            self.make_reverse_postorders();
+            self.make_fork_join_maps();
+            self.make_bbs();
+            let reverse_postorders = self.reverse_postorders.as_ref().unwrap().iter();
+            let fork_join_maps = self.fork_join_maps.as_ref().unwrap().iter();
+            let bbs = self.bbs.as_ref().unwrap().iter();
+            self.plans = Some(
+                zip(
+                    self.module.functions.iter(),
+                    zip(reverse_postorders, zip(fork_join_maps, bbs)),
+                )
+                .map(|(function, (reverse_postorder, (fork_join_map, bb)))| {
+                    default_plan(function, reverse_postorder, fork_join_map, bb)
+                })
+                .collect(),
+            );
         }
     }
 
@@ -243,10 +302,12 @@ impl PassManager {
                     self.make_reverse_postorders();
                     self.make_doms();
                     self.make_fork_join_maps();
+                    self.make_plans();
                     let def_uses = self.def_uses.as_ref().unwrap();
                     let reverse_postorders = self.reverse_postorders.as_ref().unwrap();
                     let doms = self.doms.as_ref().unwrap();
                     let fork_join_maps = self.fork_join_maps.as_ref().unwrap();
+                    let plans = self.plans.as_ref().unwrap();
                     for idx in 0..self.module.functions.len() {
                         predication(
                             &mut self.module.functions[idx],
@@ -254,7 +315,7 @@ impl PassManager {
                             &reverse_postorders[idx],
                             &doms[idx],
                             &fork_join_maps[idx],
-                            &vec![],
+                            &plans[idx].schedules,
                         )
                     }
                 }
@@ -280,23 +341,40 @@ impl PassManager {
                     self.postdoms = Some(postdoms);
                     self.fork_join_maps = Some(fork_join_maps);
 
-                    // Verification doesn't require clearing analysis results.
+                    // Verify doesn't require clearing analysis results.
                     continue;
                 }
-                Pass::Xdot => {
+                Pass::Xdot(force_analyses) => {
                     self.make_reverse_postorders();
+                    if *force_analyses {
+                        self.make_doms();
+                        self.make_fork_join_maps();
+                        self.make_plans();
+                    }
                     xdot_module(
                         &self.module,
                         self.reverse_postorders.as_ref().unwrap(),
                         self.doms.as_ref(),
                         self.fork_join_maps.as_ref(),
-                        None,
+                        self.plans.as_ref(),
                     );
+
+                    // Xdot doesn't require clearing analysis results.
+                    continue;
                 }
             }
 
+            // Cleanup the module after passes. Delete gravestone nodes. Repair
+            // the plans. Clear out-of-date analyses.
             for idx in 0..self.module.functions.len() {
-                self.module.functions[idx].delete_gravestones();
+                let grave_mapping = self.module.functions[idx].delete_gravestones();
+                let plans = &mut self.plans;
+                let functions = &self.module.functions;
+                if let Some(plans) = plans.as_mut() {
+                    take_mut::take(&mut plans[idx], |plan| {
+                        plan.repair(&functions[idx], &grave_mapping)
+                    });
+                }
             }
             self.clear_analyses();
         }
@@ -313,5 +391,7 @@ impl PassManager {
         self.postdoms = None;
         self.fork_join_maps = None;
         self.loops = None;
+        self.antideps = None;
+        self.bbs = None;
     }
 }

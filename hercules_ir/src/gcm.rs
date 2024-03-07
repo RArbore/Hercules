@@ -1,13 +1,6 @@
-extern crate hercules_ir;
-
 use std::collections::HashMap;
 
-use self::hercules_ir::dataflow::*;
-use self::hercules_ir::def_use::*;
-use self::hercules_ir::dom::*;
-use self::hercules_ir::ir::*;
-use self::hercules_ir::loops::*;
-use self::hercules_ir::subgraph::*;
+use crate::*;
 
 /*
  * Top level global code motion function. Assigns each data node to one of its
@@ -18,10 +11,9 @@ pub fn gcm(
     function: &Function,
     def_use: &ImmutableDefUseMap,
     reverse_postorder: &Vec<NodeID>,
-    control_subgraph: &Subgraph,
     dom: &DomTree,
-    fork_join_map: &HashMap<NodeID, NodeID>,
     antideps: &Vec<(NodeID, NodeID)>,
+    loops: &LoopTree,
 ) -> Vec<NodeID> {
     // Step 1: find the immediate control uses and immediate control users of
     // each node.
@@ -51,10 +43,7 @@ pub fn gcm(
         immediate_control_users[write.idx()] = meet;
     }
 
-    // Step 2: calculate loop tree of function.
-    let loops = loops(&control_subgraph, NodeID::new(0), &dom, fork_join_map);
-
-    // Step 3: find most control dependent, shallowest loop level node for every
+    // Step 2: find most control dependent, shallowest loop level node for every
     // node.
     let bbs = (0..function.nodes.len())
         .map(|idx| {
@@ -64,25 +53,31 @@ pub fn gcm(
                 .common_ancestor(immediate_control_users[idx].nodes(function.nodes.len() as u32))
                 .unwrap_or(highest);
 
-            // Collect into vector to reverse, since we want to traverse down
-            // the dom tree, not up it.
-            let mut chain = dom
-                .chain(lowest, highest)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev();
+            // If the ancestor of the control users isn't below the lowest
+            // control use, then just place in the loewst control use.
+            if !dom.does_dom(highest, lowest) {
+                highest
+            } else {
+                // Collect in vector to reverse, since we want to traverse down
+                // the dom tree, not up it.
+                let mut chain = dom
+                    .chain(lowest, highest)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev();
 
-            let mut location = chain.next().unwrap();
-            while let Some(control_node) = chain.next() {
-                // Traverse down the dom tree until we find a loop.
-                if loops.contains(control_node) {
-                    break;
-                } else {
-                    location = control_node;
+                let mut location = chain.next().unwrap();
+                while let Some(control_node) = chain.next() {
+                    // Traverse down the dom tree until we find a loop.
+                    if loops.contains(control_node) {
+                        break;
+                    } else {
+                        location = control_node;
+                    }
                 }
-            }
 
-            location
+                location
+            }
         })
         .collect();
 
