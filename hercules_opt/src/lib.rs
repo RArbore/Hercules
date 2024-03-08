@@ -1,3 +1,5 @@
+#![feature(let_chains)]
+
 pub mod ccp;
 pub mod dce;
 pub mod forkify;

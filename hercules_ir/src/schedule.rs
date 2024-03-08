@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::iter::zip;
 
 use crate::*;
@@ -53,31 +54,122 @@ impl Plan {
 
         map
     }
-}
 
-impl GraveUpdatable for Plan {
     /*
      * Plans must be "repairable", in the sense that the IR that's referred to
      * may change after many passes. Since a plan is an explicit side data
      * structure, it must be updated after every change in the IR.
      */
-    fn map_gravestones(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
+    pub fn repair(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
+        // Unpack the plan.
+        let old_inverse_partition_map = self.invert_partition_map();
         let Plan {
             mut schedules,
-            partitions,
+            partitions: _,
             partition_devices,
-            num_partitions,
+            num_partitions: _,
         } = self;
 
         // Schedules of old nodes just get dropped. Since schedules don't hold
         // necessary semantic information, we are free to drop them arbitrarily.
-        schedules = schedules.map_gravestones(function, grave_mapping);
+        schedules = schedules.map_gravestones(grave_mapping);
         schedules.resize(function.nodes.len(), vec![]);
 
-        // Once we've repaired the plan, now we are free to try and infer new
-        // schedules about the nodes added by previous passes.
+        // Delete now empty partitions. First, filter out deleted nodes from the
+        // partitions and simultaneously map old node IDs to new node IDs. Then,
+        // filter out empty partitions.
+        let (new_inverse_partition_map, new_devices): (Vec<Vec<NodeID>>, Vec<Device>) =
+            zip(old_inverse_partition_map, partition_devices)
+                .into_iter()
+                .map(|(contents, device)| {
+                    (
+                        contents
+                            .into_iter()
+                            .filter_map(|id| {
+                                if id.idx() == 0 || grave_mapping[id.idx()].idx() != 0 {
+                                    Some(grave_mapping[id.idx()])
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<NodeID>>(),
+                        device,
+                    )
+                })
+                .filter(|(contents, _)| !contents.is_empty())
+                .unzip();
 
-        todo!()
+        // Calculate the number of nodes after deletion but before addition. Use
+        // this is iterate new nodes later.
+        let num_nodes_before_addition = new_inverse_partition_map.iter().flatten().count();
+        assert!(new_inverse_partition_map
+            .iter()
+            .flatten()
+            .all(|id| id.idx() < num_nodes_before_addition));
+
+        // Calculate the nodes that need to be assigned to a partition. This
+        // starts as just the nodes that have been added by passes.
+        let mut new_node_ids: VecDeque<NodeID> = (num_nodes_before_addition..function.nodes.len())
+            .map(NodeID::new)
+            .collect();
+
+        // Any partition no longer containing at least one control node needs to
+        // be liquidated.
+        let (new_inverse_partition_map, new_devices): (Vec<Vec<NodeID>>, Vec<Device>) =
+            zip(new_inverse_partition_map, new_devices)
+                .into_iter()
+                .filter_map(|(part, device)| {
+                    if part.iter().any(|id| function.nodes[id.idx()].is_control()) {
+                        Some((part, device))
+                    } else {
+                        // Nodes in removed partitions need to be re-partitioned.
+                        new_node_ids.extend(part);
+                        None
+                    }
+                })
+                .unzip();
+
+        // Assign the node IDs that need to be partitioned to partitions. In the
+        // process, construct a map from node ID to partition ID.
+        let mut node_id_to_partition_id: HashMap<NodeID, PartitionID> = new_inverse_partition_map
+            .into_iter()
+            .enumerate()
+            .map(|(partition_idx, node_ids)| {
+                node_ids
+                    .into_iter()
+                    .map(|node_id| (node_id, PartitionID::new(partition_idx)))
+                    .collect::<Vec<(NodeID, PartitionID)>>()
+            })
+            .flatten()
+            .collect();
+
+        // Make a best effort to assign nodes to the partition of one of their
+        // uses. Prioritize earlier uses. TODO: since not all partitions are
+        // legal, this is almost certainly not complete. Think more about that.
+        'workloop: while let Some(id) = new_node_ids.pop_front() {
+            for u in get_uses(&function.nodes[id.idx()]).as_ref() {
+                if let Some(partition_id) = node_id_to_partition_id.get(u) {
+                    node_id_to_partition_id.insert(id, *partition_id);
+                    continue 'workloop;
+                }
+            }
+            new_node_ids.push_back(id);
+        }
+
+        // Reconstruct the partitions vector.
+        let num_partitions = new_devices.len();
+        let mut partitions = vec![PartitionID::new(0); function.nodes.len()];
+        for (k, v) in node_id_to_partition_id {
+            partitions[k.idx()] = v;
+        }
+
+        // Reconstruct the whole plan.
+        Plan {
+            schedules,
+            partitions,
+            partition_devices: new_devices,
+            num_partitions,
+        }
     }
 }
 

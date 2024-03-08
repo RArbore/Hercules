@@ -35,50 +35,27 @@ fn main() {
     pm.add_pass(hercules_opt::pass::Pass::DCE);
     pm.add_pass(hercules_opt::pass::Pass::Forkify);
     pm.add_pass(hercules_opt::pass::Pass::DCE);
-    let mut module = pm.run_passes();
+    pm.add_pass(hercules_opt::pass::Pass::Predication);
+    pm.add_pass(hercules_opt::pass::Pass::DCE);
 
-    let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
-        hercules_ir::verify::verify(&mut module)
-            .expect("PANIC: Failed to verify Hercules IR module.");
-    let antideps: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_cg::antideps::array_antideps(
-                function,
-                &def_uses[idx],
-                &module.types,
-                &typing[idx],
-            )
-        })
-        .collect();
+    pm.run_passes();
+    pm.make_typing();
+    pm.make_reverse_postorders();
+    pm.make_def_uses();
+    pm.make_bbs();
+    pm.make_antideps();
+    pm.make_fork_join_maps();
+    pm.make_fork_join_nests();
 
-    let bbs: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_cg::gcm::gcm(
-                function,
-                &def_uses[idx],
-                &reverse_postorders[idx],
-                &subgraphs[idx],
-                &doms[idx],
-                &fork_join_maps[idx],
-                &antideps[idx],
-            )
-        })
-        .collect();
+    let typing = pm.typing.as_ref().unwrap().clone();
+    let reverse_postorders = pm.reverse_postorders.as_ref().unwrap().clone();
+    let def_uses = pm.def_uses.as_ref().unwrap().clone();
+    let bbs = pm.bbs.as_ref().unwrap().clone();
+    let antideps = pm.antideps.as_ref().unwrap().clone();
+    let fork_join_maps = pm.fork_join_maps.as_ref().unwrap().clone();
+    let fork_join_nests = pm.fork_join_nests.as_ref().unwrap().clone();
 
-    let fork_join_nests: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_cg::gcm::compute_fork_join_nesting(function, &doms[idx], &fork_join_maps[idx])
-        })
-        .collect();
+    let module = pm.get_module();
 
     let mut file = File::create("test.ll").unwrap();
     let mut contents = String::new();

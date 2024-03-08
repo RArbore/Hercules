@@ -1,14 +1,41 @@
-extern crate hercules_ir;
-
-use self::hercules_ir::def_use::*;
-use self::hercules_ir::ir::*;
+use crate::*;
 
 /*
- * Top level function to assemble anti-dependence edges. Returns a list of pairs
- * of nodes. The first item in the pair is the read node, and the second item is
- * the write node.
+ * Top level function to get all anti-dependencies.
  */
-pub fn antideps<I: Iterator<Item = NodeID>>(
+pub fn antideps(function: &Function, def_use: &ImmutableDefUseMap) -> Vec<(NodeID, NodeID)> {
+    generic_antideps(
+        function,
+        def_use,
+        (0..function.nodes.len()).map(NodeID::new),
+    )
+}
+
+/*
+ * Sometimes, we are only interested in anti-dependence edges involving arrays.
+ */
+pub fn array_antideps(
+    function: &Function,
+    def_use: &ImmutableDefUseMap,
+    types: &Vec<Type>,
+    typing: &Vec<TypeID>,
+) -> Vec<(NodeID, NodeID)> {
+    generic_antideps(
+        function,
+        def_use,
+        (0..function.nodes.len())
+            .map(NodeID::new)
+            .filter(|id| types[typing[id.idx()].idx()].is_array()),
+    )
+}
+
+/*
+ * Function to assemble anti-dependence edges. Returns a list of pairs of nodes.
+ * The first item in the pair is the read node, and the second item is the write
+ * node. Take an iterator of nodes in case we want a subset of all anti-
+ * dependencies.
+ */
+fn generic_antideps<I: Iterator<Item = NodeID>>(
     function: &Function,
     def_use: &ImmutableDefUseMap,
     nodes: I,
@@ -57,22 +84,4 @@ pub fn antideps<I: Iterator<Item = NodeID>>(
     }
 
     antideps
-}
-
-/*
- * Sometimes, we are only interested in anti-dependence edges involving arrays.
- */
-pub fn array_antideps(
-    function: &Function,
-    def_use: &ImmutableDefUseMap,
-    types: &Vec<Type>,
-    typing: &Vec<TypeID>,
-) -> Vec<(NodeID, NodeID)> {
-    antideps(
-        function,
-        def_use,
-        (0..function.nodes.len())
-            .map(NodeID::new)
-            .filter(|id| types[typing[id.idx()].idx()].is_array()),
-    )
 }

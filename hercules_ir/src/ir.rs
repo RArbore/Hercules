@@ -584,11 +584,11 @@ impl Function {
  * Some analysis results can be updated after gravestone deletions.
  */
 pub trait GraveUpdatable {
-    fn map_gravestones(self, function: &Function, grave_mapping: &Vec<NodeID>) -> Self;
+    fn map_gravestones(self, grave_mapping: &Vec<NodeID>) -> Self;
 }
 
 impl<T: Clone> GraveUpdatable for Vec<T> {
-    fn map_gravestones(self, _function: &Function, grave_mapping: &Vec<NodeID>) -> Self {
+    fn map_gravestones(self, grave_mapping: &Vec<NodeID>) -> Self {
         let mut new_self = vec![];
         for (data, (idx, mapping)) in
             std::iter::zip(self.into_iter(), grave_mapping.iter().enumerate())
