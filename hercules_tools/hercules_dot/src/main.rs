@@ -38,49 +38,27 @@ fn main() {
     pm.add_pass(hercules_opt::pass::Pass::DCE);
     pm.add_pass(hercules_opt::pass::Pass::Predication);
     pm.add_pass(hercules_opt::pass::Pass::DCE);
-    let mut module = pm.run_passes();
-
-    let (def_uses, reverse_postorders, typing, subgraphs, doms, _postdoms, fork_join_maps) =
-        hercules_ir::verify::verify(&mut module)
-            .expect("PANIC: Failed to verify Hercules IR module.");
-    let plans: Vec<_> = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(idx, function)| {
-            hercules_ir::schedule::default_plan(
-                function,
-                &reverse_postorders[idx],
-                &fork_join_maps[idx],
-                &hercules_cg::gcm::gcm(
-                    function,
-                    &def_uses[idx],
-                    &reverse_postorders[idx],
-                    &subgraphs[idx],
-                    &doms[idx],
-                    &fork_join_maps[idx],
-                    &hercules_cg::antideps::array_antideps(
-                        function,
-                        &def_uses[idx],
-                        &module.types,
-                        &typing[idx],
-                    ),
-                ),
-            )
-        })
-        .collect();
 
     if args.output.is_empty() {
-        hercules_ir::dot::xdot_module(
-            &module,
-            &reverse_postorders,
-            Some(&doms),
-            Some(&fork_join_maps),
-            Some(&plans),
-        );
+        pm.add_pass(hercules_opt::pass::Pass::Xdot(true));
+        pm.run_passes();
     } else {
         let mut file = File::create(args.output).expect("PANIC: Unable to open output file.");
         let mut contents = String::new();
+
+        pm.run_passes();
+        pm.make_reverse_postorders();
+        pm.make_doms();
+        pm.make_fork_join_maps();
+        pm.make_plans();
+
+        let reverse_postorders = pm.reverse_postorders.as_ref().unwrap().clone();
+        let doms = pm.doms.as_ref().unwrap().clone();
+        let fork_join_maps = pm.fork_join_maps.as_ref().unwrap().clone();
+        let plans = pm.plans.as_ref().unwrap().clone();
+
+        let module = pm.get_module();
+
         hercules_ir::dot::write_dot(
             &module,
             &reverse_postorders,

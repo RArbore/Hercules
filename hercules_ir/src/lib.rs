@@ -1,10 +1,12 @@
 #![feature(coroutines, coroutine_trait, let_chains)]
 
+pub mod antideps;
 pub mod build;
 pub mod dataflow;
 pub mod def_use;
 pub mod dom;
 pub mod dot;
+pub mod gcm;
 pub mod ir;
 pub mod loops;
 pub mod parse;
@@ -13,11 +15,13 @@ pub mod subgraph;
 pub mod typecheck;
 pub mod verify;
 
+pub use crate::antideps::*;
 pub use crate::build::*;
 pub use crate::dataflow::*;
 pub use crate::def_use::*;
 pub use crate::dom::*;
 pub use crate::dot::*;
+pub use crate::gcm::*;
 pub use crate::ir::*;
 pub use crate::loops::*;
 pub use crate::parse::*;
