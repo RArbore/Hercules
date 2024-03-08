@@ -4,18 +4,7 @@ extern crate take_mut;
 use std::collections::HashMap;
 use std::iter::zip;
 
-use self::hercules_ir::antideps::*;
-use self::hercules_ir::dataflow::*;
-use self::hercules_ir::def_use::*;
-use self::hercules_ir::dom::*;
-use self::hercules_ir::dot::*;
-use self::hercules_ir::gcm::*;
-use self::hercules_ir::ir::*;
-use self::hercules_ir::loops::*;
-use self::hercules_ir::schedule::*;
-use self::hercules_ir::subgraph::*;
-use self::hercules_ir::typecheck::*;
-use self::hercules_ir::verify::*;
+use self::hercules_ir::*;
 
 use crate::*;
 
