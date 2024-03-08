@@ -21,6 +21,7 @@ pub fn forkify(
     let natural_loops = loops
         .bottom_up_loops()
         .into_iter()
+        .rev()
         .filter(|(k, _)| function.nodes[k.idx()].is_region());
 
     // Detect loops that have a simple loop induction variable. TODO: proper
