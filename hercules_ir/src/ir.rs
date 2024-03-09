@@ -593,7 +593,8 @@ impl<T: Clone> GraveUpdatable for Vec<T> {
         for (data, (idx, mapping)) in
             std::iter::zip(self.into_iter(), grave_mapping.iter().enumerate())
         {
-            if idx != 0 && mapping.idx() == 0 {
+            if idx == 0 || mapping.idx() != 0 {
+                assert_eq!(new_self.len(), mapping.idx());
                 new_self.push(data.clone());
             }
         }
