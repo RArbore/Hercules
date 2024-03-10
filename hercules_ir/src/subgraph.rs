@@ -37,6 +37,12 @@ impl<'a> Iterator for SubgraphIterator<'a> {
     }
 }
 
+impl<'a> ExactSizeIterator for SubgraphIterator<'a> {
+    fn len(&self) -> usize {
+        self.edges.len()
+    }
+}
+
 impl IntoIterator for Subgraph {
     type Item = NodeID;
     type IntoIter = std::vec::IntoIter<Self::Item>;

@@ -2,18 +2,78 @@ extern crate hercules_ir;
 
 use std::fmt::Write;
 
-use self::hercules_ir::ir::*;
+use self::hercules_ir::*;
 
 /*
  * Top level function to generate code for a module. Emits LLVM IR text. Calls
  * out to backends to generate code for individual partitions. Generates
  * orchestration code to manage partitions.
  */
-pub fn codegen<W: Write>(module: &Module, w: &mut W) -> std::fmt::Result {
+pub fn codegen<W: Write>(
+    module: &Module,
+    control_subgraph: &Vec<Subgraph>,
+    plans: &Vec<Plan>,
+    w: &mut W,
+) -> std::fmt::Result {
     // Render types, constants, and dynamic constants into LLVM IR.
     let llvm_types = generate_type_strings(module);
     let llvm_constants = generate_constant_strings(module);
     let llvm_dynamic_constants = generate_dynamic_constant_strings(module);
+
+    // Do codegen for each function individually.
+    for function_idx in 0..module.functions.len() {
+        // There's a bunch of per-function information we use.
+        let function = &module.functions[function_idx];
+        let control_subgraph = &control_subgraph[function_idx];
+        let plan = &plans[function_idx];
+
+        codegen_function(
+            function,
+            control_subgraph,
+            plan,
+            &llvm_types,
+            &llvm_constants,
+            &llvm_dynamic_constants,
+            w,
+        )?;
+    }
+
+    Ok(())
+}
+
+/*
+ * Each function gets codegened separately.
+ */
+fn codegen_function<W: Write>(
+    function: &Function,
+    control_subgraph: &Subgraph,
+    plan: &Plan,
+    llvm_types: &Vec<String>,
+    llvm_constants: &Vec<String>,
+    llvm_dynamic_constants: &Vec<String>,
+    w: &mut W,
+) -> std::fmt::Result {
+    // Find the "top" control node of each partition. One well-formedness
+    // condition of partitions is that there is exactly one "top" control node.
+    let partitions = plan.invert_partition_map();
+    let top_nodes: Vec<NodeID> = partitions
+        .iter()
+        .enumerate()
+        .map(|(part_idx, part)| {
+            *part
+                .iter()
+                .filter(move |id| {
+                    function.nodes[id.idx()].is_control()
+                        && control_subgraph
+                            .preds(**id)
+                            .filter(|pred_id| plan.partitions[pred_id.idx()].idx() != part_idx)
+                            .count()
+                            > 0
+                })
+                .next()
+                .unwrap()
+        })
+        .collect();
 
     Ok(())
 }
