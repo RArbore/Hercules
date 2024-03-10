@@ -60,15 +60,21 @@ fn codegen_function<W: Write>(
         .iter()
         .enumerate()
         .map(|(part_idx, part)| {
+            // For each partition, find the "top" node.
             *part
                 .iter()
                 .filter(move |id| {
-                    function.nodes[id.idx()].is_control()
-                        && control_subgraph
-                            .preds(**id)
-                            .filter(|pred_id| plan.partitions[pred_id.idx()].idx() != part_idx)
-                            .count()
-                            > 0
+                    // The "top" node is a control node having at least one
+                    // control predecessor in another partition, or is a start
+                    // node. Every predecessor in the control subgraph is a
+                    // control node.
+                    function.nodes[id.idx()].is_start()
+                        || (function.nodes[id.idx()].is_control()
+                            && control_subgraph
+                                .preds(**id)
+                                .filter(|pred_id| plan.partitions[pred_id.idx()].idx() != part_idx)
+                                .count()
+                                > 0)
                 })
                 .next()
                 .unwrap()
