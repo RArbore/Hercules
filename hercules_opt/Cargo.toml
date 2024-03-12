@@ -7,5 +7,6 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 ordered-float = "*"
 bitvec = "*"
 take_mut = "*"
+serde = { version = "*", features = ["derive"] }
 hercules_ir = { path = "../hercules_ir" }
 hercules_cg = { path = "../hercules_cg" }

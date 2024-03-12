@@ -9,8 +9,6 @@ use clap::Parser;
 #[command(author, version, about, long_about = None)]
 struct Args {
     hir_file: String,
-
-    #[arg(short, long, default_value_t = String::new())]
     passes: String,
 }
 
@@ -30,8 +28,15 @@ fn main() {
     let mut pm = hercules_opt::pass::PassManager::new(module);
     let passes: Vec<hercules_opt::pass::Pass> = args
         .passes
-        .parse()
-        .expect("PANIC: Couldn't parse list of passes.");
+        .split(char::is_whitespace)
+        .map(|pass_str| {
+            assert_ne!(
+                pass_str, "",
+                "PANIC: Can't interpret empty pass name. Try giving a list of pass names."
+            );
+            ron::from_str(pass_str).expect("PANIC: Couldn't parse list of passes.")
+        })
+        .collect();
     for pass in passes {
         pm.add_pass(pass);
     }

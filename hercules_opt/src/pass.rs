@@ -1,11 +1,14 @@
 extern crate hercules_cg;
 extern crate hercules_ir;
+extern crate serde;
 extern crate take_mut;
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::iter::zip;
+
+use self::serde::Deserialize;
 
 use self::hercules_cg::*;
 use self::hercules_ir::*;
@@ -15,7 +18,7 @@ use crate::*;
 /*
  * Passes that can be run on a module.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum Pass {
     DCE,
     CCP,

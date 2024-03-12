@@ -5,5 +5,6 @@ authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 
 [dependencies]
 clap = { version = "*", features = ["derive"] }
+ron = "*"
 hercules_ir = { path = "../../hercules_ir" }
 hercules_opt = { path = "../../hercules_opt" }

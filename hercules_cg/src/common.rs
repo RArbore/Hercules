@@ -4,6 +4,13 @@ use std::fmt::Write;
 
 use self::hercules_ir::*;
 
+/*
+ * Pretty much all of the codegen functions need to take in some large subset of
+ * IR structures, analysis results, and global pieces of information. Package
+ * them all in this struct, and make all the codegen functions members of this
+ * struct to cut down on the number of function arguments. This structure
+ * shouldn't be modified after creation.
+ */
 pub(crate) struct FunctionContext<'a> {
     pub(crate) function: &'a Function,
     pub(crate) def_use: &'a ImmutableDefUseMap,
