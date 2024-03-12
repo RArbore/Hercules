@@ -4,6 +4,8 @@ use std::fmt::Write;
 
 use self::hercules_ir::*;
 
+use crate::*;
+
 /*
  * Top level function to generate code for a module. Emits LLVM IR text. Calls
  * out to backends to generate code for individual partitions. Generates
@@ -81,8 +83,33 @@ fn codegen_function<W: Write>(
         })
         .collect();
 
+    // Generate code for each individual partition. This generates a single LLVM
+    // function per partition, which we will use in the orchestration code for
+    // the whole function.
+    assert_eq!(plan.num_partitions, top_nodes.len());
+    for part_idx in 0..plan.num_partitions {
+        match plan.partition_devices[part_idx] {
+            Device::CPU => codegen_cpu(
+                function,
+                &partitions[part_idx],
+                top_nodes[part_idx],
+                &plan.schedules,
+                llvm_types,
+                llvm_constants,
+                llvm_dynamic_constants,
+                w,
+            )?,
+            Device::GPU => todo!(),
+        }
+    }
+
     Ok(())
 }
+
+/*
+ * Types, constants, and dynamic constants are fairly simple to translate into
+ * LLVM IR.
+ */
 
 fn generate_type_strings(module: &Module) -> Vec<String> {
     // Render types into LLVM IR. This requires translating from our interning
