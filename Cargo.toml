@@ -6,8 +6,9 @@ members = [
 	"hercules_opt",
 	"hercules_rt",
 
+	"hercules_tools/hercules_driver",
 	"hercules_tools/hercules_dot",
-	"hercules_tools/hercules_cpu",
+	"hercules_tools/hercules_cpu_beta",
 
 	"hercules_samples/matmul"
 ]

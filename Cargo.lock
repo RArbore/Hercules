@@ -162,7 +162,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hercules_cpu"
+name = "hercules_cpu_beta"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -180,6 +180,15 @@ dependencies = [
  "hercules_ir",
  "hercules_opt",
  "rand",
+]
+
+[[package]]
+name = "hercules_driver"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hercules_ir",
+ "hercules_opt",
 ]
 
 [[package]]
@@ -206,6 +215,7 @@ name = "hercules_opt"
 version = "0.1.0"
 dependencies = [
  "bitvec",
+ "hercules_cg",
  "hercules_ir",
  "ordered-float",
  "take_mut",

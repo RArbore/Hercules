@@ -1,5 +1,5 @@
 [package]
-name = "hercules_cpu"
+name = "hercules_cpu_beta"
 version = "0.1.0"
 authors = ["Russel Arbore <rarbore2@illinois.edu>"]
 

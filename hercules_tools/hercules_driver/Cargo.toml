@@ -1,0 +1,9 @@
+[package]
+name = "hercules_driver"
+version = "0.1.0"
+authors = ["Russel Arbore <rarbore2@illinois.edu>"]
+
+[dependencies]
+clap = { version = "*", features = ["derive"] }
+hercules_ir = { path = "../../hercules_ir" }
+hercules_opt = { path = "../../hercules_opt" }

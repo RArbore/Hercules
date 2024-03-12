@@ -17,7 +17,7 @@ struct Args {
 fn main() {
     let args = Args::parse();
     if !args.hir_file.ends_with(".hir") {
-        eprintln!("WARNING: Running hercules_cpu on a file without a .hir extension - interpreting as a textual Hercules IR file.");
+        eprintln!("WARNING: Running hercules_cpu_beta on a file without a .hir extension - interpreting as a textual Hercules IR file.");
     }
 
     let mut file = File::open(args.hir_file).expect("PANIC: Unable to open input file.");

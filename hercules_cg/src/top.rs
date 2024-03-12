@@ -13,7 +13,8 @@ use crate::*;
  */
 pub fn codegen<W: Write>(
     module: &Module,
-    control_subgraph: &Vec<Subgraph>,
+    def_uses: &Vec<ImmutableDefUseMap>,
+    control_subgraphs: &Vec<Subgraph>,
     plans: &Vec<Plan>,
     w: &mut W,
 ) -> std::fmt::Result {
@@ -26,11 +27,13 @@ pub fn codegen<W: Write>(
     for function_idx in 0..module.functions.len() {
         // There's a bunch of per-function information we use.
         let function = &module.functions[function_idx];
-        let control_subgraph = &control_subgraph[function_idx];
+        let def_use = &def_uses[function_idx];
+        let control_subgraph = &control_subgraphs[function_idx];
         let plan = &plans[function_idx];
 
         codegen_function(
             function,
+            def_use,
             control_subgraph,
             plan,
             &llvm_types,
@@ -48,6 +51,7 @@ pub fn codegen<W: Write>(
  */
 fn codegen_function<W: Write>(
     function: &Function,
+    def_use: &ImmutableDefUseMap,
     control_subgraph: &Subgraph,
     plan: &Plan,
     llvm_types: &Vec<String>,
@@ -91,9 +95,10 @@ fn codegen_function<W: Write>(
         match plan.partition_devices[part_idx] {
             Device::CPU => codegen_cpu(
                 function,
-                &partitions[part_idx],
+                def_use,
+                plan,
                 top_nodes[part_idx],
-                &plan.schedules,
+                &partitions,
                 llvm_types,
                 llvm_constants,
                 llvm_dynamic_constants,

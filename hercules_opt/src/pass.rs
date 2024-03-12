@@ -1,9 +1,13 @@
+extern crate hercules_cg;
 extern crate hercules_ir;
 extern crate take_mut;
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
 use std::iter::zip;
 
+use self::hercules_cg::*;
 use self::hercules_ir::*;
 
 use crate::*;
@@ -19,7 +23,11 @@ pub enum Pass {
     Forkify,
     Predication,
     Verify,
+    // Parameterized over whether analyses that aid visualization are necessary.
+    // Useful to set to false if displaying a potentially broken module.
     Xdot(bool),
+    // Parameterized by output file name.
+    Codegen(String),
 }
 
 /*
@@ -371,6 +379,29 @@ impl PassManager {
                     );
 
                     // Xdot doesn't require clearing analysis results.
+                    continue;
+                }
+                Pass::Codegen(output_file_name) => {
+                    self.make_def_uses();
+                    self.make_control_subgraphs();
+                    self.make_plans();
+
+                    let mut contents = String::new();
+                    codegen(
+                        &self.module,
+                        self.def_uses.as_ref().unwrap(),
+                        self.control_subgraphs.as_ref().unwrap(),
+                        self.plans.as_ref().unwrap(),
+                        &mut contents,
+                    )
+                    .unwrap();
+
+                    let mut file =
+                        File::create(output_file_name).expect("PANIC: Unable to open output file.");
+                    file.write_all(contents.as_bytes())
+                        .expect("PANIC: Unable to write output file contents.");
+
+                    // Codegen doesn't require clearing analysis results.
                     continue;
                 }
             }

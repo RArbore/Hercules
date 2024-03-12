@@ -198,7 +198,8 @@ pub fn default_plan(
 
     // Infer a partitioning.
     partition_out_forks(function, reverse_postorder, fork_join_map, bbs, &mut plan);
-    place_fork_partitions_on_gpu(function, &mut plan);
+    // TODO: uncomment once GPU backend is implemented.
+    // place_fork_partitions_on_gpu(function, &mut plan);
 
     plan
 }

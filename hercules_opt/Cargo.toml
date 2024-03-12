@@ -8,3 +8,4 @@ ordered-float = "*"
 bitvec = "*"
 take_mut = "*"
 hercules_ir = { path = "../hercules_ir" }
+hercules_cg = { path = "../hercules_cg" }
