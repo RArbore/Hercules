@@ -383,6 +383,7 @@ impl PassManager {
                 }
                 Pass::Codegen(output_file_name) => {
                     self.make_def_uses();
+                    self.make_typing();
                     self.make_control_subgraphs();
                     self.make_plans();
 
@@ -390,6 +391,7 @@ impl PassManager {
                     codegen(
                         &self.module,
                         self.def_uses.as_ref().unwrap(),
+                        self.typing.as_ref().unwrap(),
                         self.control_subgraphs.as_ref().unwrap(),
                         self.plans.as_ref().unwrap(),
                         &mut contents,
