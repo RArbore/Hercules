@@ -111,12 +111,7 @@ pub(crate) fn partition_control_returns(
 /*
  * Emit a function signature in LLVM IR.
  */
-pub(crate) fn emit_function_signature<W: Write>(
-    llvm_types: &Vec<String>,
-    llvm_constants: &Vec<String>,
-    llvm_dynamic_constants: &Vec<String>,
-    w: &mut W,
-) -> std::fmt::Result {
+pub(crate) fn emit_function_signature<W: Write>(w: &mut W) -> std::fmt::Result {
     todo!()
 }
 
