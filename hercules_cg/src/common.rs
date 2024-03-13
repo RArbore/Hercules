@@ -56,7 +56,7 @@ impl<'a> FunctionContext<'a> {
     pub(crate) fn partition_data_outputs(&self, partition_id: PartitionID) -> Vec<NodeID> {
         let partition = &self.partitions_inverted_map[partition_id.idx()];
 
-        let mut data_outputs: Vec<NodeID> = partition
+        partition
             .iter()
             .filter(|id| {
                 // For each data node in the partition, check if it has any uses
@@ -73,19 +73,16 @@ impl<'a> FunctionContext<'a> {
                         > 0
             })
             .map(|x| *x)
-            .collect();
-
-        // If this partition contains a return node, the data input of that node
-        // is a data output.
-        data_outputs.extend(partition.iter().filter_map(|id| {
-            if let Node::Return { control: _, data } = self.function.nodes[id.idx()] {
-                Some(data)
-            } else {
-                None
-            }
-        }));
-
-        data_outputs
+            // If this partition contains a return node, the data input of that
+            // node is a data output.
+            .chain(partition.iter().filter_map(|id| {
+                if let Node::Return { control: _, data } = self.function.nodes[id.idx()] {
+                    Some(data)
+                } else {
+                    None
+                }
+            }))
+            .collect()
     }
 
     /*
@@ -129,10 +126,40 @@ impl<'a> FunctionContext<'a> {
     }
 
     /*
-     * Emit a function signature in LLVM IR.
+     * Find control successors of a given partition. A partition cannot be a
+     * control successor of itself, since a self-cycle is represented as control
+     * flow within a partiion. In other words, the graph of control flow between
+     * partitions is free of self-loops (an edge connecting a partition to
+     * itself).
      */
-    pub(crate) fn emit_function_signature<W: Write>(&self, w: &mut W) -> std::fmt::Result {
-        todo!()
+    pub(crate) fn partition_control_successors(
+        &self,
+        partition_id: PartitionID,
+    ) -> Vec<PartitionID> {
+        let partition = &self.partitions_inverted_map[partition_id.idx()];
+
+        let mut partitions: Vec<PartitionID> = partition
+            .iter()
+            // Only consider nodes in other partitions that are successors of
+            // control nodes. These are necessarily other control nodes.
+            .filter(|id| self.function.nodes[id.idx()].is_control())
+            .map(|id| {
+                // Get the partitions (that are not this partition) of successor
+                // nodes of control nodes.
+                self.def_use
+                    .get_users(*id)
+                    .as_ref()
+                    .into_iter()
+                    .map(|id| self.plan.partitions[id.idx()])
+                    .filter(|id| *id != partition_id)
+            })
+            // We want a flat list of all such partitions.
+            .flatten()
+            .collect();
+
+        // We only want one copy of the ID per partition.
+        partitions.dedup();
+        partitions
     }
 }
 
