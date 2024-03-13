@@ -56,7 +56,7 @@ impl<'a> FunctionContext<'a> {
     pub(crate) fn partition_data_outputs(&self, partition_id: PartitionID) -> Vec<NodeID> {
         let partition = &self.partitions_inverted_map[partition_id.idx()];
 
-        partition
+        let mut data_outputs: Vec<NodeID> = partition
             .iter()
             .filter(|id| {
                 // For each data node in the partition, check if it has any uses
@@ -73,7 +73,19 @@ impl<'a> FunctionContext<'a> {
                         > 0
             })
             .map(|x| *x)
-            .collect()
+            .collect();
+
+        // If this partition contains a return node, the data input of that node
+        // is a data output.
+        data_outputs.extend(partition.iter().filter_map(|id| {
+            if let Node::Return { control: _, data } = self.function.nodes[id.idx()] {
+                Some(data)
+            } else {
+                None
+            }
+        }));
+
+        data_outputs
     }
 
     /*
@@ -88,27 +100,29 @@ impl<'a> FunctionContext<'a> {
                 // For each control node in the partition, check if it has any
                 // users outside its partition. Users can be control nodes - if
                 // a user in a different partition is a data node, then the
-                // partition is malformed.
+                // partition is malformed. Return nodes are also unconditionally
+                // a control return of this partition.
                 self.function.nodes[id.idx()].is_control()
-                    && self
-                        .def_use
-                        .get_users(**id)
-                        .as_ref()
-                        .into_iter()
-                        .filter(|id| {
-                            // Users of control nodes can only be data nodes if
-                            // they are in the same partition as the control
-                            // node. Only control users may be in a different
-                            // partition.
-                            assert!(
-                                self.function.nodes[id.idx()].is_control()
-                                    || self.plan.partitions[id.idx()] == partition_id
-                            );
-                            self.plan.partitions[id.idx()] != partition_id
-                        })
-                        .map(|x| *x)
-                        .count()
-                        > 0
+                    && (self.function.nodes[id.idx()].is_return()
+                        || self
+                            .def_use
+                            .get_users(**id)
+                            .as_ref()
+                            .into_iter()
+                            .filter(|id| {
+                                // Users of control nodes can only be data nodes
+                                // if they are in the same partition as the
+                                // control node. Only control users may be in a
+                                // different partition.
+                                assert!(
+                                    self.function.nodes[id.idx()].is_control()
+                                        || self.plan.partitions[id.idx()] == partition_id
+                                );
+                                self.plan.partitions[id.idx()] != partition_id
+                            })
+                            .map(|x| *x)
+                            .count()
+                            > 0)
             })
             .map(|x| *x)
             .collect()

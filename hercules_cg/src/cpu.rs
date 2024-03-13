@@ -30,6 +30,10 @@ impl<'a> FunctionContext<'a> {
         // plus control information if there are multiple successor partitions.
         // The control information is used by the orchestration code to
         // implement control flow between partitions.
+        println!("{:?}", partition_id);
+        println!("{:?}", data_inputs);
+        println!("{:?}", data_outputs);
+        println!("{:?}", control_returns);
         let return_type = Type::Product(Box::new([]));
 
         Ok(())
