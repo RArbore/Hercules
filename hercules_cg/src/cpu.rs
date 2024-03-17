@@ -1,8 +1,12 @@
+extern crate bitvec;
 extern crate hercules_ir;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use std::fmt::Write;
+
+use self::bitvec::prelude::*;
 
 use self::hercules_ir::*;
 
@@ -42,15 +46,6 @@ impl<'a> FunctionContext<'a> {
         let array_constants = self.partition_array_constants(partition_id);
         let dynamic_constants = self.partition_dynamic_constants(partition_id);
         let reverse_postorder = self.partition_reverse_postorder(partition_id);
-        println!("PartitionID: {:?}", partition_id);
-        println!("Data Inputs: {:?}", data_inputs);
-        println!("Data Outputs: {:?}", data_outputs);
-        println!("Control Returns: {:?}", control_returns);
-        println!("Control Successors: {:?}", control_successors);
-        println!("Function Parameters: {:?}", function_parameters);
-        println!("Array Constants: {:?}", array_constants);
-        println!("Dynamic Constants: {:?}", dynamic_constants);
-        println!("Reverse Postorder: {:?}", reverse_postorder);
 
         // Step 2: determine the function signature for this partition. The
         // arguments are the input data nodes, plus used function parameters,
@@ -94,10 +89,6 @@ impl<'a> FunctionContext<'a> {
             Type::Product(output_data_types.collect())
         };
 
-        println!("Inputs: {:?}", input_types);
-        println!("Return: {:?}", return_type);
-        println!("");
-
         // Step 3: emit the function signature.
         write!(
             w,
@@ -128,6 +119,48 @@ impl<'a> FunctionContext<'a> {
                         terminator: "".to_string(),
                     },
                 );
+            }
+        }
+
+        // Step 5: emit nodes. Nodes are emitted into basic blocks separately as
+        // nodes are not necessarily emitted in order. Assemble worklist of
+        // nodes, starting as reverse post order of nodes. For non-phi and non-
+        // reduce nodes, only emit once all data uses are emitted. In addition,
+        // consider additional anti-dependence edges from read to write nodes.
+        let mut visited = bitvec![u8, Lsb0; 0; self.function.nodes.len()];
+        let mut worklist = VecDeque::from(reverse_postorder.clone());
+        while let Some(id) = worklist.pop_front() {
+            if !(self.function.nodes[id.idx()].is_phi()
+                || self.function.nodes[id.idx()].is_reduce())
+                && !get_uses(&self.function.nodes[id.idx()])
+                    .as_ref()
+                    .into_iter()
+                    // If this node isn't a phi or reduce, we need to check that
+                    // all uses, as well as all reads we anti-depend with, have
+                    // been emitted.
+                    .chain(self.antideps.iter().filter_map(|(read, write)| {
+                        if id == *write {
+                            Some(read)
+                        } else {
+                            None
+                        }
+                    }))
+                    // Only data dependencies inside this partition need to have
+                    // already been visited.
+                    .all(|id| {
+                        self.plan.partitions[id.idx()] != partition_id
+                            || self.function.nodes[id.idx()].is_control()
+                            || visited[id.idx()]
+                    })
+            {
+                // Skip emitting node if it's not a phi or reducee node and if
+                // its data uses are not emitted yet.
+                worklist.push_back(id);
+            } else {
+                // Once all of the data dependencies for this node are emitted,
+                // this node can be emitted.
+                // TODO: emit!
+                visited.set(id.idx(), true);
             }
         }
 

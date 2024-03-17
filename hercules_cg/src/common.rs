@@ -20,6 +20,7 @@ pub(crate) struct FunctionContext<'a> {
     pub(crate) reverse_postorder: &'a Vec<NodeID>,
     pub(crate) typing: &'a Vec<TypeID>,
     pub(crate) control_subgraph: &'a Subgraph,
+    pub(crate) antideps: &'a Vec<(NodeID, NodeID)>,
     pub(crate) bbs: &'a Vec<NodeID>,
     pub(crate) plan: &'a Plan,
     pub(crate) llvm_types: &'a Vec<String>,

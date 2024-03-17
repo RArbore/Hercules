@@ -220,7 +220,7 @@ impl PassManager {
     }
 
     pub fn make_bbs(&mut self) {
-        if self.antideps.is_none() {
+        if self.bbs.is_none() {
             self.make_def_uses();
             self.make_reverse_postorders();
             self.make_doms();
@@ -389,6 +389,7 @@ impl PassManager {
                     self.make_reverse_postorders();
                     self.make_typing();
                     self.make_control_subgraphs();
+                    self.make_antideps();
                     self.make_bbs();
                     self.make_plans();
 
@@ -399,6 +400,7 @@ impl PassManager {
                         self.reverse_postorders.as_ref().unwrap(),
                         self.typing.as_ref().unwrap(),
                         self.control_subgraphs.as_ref().unwrap(),
+                        self.antideps.as_ref().unwrap(),
                         self.bbs.as_ref().unwrap(),
                         self.plans.as_ref().unwrap(),
                         &mut contents,

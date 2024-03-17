@@ -3,6 +3,7 @@ extern crate hercules_ir;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+
 use std::fmt::Write;
 use std::iter::zip;
 
