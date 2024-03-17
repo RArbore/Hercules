@@ -294,6 +294,13 @@ impl<'a> PartitionContext<'a> {
      * plus used array constants, plus used dynamic constants.
      */
     pub(crate) fn partition_input_types(&self) -> Vec<TypeID> {
+        let u64_ty_id = TypeID::new(
+            self.function
+                .types
+                .iter()
+                .position(|ty| *ty == Type::UnsignedInteger64)
+                .unwrap(),
+        );
         let input_data_types = self
             .data_inputs
             .iter()
@@ -311,8 +318,7 @@ impl<'a> PartitionContext<'a> {
                     _ => panic!(),
                 });
         let dynamic_constant_types =
-            std::iter::repeat(get_type_id(Type::UnsignedInteger64, &self.function.types).unwrap())
-                .take(self.dynamic_constants.len());
+            std::iter::repeat(u64_ty_id).take(self.dynamic_constants.len());
         input_data_types
             .chain(function_parameter_types)
             .chain(array_constant_types)
@@ -327,6 +333,13 @@ impl<'a> PartitionContext<'a> {
      * between partitions.
      */
     pub(crate) fn partition_return_type(&self) -> Type {
+        let u64_ty_id = TypeID::new(
+            self.function
+                .types
+                .iter()
+                .position(|ty| *ty == Type::UnsignedInteger64)
+                .unwrap(),
+        );
         let multiple_control_successors = self.control_successors.len() > 1;
         let output_data_types = self
             .data_outputs
@@ -335,9 +348,7 @@ impl<'a> PartitionContext<'a> {
         if multiple_control_successors {
             Type::Product(
                 output_data_types
-                    .chain(std::iter::once(
-                        get_type_id(Type::UnsignedInteger64, &self.function.types).unwrap(),
-                    ))
+                    .chain(std::iter::once(u64_ty_id))
                     .collect(),
             )
         } else {

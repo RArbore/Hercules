@@ -499,15 +499,6 @@ impl Module {
     }
 }
 
-pub fn get_type_id(ty: Type, types: &Vec<Type>) -> Option<TypeID> {
-    for idx in 0..types.len() {
-        if types[idx] == ty {
-            return Some(TypeID::new(idx));
-        }
-    }
-    None
-}
-
 struct CoroutineIterator<G, I>
 where
     G: Coroutine<Yield = I, Return = ()> + Unpin,

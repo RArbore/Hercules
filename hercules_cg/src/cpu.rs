@@ -151,7 +151,34 @@ impl<'a> FunctionContext<'a> {
 }
 
 impl<'a> PartitionContext<'a> {
+    /*
+     * Emit LLVM IR implementing a single node.
+     */
     fn codegen_cpu_node<W: Write>(&self, id: NodeID, w: &mut W) -> std::fmt::Result {
+        Ok(())
+    }
+
+    /*
+     * Emit the LLVM value corresponding to a node. Optionally prefix with the
+     * LLVM type, which is required by textual LLVM IR in a few places.
+     */
+    fn emit_value_for_node<W: Write>(
+        &self,
+        id: NodeID,
+        emit_type: bool,
+        w: &mut W,
+    ) -> std::fmt::Result {
+        assert_eq!(self.partition_id, self.function.plan.partitions[id.idx()]);
+        match self.function.function.nodes[id.idx()] {
+            _ => {
+                if emit_type {
+                    write!(w, "{} %v.{}", self.function.llvm_types[id.idx()], id.idx())?
+                } else {
+                    write!(w, "%v.{}", id.idx())?
+                }
+            }
+        }
+
         Ok(())
     }
 }
