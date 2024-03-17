@@ -254,6 +254,99 @@ impl<'a> FunctionContext<'a> {
 }
 
 /*
+ * When emitting individual nodes in the partition codegen functions, a bunch of
+ * partition analysis results are needed. Package them all in this struct, and
+ * make all of the subroutines of the top level partition codegen functions
+ * members of this struct to cut down on the number of function arguments. This
+ * structure shouldn't be modified after creation.
+ */
+pub(crate) struct PartitionContext<'a> {
+    pub(crate) function: &'a FunctionContext<'a>,
+    pub(crate) partition_id: PartitionID,
+    pub(crate) data_inputs: Vec<NodeID>,
+    pub(crate) data_outputs: Vec<NodeID>,
+    pub(crate) control_returns: Vec<NodeID>,
+    pub(crate) control_successors: Vec<PartitionID>,
+    pub(crate) function_parameters: BTreeSet<usize>,
+    pub(crate) array_constants: BTreeSet<ConstantID>,
+    pub(crate) dynamic_constants: BTreeSet<DynamicConstantID>,
+    pub(crate) reverse_postorder: Vec<NodeID>,
+}
+
+impl<'a> PartitionContext<'a> {
+    pub(crate) fn new(function: &'a FunctionContext<'a>, partition_id: PartitionID) -> Self {
+        PartitionContext {
+            function,
+            partition_id,
+            data_inputs: function.partition_data_inputs(partition_id),
+            data_outputs: function.partition_data_outputs(partition_id),
+            control_returns: function.partition_control_returns(partition_id),
+            control_successors: function.partition_control_successors(partition_id),
+            function_parameters: function.partition_function_parameters(partition_id),
+            array_constants: function.partition_array_constants(partition_id),
+            dynamic_constants: function.partition_dynamic_constants(partition_id),
+            reverse_postorder: function.partition_reverse_postorder(partition_id),
+        }
+    }
+
+    /*
+     * The arguments are the input data nodes, plus used function parameters,
+     * plus used array constants, plus used dynamic constants.
+     */
+    pub(crate) fn partition_input_types(&self) -> Vec<TypeID> {
+        let input_data_types = self
+            .data_inputs
+            .iter()
+            .map(|id| self.function.typing[id.idx()]);
+        let function_parameter_types = self
+            .function_parameters
+            .iter()
+            .map(|index| self.function.function.param_types[*index]);
+        let array_constant_types =
+            self.array_constants
+                .iter()
+                .map(|id| match self.function.constants[id.idx()] {
+                    Constant::Array(ty_id, _) => ty_id,
+                    Constant::Zero(ty_id) => ty_id,
+                    _ => panic!(),
+                });
+        let dynamic_constant_types =
+            std::iter::repeat(get_type_id(Type::UnsignedInteger64, &self.function.types).unwrap())
+                .take(self.dynamic_constants.len());
+        input_data_types
+            .chain(function_parameter_types)
+            .chain(array_constant_types)
+            .chain(dynamic_constant_types)
+            .collect()
+    }
+
+    /*
+     * The return struct contains all of the data outputs, plus control
+     * information if there are multiple successor partitions. The control
+     * information is used by the orchestration code to implement control flow
+     * between partitions.
+     */
+    pub(crate) fn partition_return_type(&self) -> Type {
+        let multiple_control_successors = self.control_successors.len() > 1;
+        let output_data_types = self
+            .data_outputs
+            .iter()
+            .map(|id| self.function.typing[id.idx()]);
+        if multiple_control_successors {
+            Type::Product(
+                output_data_types
+                    .chain(std::iter::once(
+                        get_type_id(Type::UnsignedInteger64, &self.function.types).unwrap(),
+                    ))
+                    .collect(),
+            )
+        } else {
+            Type::Product(output_data_types.collect())
+        }
+    }
+}
+
+/*
  * Types, constants, and dynamic constants are fairly simple to translate into
  * LLVM IR.
  */
