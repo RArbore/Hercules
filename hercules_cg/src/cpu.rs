@@ -53,9 +53,9 @@ impl<'a> FunctionContext<'a> {
             partition_id.idx(),
         )?;
         if !input_types.is_empty() {
-            write!(w, "{}", &self.llvm_types[input_types[0].idx()])?;
-            for id in &input_types[1..] {
-                write!(w, ", {}", &self.llvm_types[id.idx()])?;
+            write!(w, "{} %a.0", &self.llvm_types[input_types[0].idx()])?;
+            for (idx, id) in input_types[1..].iter().enumerate() {
+                write!(w, ", {} %a.{}", &self.llvm_types[id.idx()], idx + 1)?;
             }
         }
         write!(w, ") {{\n")?;
@@ -129,7 +129,6 @@ impl<'a> FunctionContext<'a> {
             llvm_bbs[&top_node].data,
             llvm_bbs[&top_node].terminator
         )?;
-        llvm_bbs.remove(&top_node).unwrap();
         for id in partition_context.reverse_postorder {
             if self.bbs[id.idx()] == id && id != top_node {
                 write!(
@@ -162,20 +161,30 @@ impl<'a> PartitionContext<'a> {
      * Emit the LLVM value corresponding to a node. Optionally prefix with the
      * LLVM type, which is required by textual LLVM IR in a few places.
      */
-    fn emit_value_for_node<W: Write>(
+    fn cpu_emit_value_for_node<W: Write>(
         &self,
         id: NodeID,
         emit_type: bool,
         w: &mut W,
     ) -> std::fmt::Result {
-        assert_eq!(self.partition_id, self.function.plan.partitions[id.idx()]);
-        match self.function.function.nodes[id.idx()] {
-            _ => {
-                if emit_type {
-                    write!(w, "{} %v.{}", self.function.llvm_types[id.idx()], id.idx())?
-                } else {
-                    write!(w, "%v.{}", id.idx())?
-                }
+        // First, emit the type before the value (if applicable).
+        if emit_type {
+            write!(
+                w,
+                "{} ",
+                self.function.llvm_types[self.function.typing[id.idx()].idx()]
+            )?;
+        }
+
+        // Emitting the value can be surprisingly complicated, depending on what
+        // the node is. For example, partition arguments are emitted specially.
+        if let Some(input_idx) = self.data_inputs.iter().position(|inp_id| *inp_id == id) {
+            write!(w, "%a.{}", input_idx)?;
+        } else {
+            assert_eq!(self.partition_id, self.function.plan.partitions[id.idx()]);
+            match self.function.function.nodes[id.idx()] {
+                Node::Constant { id } => write!(w, "{}", self.function.llvm_constants[id.idx()])?,
+                _ => write!(w, "%v.{}", id.idx())?,
             }
         }
 
