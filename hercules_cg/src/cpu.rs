@@ -1,10 +1,27 @@
 extern crate hercules_ir;
 
+use std::collections::HashMap;
+
 use std::fmt::Write;
 
 use self::hercules_ir::*;
 
 use crate::*;
+
+/*
+ * When assembling LLVM basic blocks, we traverse the nodes in a partition in an
+ * ad-hoc order. Thus, we cannot assume block terminators will be visited after
+ * data nodes, for example. However, textual LLVM IR requires that the
+ * terminator instruction is last. So, we emit nodes into separate strings of
+ * LLVM IR that will get stichted together when the block is complete.
+ */
+#[derive(Debug)]
+struct LLVMBlock {
+    header: String,
+    phis: String,
+    data: String,
+    terminator: String,
+}
 
 impl<'a> FunctionContext<'a> {
     /*
@@ -24,6 +41,7 @@ impl<'a> FunctionContext<'a> {
         let function_parameters = self.partition_function_parameters(partition_id);
         let array_constants = self.partition_array_constants(partition_id);
         let dynamic_constants = self.partition_dynamic_constants(partition_id);
+        let reverse_postorder = self.partition_reverse_postorder(partition_id);
         println!("PartitionID: {:?}", partition_id);
         println!("Data Inputs: {:?}", data_inputs);
         println!("Data Outputs: {:?}", data_outputs);
@@ -32,6 +50,7 @@ impl<'a> FunctionContext<'a> {
         println!("Function Parameters: {:?}", function_parameters);
         println!("Array Constants: {:?}", array_constants);
         println!("Dynamic Constants: {:?}", dynamic_constants);
+        println!("Reverse Postorder: {:?}", reverse_postorder);
 
         // Step 2: determine the function signature for this partition. The
         // arguments are the input data nodes, plus used function parameters,
@@ -94,6 +113,37 @@ impl<'a> FunctionContext<'a> {
             }
         }
         write!(w, ") {{\n")?;
+
+        // Step 4: set up basic blocks. A node represents a basic block if its
+        // entry in the basic blocks vector points to itself.
+        let mut llvm_bbs = HashMap::new();
+        for id in &self.partitions_inverted_map[partition_id.idx()] {
+            if self.bbs[id.idx()] == *id {
+                llvm_bbs.insert(
+                    id,
+                    LLVMBlock {
+                        header: format!("bb_{}:\n", id.idx()),
+                        phis: "".to_string(),
+                        data: "".to_string(),
+                        terminator: "".to_string(),
+                    },
+                );
+            }
+        }
+
+        // Step ?: emit the now completed basic blocks, in order.
+        for id in reverse_postorder {
+            if self.bbs[id.idx()] == id {
+                write!(
+                    w,
+                    "{}{}{}{}",
+                    llvm_bbs[&id].header,
+                    llvm_bbs[&id].phis,
+                    llvm_bbs[&id].data,
+                    llvm_bbs[&id].terminator
+                )?;
+            }
+        }
 
         // Step ?: close the partition function - we're done.
         write!(w, "}}\n\n")?;

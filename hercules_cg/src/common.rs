@@ -2,8 +2,6 @@ extern crate hercules_ir;
 
 use std::collections::BTreeSet;
 
-use std::fmt::Write;
-
 use self::hercules_ir::*;
 
 /*
@@ -19,8 +17,10 @@ pub(crate) struct FunctionContext<'a> {
     pub(crate) constants: &'a Vec<Constant>,
     pub(crate) dynamic_constants: &'a Vec<DynamicConstant>,
     pub(crate) def_use: &'a ImmutableDefUseMap,
+    pub(crate) reverse_postorder: &'a Vec<NodeID>,
     pub(crate) typing: &'a Vec<TypeID>,
     pub(crate) control_subgraph: &'a Subgraph,
+    pub(crate) bbs: &'a Vec<NodeID>,
     pub(crate) plan: &'a Plan,
     pub(crate) llvm_types: &'a Vec<String>,
     pub(crate) llvm_constants: &'a Vec<String>,
@@ -237,6 +237,17 @@ impl<'a> FunctionContext<'a> {
                 Node::DynamicConstant { id } => Some(id),
                 _ => None,
             })
+            .collect()
+    }
+
+    /*
+     * Calculate the reverse postorder of just this partition.
+     */
+    pub(crate) fn partition_reverse_postorder(&self, partition_id: PartitionID) -> Vec<NodeID> {
+        self.reverse_postorder
+            .iter()
+            .filter(|id| self.plan.partitions[id.idx()] == partition_id)
+            .map(|x| *x)
             .collect()
     }
 }

@@ -14,8 +14,10 @@ use crate::*;
 pub fn codegen<W: Write>(
     module: &Module,
     def_uses: &Vec<ImmutableDefUseMap>,
+    reverse_postorders: &Vec<Vec<NodeID>>,
     typing: &ModuleTyping,
     control_subgraphs: &Vec<Subgraph>,
+    bbs: &Vec<Vec<NodeID>>,
     plans: &Vec<Plan>,
     w: &mut W,
 ) -> std::fmt::Result {
@@ -33,8 +35,10 @@ pub fn codegen<W: Write>(
             constants: &module.constants,
             dynamic_constants: &module.dynamic_constants,
             def_use: &def_uses[function_idx],
+            reverse_postorder: &reverse_postorders[function_idx],
             typing: &typing[function_idx],
             control_subgraph: &control_subgraphs[function_idx],
+            bbs: &bbs[function_idx],
             plan: &plans[function_idx],
             llvm_types: &llvm_types,
             llvm_constants: &llvm_constants,

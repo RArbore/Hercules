@@ -386,16 +386,20 @@ impl PassManager {
                 }
                 Pass::Codegen(output_file_name) => {
                     self.make_def_uses();
+                    self.make_reverse_postorders();
                     self.make_typing();
                     self.make_control_subgraphs();
+                    self.make_bbs();
                     self.make_plans();
 
                     let mut contents = String::new();
                     codegen(
                         &self.module,
                         self.def_uses.as_ref().unwrap(),
+                        self.reverse_postorders.as_ref().unwrap(),
                         self.typing.as_ref().unwrap(),
                         self.control_subgraphs.as_ref().unwrap(),
+                        self.bbs.as_ref().unwrap(),
                         self.plans.as_ref().unwrap(),
                         &mut contents,
                     )
