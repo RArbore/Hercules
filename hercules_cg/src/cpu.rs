@@ -33,7 +33,7 @@ impl<'a> FunctionContext<'a> {
         println!("Array Constants: {:?}", array_constants);
         println!("Dynamic Constants: {:?}", dynamic_constants);
 
-        // Step 2: Determine the function signature for this partition. The
+        // Step 2: determine the function signature for this partition. The
         // arguments are the input data nodes, plus used function parameters,
         // plus used array constants, plus used dynamic constants. The return
         // struct contains all of the data outputs, plus control information if
@@ -78,6 +78,25 @@ impl<'a> FunctionContext<'a> {
         println!("Inputs: {:?}", input_types);
         println!("Return: {:?}", return_type);
         println!("");
+
+        // Step 3: emit the function signature.
+        write!(
+            w,
+            "define internal {} @{}_part_{}(",
+            generate_type_string(&return_type, &self.llvm_types),
+            self.function.name,
+            partition_id.idx(),
+        )?;
+        if !input_types.is_empty() {
+            write!(w, "{}", &self.llvm_types[input_types[0].idx()])?;
+            for id in &input_types[1..] {
+                write!(w, ", {}", &self.llvm_types[id.idx()])?;
+            }
+        }
+        write!(w, ") {{\n")?;
+
+        // Step ?: close the partition function - we're done.
+        write!(w, "}}\n\n")?;
 
         Ok(())
     }
