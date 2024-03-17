@@ -29,6 +29,9 @@ pub fn codegen<W: Write>(
         // There's a bunch of per-function information we use.
         let context = FunctionContext {
             function: &module.functions[function_idx],
+            types: &module.types,
+            constants: &module.constants,
+            dynamic_constants: &module.dynamic_constants,
             def_use: &def_uses[function_idx],
             typing: &typing[function_idx],
             control_subgraph: &control_subgraphs[function_idx],

@@ -1,5 +1,7 @@
 extern crate hercules_ir;
 
+use std::collections::BTreeSet;
+
 use std::fmt::Write;
 
 use self::hercules_ir::*;
@@ -13,6 +15,9 @@ use self::hercules_ir::*;
  */
 pub(crate) struct FunctionContext<'a> {
     pub(crate) function: &'a Function,
+    pub(crate) types: &'a Vec<Type>,
+    pub(crate) constants: &'a Vec<Constant>,
+    pub(crate) dynamic_constants: &'a Vec<DynamicConstant>,
     pub(crate) def_use: &'a ImmutableDefUseMap,
     pub(crate) typing: &'a Vec<TypeID>,
     pub(crate) control_subgraph: &'a Subgraph,
@@ -30,7 +35,7 @@ impl<'a> FunctionContext<'a> {
     pub(crate) fn partition_data_inputs(&self, partition_id: PartitionID) -> Vec<NodeID> {
         let partition = &self.partitions_inverted_map[partition_id.idx()];
 
-        partition
+        let mut data_inputs: Vec<NodeID> = partition
             .iter()
             .map(|id| {
                 // For each node in the partition, filter out the uses that are
@@ -47,7 +52,12 @@ impl<'a> FunctionContext<'a> {
             })
             // Collect all such uses across the whole partition.
             .flatten()
-            .collect()
+            .collect();
+
+        // Inputs and outputs of partitions need to be sorted so datams don't
+        // get mixed up.
+        data_inputs.sort();
+        data_inputs
     }
 
     /*
@@ -56,7 +66,7 @@ impl<'a> FunctionContext<'a> {
     pub(crate) fn partition_data_outputs(&self, partition_id: PartitionID) -> Vec<NodeID> {
         let partition = &self.partitions_inverted_map[partition_id.idx()];
 
-        partition
+        let mut data_outputs: Vec<NodeID> = partition
             .iter()
             .filter(|id| {
                 // For each data node in the partition, check if it has any uses
@@ -82,7 +92,12 @@ impl<'a> FunctionContext<'a> {
                     None
                 }
             }))
-            .collect()
+            .collect();
+
+        // Inputs and outputs of partitions need to be sorted so datams don't
+        // get mixed up.
+        data_outputs.sort();
+        data_outputs
     }
 
     /*
@@ -160,6 +175,69 @@ impl<'a> FunctionContext<'a> {
         // We only want one copy of the ID per partition.
         partitions.dedup();
         partitions
+    }
+
+    /*
+     * Find all uses of function parameters in this partition. Collect as a
+     * BTreeSet so that iterating the parameter indices is sorted.
+     */
+    pub(crate) fn partition_function_parameters(
+        &self,
+        partition_id: PartitionID,
+    ) -> BTreeSet<usize> {
+        self.partitions_inverted_map[partition_id.idx()]
+            .iter()
+            .filter_map(|id| match self.function.nodes[id.idx()] {
+                Node::Parameter { index } => Some(index),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /*
+     * Find all uses of array constants in this partition. Collect as a BTreeSet
+     * so that iterating the IDs is sorted.
+     */
+    pub(crate) fn partition_array_constants(
+        &self,
+        partition_id: PartitionID,
+    ) -> BTreeSet<ConstantID> {
+        self.partitions_inverted_map[partition_id.idx()]
+            .iter()
+            .filter_map(|id| match self.function.nodes[id.idx()] {
+                Node::Constant { id } => Some(id),
+                _ => None,
+            })
+            .filter_map(|id| match self.constants[id.idx()] {
+                Constant::Array(_, _) => Some(id),
+                Constant::Zero(ty_id) => {
+                    if self.types[ty_id.idx()].is_array() {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /*
+     * Find all uses of dynamic constants in this partition. Collect as a
+     * BTreeSet so that iterating the IDs is sorted.
+     */
+    pub(crate) fn partition_dynamic_constants(
+        &self,
+        partition_id: PartitionID,
+    ) -> BTreeSet<DynamicConstantID> {
+        self.partitions_inverted_map[partition_id.idx()]
+            .iter()
+            .filter_map(|id| match self.function.nodes[id.idx()] {
+                Node::Fork { control: _, factor } => Some(factor),
+                Node::DynamicConstant { id } => Some(id),
+                _ => None,
+            })
+            .collect()
     }
 }
 
