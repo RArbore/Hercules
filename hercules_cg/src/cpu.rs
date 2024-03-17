@@ -119,9 +119,19 @@ impl<'a> FunctionContext<'a> {
             }
         }
 
-        // Step 6: emit the now completed basic blocks, in order.
+        // Step 6: emit the now completed basic blocks, in order. Make sure to
+        // emit the "top" basic block first.
+        write!(
+            w,
+            "{}{}{}{}",
+            llvm_bbs[&top_node].header,
+            llvm_bbs[&top_node].phis,
+            llvm_bbs[&top_node].data,
+            llvm_bbs[&top_node].terminator
+        )?;
+        llvm_bbs.remove(&top_node).unwrap();
         for id in partition_context.reverse_postorder {
-            if self.bbs[id.idx()] == id {
+            if self.bbs[id.idx()] == id && id != top_node {
                 write!(
                     w,
                     "{}{}{}{}",
@@ -142,6 +152,6 @@ impl<'a> FunctionContext<'a> {
 
 impl<'a> PartitionContext<'a> {
     fn codegen_cpu_node<W: Write>(&self, id: NodeID, w: &mut W) -> std::fmt::Result {
-        todo!()
+        Ok(())
     }
 }
