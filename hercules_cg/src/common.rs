@@ -271,81 +271,64 @@ pub(crate) struct PartitionContext<'a> {
     pub(crate) array_constants: BTreeSet<ConstantID>,
     pub(crate) dynamic_constants: BTreeSet<DynamicConstantID>,
     pub(crate) reverse_postorder: Vec<NodeID>,
+    pub(crate) input_types: Vec<TypeID>,
+    pub(crate) num_data_inputs: u32,
+    pub(crate) num_param_inputs: u32,
+    pub(crate) num_array_constant_inputs: u32,
+    pub(crate) num_dynamic_constant_inputs: u32,
+    pub(crate) return_type: Type,
 }
 
 impl<'a> PartitionContext<'a> {
     pub(crate) fn new(function: &'a FunctionContext<'a>, partition_id: PartitionID) -> Self {
-        PartitionContext {
-            function,
-            partition_id,
-            data_inputs: function.partition_data_inputs(partition_id),
-            data_outputs: function.partition_data_outputs(partition_id),
-            control_returns: function.partition_control_returns(partition_id),
-            control_successors: function.partition_control_successors(partition_id),
-            function_parameters: function.partition_function_parameters(partition_id),
-            array_constants: function.partition_array_constants(partition_id),
-            dynamic_constants: function.partition_dynamic_constants(partition_id),
-            reverse_postorder: function.partition_reverse_postorder(partition_id),
-        }
-    }
+        let data_inputs = function.partition_data_inputs(partition_id);
+        let data_outputs = function.partition_data_outputs(partition_id);
+        let control_returns = function.partition_control_returns(partition_id);
+        let control_successors = function.partition_control_successors(partition_id);
+        let function_parameters = function.partition_function_parameters(partition_id);
+        let array_constants = function.partition_array_constants(partition_id);
+        let dynamic_constants = function.partition_dynamic_constants(partition_id);
+        let reverse_postorder = function.partition_reverse_postorder(partition_id);
 
-    /*
-     * The arguments are the input data nodes, plus used function parameters,
-     * plus used array constants, plus used dynamic constants.
-     */
-    pub(crate) fn partition_input_types(&self) -> Vec<TypeID> {
+        // The arguments are the input data nodes, plus any used function
+        // parameters, plus used array constants, plus used dynamic constants.
         let u64_ty_id = TypeID::new(
-            self.function
+            function
                 .types
                 .iter()
                 .position(|ty| *ty == Type::UnsignedInteger64)
                 .unwrap(),
         );
-        let input_data_types = self
-            .data_inputs
+        let input_data_types = data_inputs.iter().map(|id| function.typing[id.idx()]);
+        let num_data_inputs = data_inputs.len() as u32;
+        let function_parameter_types = function_parameters
             .iter()
-            .map(|id| self.function.typing[id.idx()]);
-        let function_parameter_types = self
-            .function_parameters
-            .iter()
-            .map(|index| self.function.function.param_types[*index]);
+            .map(|index| function.function.param_types[*index]);
+        let num_param_inputs = function_parameters.len() as u32;
         let array_constant_types =
-            self.array_constants
+            array_constants
                 .iter()
-                .map(|id| match self.function.constants[id.idx()] {
+                .map(|id| match function.constants[id.idx()] {
                     Constant::Array(ty_id, _) => ty_id,
                     Constant::Zero(ty_id) => ty_id,
                     _ => panic!(),
                 });
-        let dynamic_constant_types =
-            std::iter::repeat(u64_ty_id).take(self.dynamic_constants.len());
-        input_data_types
+        let num_array_constant_inputs = array_constants.len() as u32;
+        let dynamic_constant_types = std::iter::repeat(u64_ty_id).take(dynamic_constants.len());
+        let num_dynamic_constant_inputs = dynamic_constants.len() as u32;
+        let input_types = input_data_types
             .chain(function_parameter_types)
             .chain(array_constant_types)
             .chain(dynamic_constant_types)
-            .collect()
-    }
+            .collect();
 
-    /*
-     * The return struct contains all of the data outputs, plus control
-     * information if there are multiple successor partitions. The control
-     * information is used by the orchestration code to implement control flow
-     * between partitions.
-     */
-    pub(crate) fn partition_return_type(&self) -> Type {
-        let u64_ty_id = TypeID::new(
-            self.function
-                .types
-                .iter()
-                .position(|ty| *ty == Type::UnsignedInteger64)
-                .unwrap(),
-        );
-        let multiple_control_successors = self.control_successors.len() > 1;
-        let output_data_types = self
-            .data_outputs
-            .iter()
-            .map(|id| self.function.typing[id.idx()]);
-        if multiple_control_successors {
+        // The return struct contains all of the data outputs, plus control
+        // information if there are multiple successor partitions. The control
+        // information is used by the orchestration code to implement control
+        // flow between partitions.
+        let multiple_control_successors = control_successors.len() > 1;
+        let output_data_types = data_outputs.iter().map(|id| function.typing[id.idx()]);
+        let return_type = if multiple_control_successors {
             Type::Product(
                 output_data_types
                     .chain(std::iter::once(u64_ty_id))
@@ -353,7 +336,30 @@ impl<'a> PartitionContext<'a> {
             )
         } else {
             Type::Product(output_data_types.collect())
+        };
+
+        PartitionContext {
+            function,
+            partition_id,
+            data_inputs,
+            data_outputs,
+            control_returns,
+            control_successors,
+            function_parameters,
+            array_constants,
+            dynamic_constants,
+            reverse_postorder,
+            input_types,
+            num_data_inputs,
+            num_param_inputs,
+            num_array_constant_inputs,
+            num_dynamic_constant_inputs,
+            return_type,
         }
+    }
+
+    pub(crate) fn function_to_partition_parameter(&self, index: usize) -> usize {
+        self.num_data_inputs as usize + index
     }
 }
 

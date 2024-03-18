@@ -40,27 +40,27 @@ impl<'a> FunctionContext<'a> {
         let partition_id = self.plan.partitions[top_node.idx()];
         let partition_context = PartitionContext::new(self, partition_id);
 
-        // Step 2: determine the function signature for this partition.
-        let input_types = partition_context.partition_input_types();
-        let return_type = partition_context.partition_return_type();
-
-        // Step 3: emit the function signature.
+        // Step 2: emit the function signature.
         write!(
             w,
             "define internal {} @{}_part_{}(",
-            generate_type_string(&return_type, &self.llvm_types),
+            generate_type_string(&partition_context.return_type, &self.llvm_types),
             self.function.name,
             partition_id.idx(),
         )?;
-        if !input_types.is_empty() {
-            write!(w, "{} %a.0", &self.llvm_types[input_types[0].idx()])?;
-            for (idx, id) in input_types[1..].iter().enumerate() {
+        if !partition_context.input_types.is_empty() {
+            write!(
+                w,
+                "{} %a.0",
+                &self.llvm_types[partition_context.input_types[0].idx()]
+            )?;
+            for (idx, id) in partition_context.input_types[1..].iter().enumerate() {
                 write!(w, ", {} %a.{}", &self.llvm_types[id.idx()], idx + 1)?;
             }
         }
         write!(w, ") {{\n")?;
 
-        // Step 4: set up basic blocks. A node represents a basic block if its
+        // Step 3: set up basic blocks. A node represents a basic block if its
         // entry in the basic blocks vector points to itself.
         let mut llvm_bbs = HashMap::new();
         for id in &self.partitions_inverted_map[partition_id.idx()] {
@@ -77,7 +77,7 @@ impl<'a> FunctionContext<'a> {
             }
         }
 
-        // Step 5: emit nodes. Nodes are emitted into basic blocks separately as
+        // Step 4: emit nodes. Nodes are emitted into basic blocks separately as
         // nodes are not necessarily emitted in order. Assemble worklist of
         // nodes, starting as reverse post order of nodes. For non-phi and non-
         // reduce nodes, only emit once all data uses are emitted. In addition,
@@ -114,12 +114,13 @@ impl<'a> FunctionContext<'a> {
             } else {
                 // Once all of the data dependencies for this node are emitted,
                 // this node can be emitted.
-                partition_context.codegen_cpu_node(id, w)?;
+                partition_context
+                    .codegen_cpu_node(id, llvm_bbs.get_mut(&self.bbs[id.idx()]).unwrap())?;
                 visited.set(id.idx(), true);
             }
         }
 
-        // Step 6: emit the now completed basic blocks, in order. Make sure to
+        // Step 5: emit the now completed basic blocks, in order. Make sure to
         // emit the "top" basic block first.
         write!(
             w,
@@ -142,7 +143,7 @@ impl<'a> FunctionContext<'a> {
             }
         }
 
-        // Step 7: close the partition function - we're done.
+        // Step 6: close the partition function - we're done.
         write!(w, "}}\n\n")?;
 
         Ok(())
@@ -153,7 +154,41 @@ impl<'a> PartitionContext<'a> {
     /*
      * Emit LLVM IR implementing a single node.
      */
-    fn codegen_cpu_node<W: Write>(&self, id: NodeID, w: &mut W) -> std::fmt::Result {
+    fn codegen_cpu_node(&self, id: NodeID, bb: &mut LLVMBlock) -> std::fmt::Result {
+        // Emit the primary IR for each node.
+        match self.function.function.nodes[id.idx()] {
+            Node::Start => {}
+            Node::Region { preds: _ } => {}
+            Node::Return {
+                control: _,
+                data: _,
+            } => {}
+            Node::Parameter { index: _ } => {}
+            Node::Constant { id: _ } => {}
+            Node::DynamicConstant { id: _ } => {}
+            _ => {}
+        }
+
+        // If this node is a control return, we emit a return from this
+        // partition function.
+        if self.control_returns.contains(&id) {
+            write!(
+                bb.terminator,
+                "  ret {} {{",
+                generate_type_string(&self.return_type, &self.function.llvm_types)
+            )?;
+
+            if !self.data_outputs.is_empty() {
+                self.cpu_emit_value_for_node(self.data_outputs[0], false, &mut bb.terminator)?;
+                for id in &self.data_outputs[1..] {
+                    write!(bb.terminator, ", ")?;
+                    self.cpu_emit_value_for_node(*id, false, &mut bb.terminator)?;
+                }
+            }
+
+            write!(bb.terminator, "}}\n")?;
+        }
+
         Ok(())
     }
 
@@ -183,6 +218,9 @@ impl<'a> PartitionContext<'a> {
         } else {
             assert_eq!(self.partition_id, self.function.plan.partitions[id.idx()]);
             match self.function.function.nodes[id.idx()] {
+                Node::Parameter { index } => {
+                    write!(w, "%a.{}", self.function_to_partition_parameter(index))?
+                }
                 Node::Constant { id } => write!(w, "{}", self.function.llvm_constants[id.idx()])?,
                 _ => write!(w, "%v.{}", id.idx())?,
             }
