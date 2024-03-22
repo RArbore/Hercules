@@ -189,7 +189,7 @@ pub fn default_plan(
         schedules: vec![vec![]; function.nodes.len()],
         partitions: vec![PartitionID::new(0); function.nodes.len()],
         partition_devices: vec![Device::CPU; 1],
-        num_partitions: 0,
+        num_partitions: 1,
     };
 
     // Infer schedules.
@@ -350,13 +350,15 @@ pub fn partition_out_forks(
         reverse_postorder,
         |inputs: &[&NodeID], node_id: NodeID| match function.nodes[node_id.idx()] {
             Node::Start => NodeID::new(0),
-            Node::Fork {
-                control: _,
-                factor: _,
-            } => {
+            Node::Fork { control, factor: _ } => {
                 // Start a partition if the preceding partition isn't a fork
-                // partition. Otherwise, be part of the parent fork partition.
-                if *inputs[0] != NodeID::top() && function.nodes[inputs[0].idx()].is_fork() {
+                // partition and the predecessor isn't the join for the
+                // predecessor fork partition. Otherwise, be part of the parent
+                // fork partition.
+                if *inputs[0] != NodeID::top()
+                    && function.nodes[inputs[0].idx()].is_fork()
+                    && fork_join_map.get(&inputs[0]) != Some(&control)
+                {
                     inputs[0].clone()
                 } else {
                     node_id

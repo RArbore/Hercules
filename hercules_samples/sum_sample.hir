@@ -1,8 +1,8 @@
-fn sum(a: array(f32, 16)) -> f32
+fn sum<1>(a: array(f32, #0)) -> f32
   zero_idx = constant(u64, 0)
   one_idx = constant(u64, 1)
   zero_inc = constant(f32, 0)
-  bound = constant(u64, 16)
+  bound = dynamic_constant(#0)
   loop = region(start, if_true)
   idx = phi(loop, zero_idx, idx_inc)
   idx_inc = add(idx, one_idx)
