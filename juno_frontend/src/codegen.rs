@@ -442,7 +442,7 @@ impl CodeGenerator<'_> {
                 }
 
                 // With the type arguments, we can now lookup the function
-                let func_id = self.get_function(*func, type_params);
+                let call_func = self.get_function(*func, type_params);
 
                 // We then build the dynamic constants
                 let dynamic_constants
@@ -472,7 +472,7 @@ impl CodeGenerator<'_> {
                 // Create the call expression
                 let mut call = self.builder.allocate_node(func_id);
                 let call_id = call.id();
-                call.build_call(func_id, dynamic_constants.into(), arg_vals.into());
+                call.build_call(call_func, dynamic_constants.into(), arg_vals.into());
                 let _ = self.builder.add_node(call);
 
                 // Read each of the "inout values" and perform the SSA update
