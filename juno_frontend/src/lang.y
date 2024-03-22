@@ -58,20 +58,22 @@ Import -> Result<Top, ()>
 
 TypeVars -> Result<Vec<TypeVar>, ()>
   :                   { Ok(vec![]) }
-  | '<' TypeVarsI '>' { $2 }
+  | '<' TypeVarsI '>' { Ok($2?.into_iter().flatten().collect()) }
   ;
-TypeVarsI -> Result<Vec<TypeVar>, ()>
-  :                         { Ok(vec![]) }
-  | TypeVar                 { Ok(vec![$1?]) }
-  | TypeVarsIs ',' TypeVar  { flatten($1, $3) }
+TypeVarsI -> Result<VecDeque<Vec<TypeVar>>, ()>
+  :                         { Ok(VecDeque::new()) }
+  | TypeVar                 { Ok(VecDeque::from([$1?])) }
+  | TypeVar ',' TypeVarsI   { cons_deque($1, $3) }
   ;
-TypeVarsIs -> Result<Vec<TypeVar>, ()>
-  : TypeVar                 { Ok(vec![$1?]) }
-  | TypeVarsIs ',' TypeVar  { flatten($1, $3) }
+TypeVar -> Result<Vec<TypeVar>, ()>
+  : IdList ':' Kind { let kind = $3?;
+                      Ok($1?.into_iter()
+                            .map(|n| TypeVar { span : $span, name : n, kind : kind })
+                            .collect()) }
   ;
-TypeVar -> Result<TypeVar, ()>
-  : 'ID'          { Ok(TypeVar{ span : $span, name : span_of_tok($1)?, kind : Kind::Type }) }
-  | 'ID' ':' Kind { Ok(TypeVar{ span : $span, name : span_of_tok($1)?, kind : $3? }) }
+IdList -> Result<Vec<Id>, ()>
+  : 'ID'            { Ok(vec![span_of_tok($1)?]) }
+  | IdList ',' 'ID' { flatten($1, span_of_tok($3)) }
   ;
 
 Kind -> Result<Kind, ()>
@@ -562,11 +564,18 @@ Unmatched -> (): 'UNMATCHED' { };
 
 use cfgrammar::Span;
 use lrlex::DefaultLexeme;
+use std::collections::VecDeque;
 
 fn flatten<T>(lhs: Result<Vec<T>, ()>, rhs: Result<T, ()>) -> Result<Vec<T>, ()> {
   let mut flt = lhs?;
   flt.push(rhs?);
   Ok(flt)
+}
+
+fn cons_deque<T>(lhs : Result<T, ()>, rhs : Result<VecDeque<T>, ()>) -> Result<VecDeque<T>, ()> {
+  let mut lst = rhs?;
+  lst.push_front(lhs?);
+  Ok(lst)
 }
 
 fn span_of_tok(t : Result<DefaultLexeme, DefaultLexeme>) -> Result<Span, ()> {

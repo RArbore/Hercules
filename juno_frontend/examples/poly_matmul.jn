@@ -1,0 +1,21 @@
+fn matmul<t : number, n, m, l : usize>(a : t[n, m], b : t[m, l]) -> t[n, l] {
+  let res : t[n, l];
+
+  for i = 0 to n {
+    for j = 0 to l {
+      for k = 0 to m {
+        res[i, j] += a[i, k] * b[k, j];
+      }
+    }
+  }
+
+  return res;
+}
+
+fn matmul_i32<n, m, l : usize>(a : i32[n, m], b : i32[m, l]) -> i32[n, l] {
+  return matmul::<i32, n, m, l>(a, b);
+}
+
+fn matmul_f64<n, m, l : usize>(a : f64[n, m], b : f64[m, l]) -> f64[n, l] {
+  return matmul::<f64, n, m, l>(a, b);
+}
