@@ -1,55 +1,71 @@
-fn max<a : type>(x : a, y : a) : a {
+fn max<a : number>(x : a, y : a) -> a {
   return if x >= y then x else y;
 }
 
-fn min<a : type>(x : a, y : a) : a {
+fn min<a : number>(x : a, y : a) -> a {
   return if x < y then x else y;
 }
 
-fn medianMatrix<a : type, rows : usize, cols : usize>(m : a[rows, cols]) : a {
+fn medianMatrix<a : number, rows, cols : usize>(m : a[rows, cols]) -> a {
   const n : usize = rows * cols;
-  let tmp : a[n];
-  for (r : u64 = 0 to rows)
-    for (c : u64 = 0 to cols)
+
+  let tmp : a[rows * cols];
+  for  r = 0 to rows {
+    for c = 0 to cols {
       tmp[r * cols + c] = m[r, c];
-  for (i : u64 = 0 to n - 1) {
-    for (j : u64 = 0 to n - i - 1) {
-      if (tmp[j] > tmp[j+1]) {
+    }
+  }
+
+  for i = 0 to n - 1 {
+    for j = 0 to n - i - 1 {
+      if tmp[j] > tmp[j+1] {
         let t : a = tmp[j];
         tmp[j] = tmp[j+1];
         tmp[j+1] = t;
       }
     }
   }
+
   return tmp[n / 2];
 }
 
 const CHAN : u64 = 3;
 const CTRL_PTS : u64 = 3702;
 
-fn scale<row : usize, col : usize>(input : u8[CHAN, row, col]) : f32[CHAN, row, col] {
+fn scale<row : usize, col : usize>(input : u8[CHAN, row, col]) -> f32[CHAN, row, col] {
   let res : f32[CHAN, row, col];
-  for (chan : u64 = 0 to CHAN)
-    for (r : u64 = 0 to row)
-      for (c : u64 = 0 to col)
+
+  for chan = 0 to CHAN {
+    for r = 0 to row {
+      for c = 0 to col {
         res[chan, r, c] = input[chan, r, c] as f32 * 1.0 / 255;
+      }
+    }
+  }
+
   return res;
 }
 
-fn descale<row : usize, col : usize>(input : f32[CHAN, row, col]) : u8[CHAN, row, col] {
+fn descale<row : usize, col : usize>(input : f32[CHAN, row, col]) -> u8[CHAN, row, col] {
   let res : u8[CHAN, row, col];
-  for (chan : u64 = 0 to CHAN)
-    for (r : u64 = 0 to row)
-      for (c : u64 = 0 to col)
+
+  for chan = 0 to CHAN {
+    for r = 0 to row {
+      for c = 0 to col {
         res[chan, r, c] = min(max(input[chan, r, c] * 255, 0), 255) as u8;
+      }
+    }
+  }
+
   return res;
 }
 
-fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, row, col] {
+fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) -> f32[CHAN, row, col] {
   let res : f32[CHAN, row, col];
-  for (r : u64 = 1 to row-1) {
-    for (c : u64 = 1 to col-1) {
-      if (r % 2 == 0 && col % 2 == 0) {
+
+  for r = 1 to row-1 {
+    for c = 1 to col-1 {
+      if r % 2 == 0 && col % 2 == 0 {
         let R1 : f32 = input[0, r, c-1];
         let R2 : f32 = input[0, r, c+1];
         let B1 : f32 = input[2, r-1, c];
@@ -57,7 +73,7 @@ fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, r
         res[0, r, c] = (R1 + R2) / 2;
         res[1, r, c] = input[1, r, c] * 2;
         res[2, r, c] = (B1 + B2) / 2;
-      } else if (row % 2 == 0 && col % 2 == 1) {
+      } else if row % 2 == 0 && col % 2 == 1 {
         let G1 = input[1, r-1, c];
         let G2 = input[1, r+1, c];
         let G3 = input[1, r, c-1];
@@ -69,7 +85,7 @@ fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, r
         res[0, r, c] = input[0, r, c];
         res[1, r, c] = (G1 + G2 + G3 + G4) / 2;
         res[2, r, c] = (B1 + B2 + B3 + B4) / 4;
-      } else if (row % 2 == 1 && col % 2 == 0) {
+      } else if row % 2 == 1 && col % 2 == 0 {
         let R1 = input[0, r-1, c-1];
         let R2 = input[0, r+1, c-1];
         let R3 = input[0, r-1, c+1];
@@ -81,7 +97,7 @@ fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, r
         res[0, r, c] = (R1 + R2 + R3 + R4) / 4;
         res[1, r, c] = (G1 + G2 + G3 + G4) / 2;
         res[2, r, c] = input[2, r, c];
-      } else{
+      } else {
         let R1 = input[0, r-1, c];
         let R2 = input[0, r+1, c];
         let B1 = input[2, r, c-1];
@@ -92,58 +108,74 @@ fn demosaic<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, r
       }
     }
   }
+
   return res;
 }
 
-fn denoise<row : usize, col : usize>(input : f32[CHAN, row, col]) : f32[CHAN, row, col] {
+fn denoise<row : usize, col : usize>(input : f32[CHAN, row, col]) -> f32[CHAN, row, col] {
   let res : f32[CHAN, row, col];
-  for (chan : u64 = 0 to CHAN)
-    for (r : u64 = 0 to row)
-      for (c : u64 = 0 to col)
-        if (r >= 1 && r < row - 1 && c >= 1 && c < col - 1) {
+
+  for chan = 0 to CHAN {
+    for r = 0 to row {
+      for c = 0 to col {
+        if r >= 1 && r < row - 1 && c >= 1 && c < col - 1 {
           let filter : f32[3][3]; // same as [3, 3]
-          for (i : i64 = -1 to 2 by 1)
-            for (j : i64 = -1 to 2 by 1)
+          for i = -1 to 2 by 1 {
+            for j = -1 to 2 by 1 {
               filter[i+1, j+1] = input[chan, r + i, c + j];
+            }
+          }
           result[chan, r, c] = medianMatrix(filter);
         } else {
           res[chan, r, c] = input[chan, r, c];
         }
+      }
+    }
+  }
+
   return res;
 }
 
-fn transform<row : usize, col : usize>(input : f32[CHAN, row, col],
-                                   tstw_trans : f32[CHAN, CHAN]) : f32[CHAN, row, col] {
+fn transform<row : usize, col : usize>
+  (input : f32[CHAN, row, col], tstw_trans : f32[CHAN, CHAN])
+    -> f32[CHAN, row, col] {
   let result : f32[CHAN, row, col];
-  for (chan : u64 = 0 to CHAN)
-    for (r : u64 = 0 to row)
-      for (c : u64 = 0 to col)
+
+  for chan = 0 to CHAN {
+    for r = 0 to row {
+      for c = 0 to col {
         result[chan, r, c] = max(input[0, r, c] * tstw_trans[0, chan]
                                + input[1, r, c] * tstw_trans[1, chan]
                                + input[2, r, c] * tstw_trans[2, chan], 0);
+      }
+    }
+  }
+
   return result;
 }
 
-fn gamut<row : usize, col : usize>(input    : f32[CHAN, row, col],
-                               ctrl_pts : f32[CTRL_PTS, CHAN],
-                               weights  : f32[CTRL_PTS, CHAN],
-                               coefs    : f32[4, CHAN]) : f32[CHAN, row, col] {
+fn gamut<row : usize, col : usize>
+  (input : f32[CHAN, row, col], ctrl_pts : f32[CTRL_PTS, CHAN],
+   weights  : f32[CTRL_PTS, CHAN], coefs : f32[4, CHAN]) -> f32[CHAN, row, col] {
   let result : f32[CHAN, row, col];
   let l2_dist : f32[CTRL_PTS];
-  for (r : u64 = 0 to row) {
-    for (c : u64 = 0 to col) {
-      for (cp : u64 = 0 to CTRL_PTS) {
+
+  for r = 0 to row {
+    for c = 0 to col {
+      for cp = 0 to CTRL_PTS {
         let v1 : f32 = input[0, r, c] - ctrl_pts[cp, 0];
         let v2 : f32 = input[1, r, c] - ctrl_pts[cp, 1];
         let v3 : f32 = input[2, r, c] - ctrl_pts[cp, 2];
         let v : f32 = v1 * v1 + v2 * v2 + v3 * v3;
         l2_dist[cp] = math::sqrt(v); // NOTE: Somehow some libraries will likely have to be external
       }
-      for (chan : u64 = 0 to CHAN) {
+
+      for chan = 0 to CHAN {
         let chan_val : f32 = 0.0;
-        for (cp : u64 = 0 to CTRL_PTS) {
+        for cp = 0 to CTRL_PTS {
           chan_val += l2_dist[cp] * weights[cp, chan];
         }
+
         chan_val += coefs[0, chan] + coefs[1, chan] * input[0, r, c]
                                    + coefs[2, chan] * input[1, r, c]
                                    + coefs[3, chan] * input[2, r, c];
@@ -151,18 +183,36 @@ fn gamut<row : usize, col : usize>(input    : f32[CHAN, row, col],
       }
     }
   }
+
   return result;
 }
 
 fn tone_map<row : usize, col:usize>
-  (input : f32[CHAN, row, col], tone_map : f32[255, CHAN])
-  : f32[CHAN, row, col] {
+  (input : f32[CHAN, row, col], tone_map : f32[255, CHAN]) -> f32[CHAN, row, col] {
   let result : f32[CHAN, row, col];
-  for (chan : u64 = 0 to CHAN)
-    for (r : u64 = 0 to row)
-      for (c : u64 = 0 to col) {
+
+  for chan = 0 to CHAN {
+    for r = 0 to row {
+      for c = 0 to col {
         let x = (input[chan, r, c] * 255) as u8;
         result[chan, r, c] = tone_map[x, chan];
       }
+    }
+  }
+
   return result;
+}
+
+fn cava<r, c : usize>(input : u8[CHAN, r, c], TsTw : f32[CHAN, CHAN],
+                      ctrl_pts : f32[CTRL_PTS, CHAN],
+                      weights : f32[CTRl_PTHS, CHAN],
+                      coefs : f32[4, CHAN], tone_map : f32[255, CHAN]) 
+                        -> u8[CHAN, row, col] {
+  let scaled = scale::<r, c>(input);
+  let demosc = demosaic::<r, c>(scaled);
+  let denosd = denoise::<r, c>(demosc);
+  let transf = transform::<r, c>(denosd, TsTw);
+  let gamutd = gamut::<r, c>(transf, ctrl_pts, weights, coefs);
+  let tonemd = tone_map::<r, c>(gamutd, tone_map);
+  return descale::<r, c>(tonemd);
 }
