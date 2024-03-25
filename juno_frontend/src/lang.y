@@ -337,6 +337,7 @@ LExpr -> Result<LExpr, ()>
 
 SignedIntLit -> Result<(bool, Span, IntBase), ()>
   : '+' IntLit { Ok((false, $2?.0, $2?.1)) }
+  |     IntLit { Ok((false, $1?.0, $1?.1)) }
   | '-' IntLit { Ok((true, $2?.0, $2?.1)) }
   ;
 
